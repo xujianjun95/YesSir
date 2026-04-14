@@ -29,7 +29,7 @@ function showToast(count) {
 
     const toast = document.createElement('div');
     toast.id = 'my-geek-toast';
-    toast.innerText = `已关闭标签页，累计触发: ${count} 次`;
+    toast.innerText = `🫡 YesSir，已记录本次使用，累计 ${count} 次`;
 
     Object.assign(toast.style, {
         position:           'fixed',
@@ -37,16 +37,16 @@ function showToast(count) {
         left:               '50%',
         transform:          'translateX(-50%)',
         padding:            '9px 18px',
-        background:         'rgba(22, 24, 35, 0.82)',
-        backdropFilter:     'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
-        border:             '1px solid rgba(255, 255, 255, 0.10)',
-        borderTop:          '1px solid rgba(255, 255, 255, 0.18)',
+        background:         'rgba(250, 252, 255, 0.9)',
+        backdropFilter:     'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border:             '1px solid rgba(255, 255, 255, 0.9)',
         borderRadius:       '10px',
-        color:              'rgba(230, 232, 245, 0.95)',
+        color:              'rgba(40, 50, 70, 0.95)',
         fontSize:           '13px',
+        fontWeight:         '600',
         letterSpacing:      '0.01em',
-        boxShadow:          '0 8px 24px rgba(0,0,0,0.28), 0 1px 0 rgba(255,255,255,0.06) inset',
+        boxShadow:          '0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8)',
         zIndex:             '2147483647',
         pointerEvents:      'none',
         opacity:            '0',
@@ -65,13 +65,48 @@ function showToast(count) {
 }
 
 
-// ─── Tab Switcher Overlay ─────────────────────────────────────────────────────
+// ─── Tab Switcher Overlay (Kanban View) ───────────────────────────────────────
 
 let switcherVisible  = false;
 let switcherTabs     = [];
 let switcherSelIdx   = 0;
 
-function showSwitcher(tabs) {
+// 工具函数：按域名对 Tab 进行分组
+function groupTabsByDomain(tabs) {
+    const groups = [];
+    const domainMap = new Map();
+
+    tabs.forEach((tab, i) => {
+        let domain = '本地网页/其他';
+        try {
+            if (tab.url && tab.url.startsWith('http')) {
+                const url = new URL(tab.url);
+                const parts = url.hostname.split('.');
+                domain = parts.length >= 2 ? parts.slice(-2).join('.') : url.hostname;
+            }
+        } catch(e) {}
+
+        if (!domainMap.has(domain)) {
+            const newGroup = { domain, icon: tab.favIconUrl, tabs: [] };
+            domainMap.set(domain, newGroup);
+            groups.push(newGroup);
+        }
+
+        const group = domainMap.get(domain);
+        if (!group.icon && tab.favIconUrl) group.icon = tab.favIconUrl;
+        
+        group.tabs.push({ ...tab, originalIndex: i });
+    });
+    return groups;
+}
+
+function showSwitcher(tabs, isRefresh = false) {
+    let savedScrollTop = 0;
+    const oldList = document.getElementById('ys-switcher-list');
+    if (isRefresh && oldList) {
+        savedScrollTop = oldList.scrollTop;
+    }
+
     hideSwitcher();
     switcherTabs   = tabs;
     switcherSelIdx = tabs.findIndex(t => t.active);
@@ -87,42 +122,37 @@ function showSwitcher(tabs) {
         display:        'flex',
         alignItems:     'center',
         justifyContent: 'center',
-        background:     'rgba(10, 12, 20, 0.45)',
-        backdropFilter: 'blur(2px)',
-        WebkitBackdropFilter: 'blur(2px)',
+        background:     'rgba(160, 175, 200, 0.16)',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
         opacity:        '0',
         transition:     'opacity 0.15s ease',
-        pointerEvents:  'auto', // 允许点击遮罩层
+        pointerEvents:  'auto',
         fontFamily:     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
     });
 
-    // 点击遮罩层关闭
     overlay.addEventListener('mousedown', (e) => {
         if (e.target === overlay) hideSwitcher();
     });
-
-    // 【新增】彻底解决滚动穿透：拦截非列表区域的滚轮事件
+    
     overlay.addEventListener('wheel', (e) => {
         const listContainer = document.getElementById('ys-switcher-list');
-        // 如果鼠标不是在列表内部滚动，强制阻止默认事件（即阻止网页背景滚动）
         if (!listContainer || !listContainer.contains(e.target)) {
             e.preventDefault();
         }
     }, { passive: false });
 
-    // 卡片
     const card = document.createElement('div');
     card.id = 'ys-switcher-card';
     Object.assign(card.style, {
-        background:     'rgba(18, 20, 32, 0.90)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        border:         '1px solid rgba(255,255,255,0.10)',
-        borderTop:      '1px solid rgba(255,255,255,0.18)',
-        borderRadius:   '16px',
-        boxShadow:      '0 24px 64px rgba(0,0,0,0.50)',
-        width:          '320px',
-        maxHeight:      '60vh',
+        background:     'rgba(235, 240, 245, 0.82)',
+        backdropFilter: 'blur(30px)',
+        WebkitBackdropFilter: 'blur(30px)',
+        border:         '1px solid rgba(255, 255, 255, 0.5)',
+        borderRadius:   '20px',
+        boxShadow:      '0 24px 64px rgba(0,0,0,0.12)',
+        width:          '580px',
+        maxHeight:      '65vh',
         display:        'flex',
         flexDirection:  'column',
         overflow:       'hidden',
@@ -130,157 +160,287 @@ function showSwitcher(tabs) {
         transition:     'transform 0.18s cubic-bezier(0.34,1.3,0.64,1)',
     });
 
-    // 顶部提示栏
     const header = document.createElement('div');
     Object.assign(header.style, {
-        padding:        '11px 16px 8px',
+        padding:        '14px 20px 10px',
         display:        'flex',
         justifyContent: 'space-between',
         alignItems:     'center',
-        borderBottom:   '1px solid rgba(255,255,255,0.07)',
+        borderBottom:   '1px solid rgba(0, 0, 0, 0.05)',
         flexShrink:     '0',
     });
     header.innerHTML = `
-      <span style="font-size:12px;font-weight:600;color:rgba(200,210,240,0.8);letter-spacing:0.02em;">标签页切换</span>
-      <span style="font-size:11px;color:rgba(140,150,180,0.55);">点击确认，松开按键关闭</span>`;
+      <div style="display:flex; align-items:center; gap:12px;">
+        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;">🫡 YesSir</span>
+        <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
+            display:flex; align-items:center; gap:5px; padding:3px 8px;
+            background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
+            border-radius:6px; cursor:pointer; transition:all 0.1s;
+        ">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="margin-top:1px;">
+                <path d="M1.5 8C1.5 4.41015 4.41015 1.5 8 1.5C11.5899 1.5 14.5 4.41015 14.5 8C14.5 11.5899 11.5899 14.5 8 14.5C6.20435 14.5 4.58225 13.7716 3.40901 12.5909"
+                    stroke="rgba(80, 110, 220, 0.85)" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M1 8L3.5 10.5L6 8" stroke="rgba(80, 110, 220, 0.85)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M8 4.5V8.5L10.5 10" stroke="rgba(80, 110, 220, 0.85)" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+            <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">后悔药</span>
+        </div>
+      </div>
+      <span style="font-size:11px;font-weight:500;color:rgba(120,130,150,0.8);">🖱点击鼠标确认切换标签页</span>`;
 
-    // 列表容器
     const list = document.createElement('div');
     list.id = 'ys-switcher-list';
     Object.assign(list.style, {
         overflowY:  'auto',
-        padding:    '6px 8px',
+        padding:    '12px 14px',
         flexGrow:   '1',
         scrollbarWidth: 'none',
-        overscrollBehavior: 'contain', // 【新增】防止内部滚动触顶或触底时联动外部网页
+        overscrollBehavior: 'contain',
+        display:    'flex',
+        flexDirection: 'column',
+        gap:        '12px',
     });
 
-    tabs.forEach((tab, i) => buildTabItem(tab, i, list));
+    const groupedTabs = groupTabsByDomain(tabs);
+
+    groupedTabs.forEach(group => {
+        const groupRow = document.createElement('div');
+        groupRow.className = 'ys-group-row';
+        Object.assign(groupRow.style, {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0',
+            padding: '12px 10px',
+            borderRadius: '14px',
+            background: 'rgba(255, 255, 255, 0.95)',
+            border: '1px solid rgba(0, 0, 0, 0.05)',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
+            marginBottom: '4px',
+        });
+
+        const leftCol = document.createElement('div');
+        leftCol.className = 'ys-group-left';
+        Object.assign(leftCol.style, {
+            width: '130px',
+            flexShrink: '0',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            paddingTop: '0',
+            opacity: '0.65',
+            transition: 'none',
+        });
+
+        const iconDiv = document.createElement('div');
+        Object.assign(iconDiv.style, {
+            width: '18px', height: '18px', flexShrink: '0',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'rgba(80, 110, 220, 0.12)', borderRadius: '4px',
+            fontSize: '10px', fontWeight: 'bold', color: 'rgba(50, 70, 160, 0.9)'
+        });
+        if (group.icon) {
+            const img = document.createElement('img');
+            img.src = group.icon; img.width = 14; img.height = 14; img.style.borderRadius = '2px';
+            img.onerror = () => { img.remove(); iconDiv.textContent = group.domain[0].toUpperCase(); };
+            iconDiv.appendChild(img);
+        } else {
+            iconDiv.textContent = group.domain[0].toUpperCase();
+        }
+
+        const domainText = document.createElement('div');
+        Object.assign(domainText.style, {
+            fontSize: '12px', fontWeight: '600', color: 'rgba(45, 55, 75, 0.92)',
+            wordBreak: 'break-all', lineHeight: '1.4',
+        });
+        domainText.textContent = group.domain;
+
+        leftCol.appendChild(iconDiv);
+        leftCol.appendChild(domainText);
+
+        const rightCol = document.createElement('div');
+        Object.assign(rightCol.style, {
+            flexGrow: '1',
+            minWidth: '0',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '4px',
+            borderLeft: '1px solid rgba(0, 0, 0, 0.06)',
+            marginLeft: '16px',
+            paddingLeft: '16px',
+        });
+
+        group.tabs.forEach(tab => {
+            buildTabItem(tab, tab.originalIndex, rightCol);
+        });
+
+        groupRow.appendChild(leftCol);
+        groupRow.appendChild(rightCol);
+        list.appendChild(groupRow);
+    });
+
+    if (isRefresh) {
+        list.scrollTop = savedScrollTop;
+    }
 
     card.appendChild(header);
     card.appendChild(list);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
 
+    const regretBtn = document.getElementById('ys-regret-btn');
+    if (regretBtn) {
+        regretBtn.addEventListener('mouseenter', () => {
+            regretBtn.style.background = 'rgba(80, 110, 220, 0.15)';
+        });
+        regretBtn.addEventListener('mouseleave', () => {
+            regretBtn.style.background = 'rgba(80, 110, 220, 0.08)';
+        });
+        regretBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            chrome.runtime.sendMessage({ action: 'restore_last_3_tabs' }, (res) => {
+                if (chrome.runtime.lastError) return;
+                if (res && res.success) {
+                    hideSwitcher();
+                } else {
+                    regretBtn.style.borderColor = 'rgba(255, 100, 100, 0.3)';
+                    setTimeout(() => {
+                        regretBtn.style.borderColor = 'rgba(80, 110, 220, 0.15)';
+                    }, 500);
+                }
+            });
+        });
+    }
+
+    if (isRefresh) {
+        list.scrollTop = savedScrollTop;
+    }
+
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
         card.style.transform = 'scale(1) translateY(0)';
+        if (isRefresh) {
+            list.scrollTop = savedScrollTop;
+        }
+        setTimeout(() => {
+            if (!isRefresh) {
+                scrollToSelected(true);
+            }
+        }, 30);
     });
-
-    // 滚动让当前项居中
-    scrollToSelected();
 }
 
-function buildTabItem(tab, i, container) {
+function buildTabItem(tab, globalIdx, container) {
     const item = document.createElement('div');
-    item.id    = `ys-tab-item-${i}`;
-    item.dataset.idx = i;
+    item.id    = `ys-tab-item-${globalIdx}`;
 
     Object.assign(item.style, {
         display:        'flex',
         alignItems:     'center',
-        gap:            '10px',
-        padding:        '8px 10px',
-        borderRadius:   '9px',
-        cursor:         'pointer', // 鼠标指针
-        transition:     'background 0.12s ease',
+        justifyContent: 'space-between',
+        padding:        '8px 12px',
+        borderRadius:   '8px',
+        cursor:         'pointer',
+        transition:     'none',
         background:     'transparent',
         userSelect:     'none',
-        pointerEvents:  'auto',    // 允许交互
-    });
-
-    // favicon / letter avatar
-    const icon = document.createElement('div');
-    Object.assign(icon.style, {
-        width:          '22px',
-        height:         '22px',
-        borderRadius:   '5px',
-        flexShrink:     '0',
-        overflow:       'hidden',
-        display:        'flex',
-        alignItems:     'center',
-        justifyContent: 'center',
-        fontSize:       '11px',
-        fontWeight:     '600',
-        background:     'rgba(80,110,200,0.25)',
-        color:          'rgba(160,185,255,0.9)',
-    });
-
-    if (tab.favIconUrl) {
-        const img = document.createElement('img');
-        img.src    = tab.favIconUrl;
-        img.width  = 16;
-        img.height = 16;
-        img.style.cssText = 'display:block;border-radius:2px';
-        img.onerror = () => {
-            img.remove();
-            icon.textContent = (tab.title || '?')[0].toUpperCase();
-        };
-        icon.appendChild(img);
-    } else {
-        icon.textContent = (tab.title || '?')[0].toUpperCase();
-    }
-
-    // 标题 + 域名
-    const text = document.createElement('div');
-    Object.assign(text.style, {
-        flex:       '1',
-        minWidth:   '0',
-        display:    'flex',
-        flexDirection: 'column',
-        gap:        '1px',
+        pointerEvents:  'auto',
+        position:       'relative',
     });
 
     const title = document.createElement('div');
     Object.assign(title.style, {
         fontSize:       '13px',
         fontWeight:     '500',
-        color:          'rgba(215,220,240,0.92)',
+        color:          'rgba(50, 60, 80, 0.9)',
         overflow:       'hidden',
         textOverflow:   'ellipsis',
         whiteSpace:     'nowrap',
+        flex:           '1',
+        minWidth:       '0',
+        transition:     'none',
     });
     title.textContent = tab.title || '(无标题)';
 
-    const domain = document.createElement('div');
-    Object.assign(domain.style, {
-        fontSize:       '11px',
-        color:          'rgba(130,140,170,0.55)',
-        overflow:       'hidden',
-        textOverflow:   'ellipsis',
-        whiteSpace:     'nowrap',
+    const actionArea = document.createElement('div');
+    Object.assign(actionArea.style, {
+        display:     'flex',
+        alignItems:  'center',
+        gap:         '6px',
+        flexShrink:  '0',
     });
-    try { domain.textContent = new URL(tab.url).hostname; } catch { domain.textContent = ''; }
 
-    text.appendChild(title);
-    text.appendChild(domain);
+    const closeBtn = document.createElement('div');
+    closeBtn.className = 'ys-close-btn';
+    closeBtn.textContent = '×';
+    Object.assign(closeBtn.style, {
+        width:           '18px',
+        height:          '18px',
+        borderRadius:    '50%',
+        display:         'flex',
+        alignItems:      'center',
+        justifyContent:  'center',
+        fontSize:        '14px',
+        lineHeight:      '1',
+        color:           'rgba(0, 0, 0, 0.35)',
+        background:      'rgba(0, 0, 0, 0.06)',
+        transition:      'opacity 0.12s ease',
+        opacity:         '0',
+        pointerEvents:   'none',
+        cursor:          'pointer',
+    });
 
-    // 当前激活标记
     if (tab.active) {
-        const dot = document.createElement('div');
-        Object.assign(dot.style, {
-            width:        '5px',
-            height:       '5px',
-            borderRadius: '50%',
-            background:   'rgba(100,160,255,0.7)',
-            flexShrink:   '0',
+        title.style.fontWeight = '600';
+        title.dataset.isActive = 'true';
+
+        const badge = document.createElement('div');
+        Object.assign(badge.style, {
+            padding: '2px 7px',
+            borderRadius: '5px',
+            background: 'rgba(80, 110, 220, 0.14)',
+            border: '1px solid rgba(80, 110, 220, 0.28)',
+            color: 'rgba(50, 70, 160, 0.95)',
+            fontSize: '10px',
+            fontWeight: '700',
+            flexShrink: '0',
+            lineHeight: '1.2',
         });
-        item.appendChild(icon);
-        item.appendChild(text);
-        item.appendChild(dot);
-    } else {
-        item.appendChild(icon);
-        item.appendChild(text);
+        badge.textContent = '当前';
+        actionArea.appendChild(badge);
     }
 
+    actionArea.appendChild(closeBtn);
+    item.appendChild(title);
+    item.appendChild(actionArea);
     container.appendChild(item);
 
-    // 悬停高亮
     item.addEventListener('mouseenter', () => {
-        updateSwitcherSelection(i);
+        closeBtn.style.opacity = '1';
+        closeBtn.style.pointerEvents = 'auto';
+        updateSwitcherSelection(globalIdx);
+    });
+    item.addEventListener('mouseleave', () => {
+        closeBtn.style.opacity = '0';
+        closeBtn.style.pointerEvents = 'none';
     });
 
-    // 点击切换标签
+    closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chrome.runtime.sendMessage({ action: 'close_tab_by_id', tabId: tab.id }, (res) => {
+            if (chrome.runtime.lastError) return;
+            if (!res || !res.success) return;
+            chrome.runtime.sendMessage({ action: 'get_tabs' }, (res2) => {
+                if (chrome.runtime.lastError) return;
+                if (res2 && res2.tabs && res2.tabs.length > 0) {
+                    showSwitcher(res2.tabs, true);
+                    initSwitcherHighlight();
+                } else {
+                    hideSwitcher();
+                }
+            });
+        });
+    });
+
     item.addEventListener('click', (e) => {
         e.stopPropagation();
         chrome.runtime.sendMessage({ action: 'switch_tab', tabId: tab.id });
@@ -291,33 +451,44 @@ function buildTabItem(tab, i, container) {
 function updateSwitcherSelection(newIdx) {
     const oldItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (oldItem) {
-        Object.assign(oldItem.style, {
-            background: 'transparent',
-        });
-        const title = oldItem.querySelector('div > div:first-child');
-        if (title) title.style.color = 'rgba(215,220,240,0.92)';
+        oldItem.style.background = 'transparent';
+        const title = oldItem.querySelector('div:first-child');
+        if (title) {
+            title.style.color = title.dataset.isActive === 'true'
+                ? 'rgba(50, 70, 160, 0.95)'
+                : 'rgba(50, 60, 80, 0.9)';
+        }
+        
+        const groupRow = oldItem.closest('.ys-group-row');
+        // 恢复成默认的高透明度
+        if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '0.65';
     }
 
     switcherSelIdx = Math.max(0, Math.min(switcherTabs.length - 1, newIdx));
 
     const newItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (newItem) {
-        Object.assign(newItem.style, {
-            background: 'rgba(70,110,220,0.22)',
-        });
-        const title = newItem.querySelector('div > div:first-child');
-        if (title) title.style.color = 'rgba(255,255,255,0.98)';
+        newItem.style.background = 'rgba(80, 110, 220, 0.12)';
+        const title = newItem.querySelector('div:first-child');
+        if (title) title.style.color = 'rgba(50, 70, 160, 1)';
+
+        const groupRow = newItem.closest('.ys-group-row');
+        if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '1';
     }
 }
 
-function scrollToSelected() {
+function scrollToSelected(forceCenter = false) {
     const list = document.getElementById('ys-switcher-list');
     const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (list && item) {
-        const listRect = list.getBoundingClientRect();
-        const itemRect = item.getBoundingClientRect();
-        if (itemRect.top < listRect.top || itemRect.bottom > listRect.bottom) {
-            item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        if (forceCenter) {
+            item.scrollIntoView({ block: 'center' });
+        } else {
+            const listRect = list.getBoundingClientRect();
+            const itemRect = item.getBoundingClientRect();
+            if (itemRect.top < listRect.top || itemRect.bottom > listRect.bottom) {
+                item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
         }
     }
 }
@@ -335,15 +506,9 @@ function hideSwitcher() {
     setTimeout(() => overlay.remove(), 160);
 }
 
-// 初始化选中高亮
 function initSwitcherHighlight() {
     requestAnimationFrame(() => {
-        const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
-        if (item) {
-            Object.assign(item.style, { background: 'rgba(70,110,220,0.22)' });
-            const title = item.querySelector('div > div:first-child');
-            if (title) title.style.color = 'rgba(255,255,255,0.98)';
-        }
+        updateSwitcherSelection(switcherSelIdx);
     });
 }
 
@@ -356,7 +521,7 @@ function initFloatingWidget() {
     let snapEdge  = 'right';
     let posY      = Math.min(window.innerHeight * 0.45, window.innerHeight - 60);
     let panelOpen = false;
-    let panelView = 'chart'; // 'chart' | 'settings'
+    let panelView = 'chart'; 
 
     const glass = (extra = {}) => Object.assign({
         background:     'rgba(245, 245, 248, 0.18)',
@@ -366,7 +531,6 @@ function initFloatingWidget() {
         boxShadow:      '0 6px 24px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.5)',
     }, extra);
 
-    // ── 悬浮按钮 ──
     const btn = document.createElement('div');
     btn.id = 'geek-float-btn';
     Object.assign(btn.style, glass({
@@ -401,7 +565,6 @@ function initFloatingWidget() {
         if (!isDragging) { btn.style.opacity = '0.72'; btn.style.boxShadow = glass().boxShadow; }
     });
 
-    // ── 面板 ──
     const panel = document.createElement('div');
     panel.id = 'geek-float-panel';
     Object.assign(panel.style, glass({
@@ -423,7 +586,6 @@ function initFloatingWidget() {
     document.body.appendChild(btn);
     document.body.appendChild(panel);
 
-    // ── 定位 ──
     function applyPosition(animate) {
         btn.style.transition = animate
             ? 'right 0.25s cubic-bezier(0.34,1.4,0.64,1), left 0.25s cubic-bezier(0.34,1.4,0.64,1), top 0.25s cubic-bezier(0.34,1.4,0.64,1), box-shadow 0.2s, opacity 0.2s'
@@ -445,7 +607,16 @@ function initFloatingWidget() {
 
     applyPosition(false);
 
-    // ── 拖拽 ──
+    chrome.storage.local.get(['widgetPosY', 'widgetSnapEdge'], (res) => {
+        if (res.widgetPosY !== undefined) {
+            posY = Math.max(8, Math.min(window.innerHeight - 46, res.widgetPosY));
+        }
+        if (res.widgetSnapEdge !== undefined) {
+            snapEdge = res.widgetSnapEdge;
+        }
+        applyPosition(false);
+    });
+
     let isDragging = false, moved = false, dragStartClientY = 0, dragStartPosY = 0;
 
     btn.addEventListener('mousedown', (e) => {
@@ -472,9 +643,12 @@ function initFloatingWidget() {
         isDragging = false; btn.style.cursor = 'grab';
         snapEdge = (e.clientX < window.innerWidth / 2) ? 'left' : 'right';
         applyPosition(true);
+        chrome.storage.local.set({
+            widgetPosY: posY,
+            widgetSnapEdge: snapEdge,
+        });
     });
 
-    // ── 点击切换面板 ──
     btn.addEventListener('click', () => {
         if (moved) { moved = false; return; }
         panelOpen ? closePanel() : openPanel();
@@ -503,7 +677,6 @@ function initFloatingWidget() {
         setTimeout(() => { if (!panelOpen) panel.style.display = 'none'; }, 180);
     }
 
-    // ── 图表视图 ──
     function renderChartView() {
         panel.innerHTML = `<div style="font-size:11px;color:rgba(100,100,120,0.7);text-align:center;padding:12px 0;">加载中…</div>`;
         chrome.runtime.sendMessage({ action: "get_daily_stats" }, (response) => {
@@ -527,7 +700,7 @@ function initFloatingWidget() {
 
         panel.innerHTML = `
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-            <span style="font-size:12px;font-weight:600;color:rgba(60,70,110,0.85);letter-spacing:0.01em;">近五天关闭统计</span>
+            <span style="font-size:12px;font-weight:600;color:rgba(60,70,110,0.85);letter-spacing:0.01em;">近 5 天使用统计</span>
             <div style="display:flex;align-items:center;gap:6px;">
               <span style="font-size:10px;color:rgba(120,130,160,0.7);">今日 <b style="color:rgba(80,110,200,0.85)">${todayCount}</b></span>
               <button id="ys-settings-btn" style="
@@ -556,7 +729,6 @@ function initFloatingWidget() {
         settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); renderSettingsView(); });
     }
 
-    // ── 设置视图 ──
     function renderSettingsView() {
         panelView = 'settings';
         const keys = ['meta', 'alt', 'ctrl', 'shift'];
@@ -616,12 +788,11 @@ function initFloatingWidget() {
                 e.stopPropagation();
                 modifierKey = el.dataset.key;
                 chrome.storage.local.set({ modifierKey });
-                renderSettingsView(); // 重绘选中态
+                renderSettingsView(); 
             });
         });
     }
 
-    // ── SVG 折线图 ──
     function buildSVGChart(days) {
         const W = 182, H = 92, padL = 22, padR = 6, padT = 10, padB = 22;
         const cW = W - padL - padR, cH = H - padT - padB;
@@ -710,10 +881,9 @@ document.addEventListener('dblclick', function(event) {
 
 // 双击修饰键呼出切换面板
 let lastModPressTime = 0;
-const DOUBLE_PRESS_DELAY = 300; // 毫秒，双击时间阈值
+const DOUBLE_PRESS_DELAY = 300; 
 
 document.addEventListener('keydown', function(event) {
-    // 忽略长按修饰键时系统发出的连续触发
     if (event.repeat) return;
 
     if (event.key === 'Escape' && switcherVisible) {
@@ -740,13 +910,6 @@ document.addEventListener('keydown', function(event) {
         } else {
             lastModPressTime = now;
         }
-    }
-});
-
-// 【新增】松开修饰键自动关闭面板
-document.addEventListener('keyup', function(event) {
-    if (event.key === MOD_EVENT_KEY[modifierKey] && switcherVisible) {
-        hideSwitcher();
     }
 });
 
