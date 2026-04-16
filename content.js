@@ -818,14 +818,14 @@ function buildTabItem(tab, globalIdx, container) {
         closeBtn.style.opacity = '1';
         closeBtn.style.pointerEvents = 'auto';
         if (item.dataset.selected !== 'true') {
-            item.style.background = 'rgba(130, 140, 160, 0.12)';
+            item.style.background = getUnselectedItemBackground(item, true);
         }
     });
     item.addEventListener('mouseleave', () => {
         closeBtn.style.opacity = '0';
         closeBtn.style.pointerEvents = 'none';
         if (item.dataset.selected !== 'true') {
-            item.style.background = 'transparent';
+            item.style.background = getUnselectedItemBackground(item, false);
         }
     });
 
@@ -861,13 +861,21 @@ function buildTabItem(tab, globalIdx, container) {
     });
 }
 
+function isActiveTabItem(item) {
+    const title = item ? item.querySelector('.ys-tab-title') : null;
+    return !!(title && title.dataset.isActive === 'true');
+}
+
+function getUnselectedItemBackground(item, isHovered) {
+    if (isActiveTabItem(item)) return 'rgba(80, 110, 220, 0.12)';
+    return isHovered ? 'rgba(130, 140, 160, 0.12)' : 'transparent';
+}
+
 function updateSwitcherSelection(newIdx) {
     const oldItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (oldItem) {
         oldItem.dataset.selected = 'false';
-        oldItem.style.background = oldItem.matches(':hover')
-            ? 'rgba(130, 140, 160, 0.12)'
-            : 'transparent';
+        oldItem.style.background = getUnselectedItemBackground(oldItem, oldItem.matches(':hover'));
         const title = oldItem.querySelector('.ys-tab-title');
         if (title) {
             title.style.color = title.dataset.isActive === 'true'
@@ -888,9 +896,17 @@ function updateSwitcherSelection(newIdx) {
     const newItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (newItem) {
         newItem.dataset.selected = 'true';
-        newItem.style.background = 'rgba(80, 110, 220, 0.12)';
+        const newTitle = newItem.querySelector('.ys-tab-title');
+        const isActiveTab = newTitle && newTitle.dataset.isActive === 'true';
+        newItem.style.background = isActiveTab
+            ? 'rgba(80, 110, 220, 0.12)'
+            : 'rgba(130, 140, 160, 0.12)';
         const title = newItem.querySelector('.ys-tab-title');
-        if (title) title.style.color = 'rgba(50, 70, 160, 1)';
+        if (title) {
+            title.style.color = title.dataset.isActive === 'true'
+                ? 'rgba(50, 70, 160, 0.95)'
+                : 'rgba(50, 60, 80, 0.9)';
+        }
 
         const groupRow = newItem.closest('.ys-group-row');
         if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '1';
