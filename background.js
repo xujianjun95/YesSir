@@ -48,6 +48,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         chrome.tabs.update(request.tabId, { active: true });
     }
 
+    // ── 全局切换标签页（支持跨窗口） ──
+    if (request.action === "switch_tab_global") {
+        recordUsage();
+        const targetWindowId = request.windowId;
+        const targetTabId = request.tabId;
+
+        chrome.windows.update(targetWindowId, { focused: true }, () => {
+            const winErr = chrome.runtime.lastError;
+            if (winErr) {
+                sendResponse({ success: false, error: winErr.message });
+                return;
+            }
+            chrome.tabs.update(targetTabId, { active: true }, () => {
+                const tabErr = chrome.runtime.lastError;
+                sendResponse({ success: !tabErr, error: tabErr ? tabErr.message : undefined });
+            });
+        });
+        return true;
+    }
+
     // ── 恢复最近关闭的最多 3 条会话（标签或窗口）──
     if (request.action === "restore_last_3_tabs") {
         chrome.sessions.getRecentlyClosed({ maxResults: 3 }, (sessions) => {
@@ -89,13 +109,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
-    // ── 获取当前窗口所有标签页 ──
+    // ── 获取所有窗口标签页（用于全局看板） ──
     if (request.action === "get_tabs") {
-        const windowId = sender.tab ? sender.tab.windowId : chrome.windows.WINDOW_ID_CURRENT;
-        chrome.tabs.query({ windowId }, function(tabs) {
+        const currentWindowId = sender.tab ? sender.tab.windowId : null;
+        chrome.tabs.query({}, function(tabs) {
+            const sortedTabs = tabs.slice().sort((a, b) => {
+                if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+                return a.index - b.index;
+            });
+            const uniqueWindowIds = [...new Set(sortedTabs.map(t => t.windowId))];
+            const windowMap = {};
+            let winCounter = 1;
+
+            uniqueWindowIds.forEach((id) => {
+                if (currentWindowId !== null && id === currentWindowId) {
+                    windowMap[id] = '当前';
+                } else {
+                    windowMap[id] = `窗口 ${winCounter++}`;
+                }
+            });
+
             sendResponse({
-                tabs: tabs.map(t => ({
+                currentWindowId,
+                tabs: sortedTabs.map(t => ({
                     id:         t.id,
+                    windowId:   t.windowId,
+                    windowName: windowMap[t.windowId] || '',
                     index:      t.index,
                     title:      t.title || '(无标题)',
                     url:        t.url   || '',

@@ -29,7 +29,7 @@ function showToast(count) {
 
     const toast = document.createElement('div');
     toast.id = 'my-geek-toast';
-    toast.innerText = `🫡 YesSir，已记录本次使用，累计 ${count} 次`;
+    toast.innerText = `🫡 Yes Sir，已记录本次使用，累计 ${count} 次`;
 
     Object.assign(toast.style, {
         position:           'fixed',
@@ -70,6 +70,8 @@ function showToast(count) {
 let switcherVisible  = false;
 let switcherTabs     = [];
 let switcherSelIdx   = 0;
+let switcherCurrentWindowId = null;
+let switcherKeydownHandler = null;
 
 // 工具函数：按域名对 Tab 进行分组
 function groupTabsByDomain(tabs) {
@@ -100,17 +102,19 @@ function groupTabsByDomain(tabs) {
     return groups;
 }
 
-function showSwitcher(tabs, isRefresh = false) {
+function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     let savedScrollTop = 0;
     const oldList = document.getElementById('ys-switcher-list');
+    const oldSearch = document.getElementById('ys-search-input');
+    const preservedKeyword = isRefresh && oldSearch ? oldSearch.value : '';
     if (isRefresh && oldList) {
         savedScrollTop = oldList.scrollTop;
     }
 
     hideSwitcher();
-    switcherTabs   = tabs;
-    switcherSelIdx = tabs.findIndex(t => t.active);
-    if (switcherSelIdx < 0) switcherSelIdx = 0;
+    switcherCurrentWindowId = currentWindowId;
+    switcherTabs = tabs.slice();
+    switcherSelIdx = 0;
     switcherVisible = true;
 
     const overlay = document.createElement('div');
@@ -120,8 +124,10 @@ function showSwitcher(tabs, isRefresh = false) {
         inset:          '0',
         zIndex:         '2147483646',
         display:        'flex',
-        alignItems:     'center',
+        alignItems:     'flex-start',
         justifyContent: 'center',
+        paddingTop:     'max(8vh, 56px)',
+        boxSizing:      'border-box',
         background:     'rgba(160, 175, 200, 0.16)',
         backdropFilter: 'blur(8px)',
         WebkitBackdropFilter: 'blur(8px)',
@@ -145,12 +151,12 @@ function showSwitcher(tabs, isRefresh = false) {
     const card = document.createElement('div');
     card.id = 'ys-switcher-card';
     Object.assign(card.style, {
-        background:     'rgba(235, 240, 245, 0.82)',
-        backdropFilter: 'blur(30px)',
-        WebkitBackdropFilter: 'blur(30px)',
-        border:         '1px solid rgba(255, 255, 255, 0.5)',
+        background:     'rgba(248, 248, 246, 0.46)',
+        backdropFilter: 'saturate(180%) blur(28px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(28px)',
+        border:         '1px solid rgba(255, 255, 255, 0.52)',
         borderRadius:   '20px',
-        boxShadow:      '0 24px 64px rgba(0,0,0,0.12)',
+        boxShadow:      '0 24px 64px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6)',
         width:          '580px',
         maxHeight:      '65vh',
         display:        'flex',
@@ -164,35 +170,43 @@ function showSwitcher(tabs, isRefresh = false) {
     Object.assign(header.style, {
         padding:        '14px 20px 10px',
         display:        'flex',
-        justifyContent: 'space-between',
-        alignItems:     'center',
+        flexDirection:  'column',
+        gap:            '12px',
         borderBottom:   '1px solid rgba(0, 0, 0, 0.05)',
         flexShrink:     '0',
     });
     header.innerHTML = `
-      <div style="display:flex; align-items:center; gap:12px;">
-        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;">🫡 YesSir</span>
-        <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;">🫡 Yes Sir 标签页管理</span>
+        <div style="display:flex; align-items:center;">
+          <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
             display:flex; align-items:center; gap:5px; padding:3px 8px;
             background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
             border-radius:6px; cursor:pointer; transition:all 0.1s;
-        ">
-            <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style="margin-top:1px;">
-                <path d="M1.5 8C1.5 4.41015 4.41015 1.5 8 1.5C11.5899 1.5 14.5 4.41015 14.5 8C14.5 11.5899 11.5899 14.5 8 14.5C6.20435 14.5 4.58225 13.7716 3.40901 12.5909"
-                    stroke="rgba(80, 110, 220, 0.85)" stroke-width="1.8" stroke-linecap="round"/>
-                <path d="M1 8L3.5 10.5L6 8" stroke="rgba(80, 110, 220, 0.85)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M8 4.5V8.5L10.5 10" stroke="rgba(80, 110, 220, 0.85)" stroke-width="1.8" stroke-linecap="round"/>
-            </svg>
-            <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">后悔药</span>
+          ">
+            <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">💊 后悔药</span>
+          </div>
         </div>
       </div>
-      <span style="font-size:11px;font-weight:500;color:rgba(120,130,150,0.8);">🖱点击鼠标确认切换标签页</span>`;
+      <div style="position:relative;">
+        <input id="ys-search-input" type="text" placeholder="搜索标题、URL 或域名 (支持拼音/英文)..." style="
+          width:100%; padding:9px 12px 9px 34px; border-radius:10px;
+          border:1px solid rgba(255, 255, 255, 0.65); background:rgba(255, 255, 255, 0.25);
+          font-size:13px; color:rgba(40, 50, 70, 0.9); outline:none;
+          box-shadow:inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02); transition:all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+          box-sizing:border-box;
+        ">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);">
+          <circle cx="7" cy="7" r="5" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5"/>
+          <path d="M11 11L14 14" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </div>`;
 
-    const list = document.createElement('div');
-    list.id = 'ys-switcher-list';
-    Object.assign(list.style, {
+    const listContainer = document.createElement('div');
+    listContainer.id = 'ys-switcher-list';
+    Object.assign(listContainer.style, {
         overflowY:  'auto',
-        padding:    '12px 14px',
+        padding:    '12px 20px',
         flexGrow:   '1',
         scrollbarWidth: 'none',
         overscrollBehavior: 'contain',
@@ -201,91 +215,201 @@ function showSwitcher(tabs, isRefresh = false) {
         gap:        '12px',
     });
 
-    const groupedTabs = groupTabsByDomain(tabs);
+    const CARD_OPEN_TRANSITION = 'transform 0.18s cubic-bezier(0.34,1.3,0.64,1)';
+    const CARD_HEIGHT_EASE = 'cubic-bezier(0.25, 0.8, 0.25, 1)';
+    let cardHeightAnimToken = 0;
 
-    groupedTabs.forEach(group => {
-        const groupRow = document.createElement('div');
-        groupRow.className = 'ys-group-row';
-        Object.assign(groupRow.style, {
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0',
-            padding: '12px 10px',
-            borderRadius: '14px',
-            background: 'rgba(255, 255, 255, 0.95)',
-            border: '1px solid rgba(0, 0, 0, 0.05)',
-            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.05)',
-            marginBottom: '4px',
-        });
+    const getDefaultSelectedIdx = (items) => {
+        const activeInCurrent = items.findIndex(t => t.active && switcherCurrentWindowId !== null && t.windowId === switcherCurrentWindowId);
+        if (activeInCurrent >= 0) return activeInCurrent;
+        const activeAny = items.findIndex(t => t.active);
+        return activeAny >= 0 ? activeAny : 0;
+    };
 
-        const leftCol = document.createElement('div');
-        leftCol.className = 'ys-group-left';
-        Object.assign(leftCol.style, {
-            width: '130px',
-            flexShrink: '0',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px',
-            paddingTop: '0',
-            opacity: '0.65',
-            transition: 'none',
-        });
+    function renderList(filterText = '', opts = {}) {
+        const shouldRestoreScroll = !!opts.restoreScroll;
+        const shouldPreferActive = !!opts.preferActive;
+        const shouldAnimate = !!opts.animate;
 
-        const iconDiv = document.createElement('div');
-        Object.assign(iconDiv.style, {
-            width: '18px', height: '18px', flexShrink: '0',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(80, 110, 220, 0.12)', borderRadius: '4px',
-            fontSize: '10px', fontWeight: 'bold', color: 'rgba(50, 70, 160, 0.9)'
-        });
-        if (group.icon) {
-            const img = document.createElement('img');
-            img.src = group.icon; img.width = 14; img.height = 14; img.style.borderRadius = '2px';
-            img.onerror = () => { img.remove(); iconDiv.textContent = group.domain[0].toUpperCase(); };
-            iconDiv.appendChild(img);
-        } else {
-            iconDiv.textContent = group.domain[0].toUpperCase();
+        function rebuildListDOM() {
+        listContainer.innerHTML = '';
+
+        const keyword = filterText.trim().toLowerCase();
+        const filteredTabs = keyword
+            ? tabs.filter((t) => {
+                const title = (t.title || '').toLowerCase();
+                const url = (t.url || '').toLowerCase();
+                return title.includes(keyword) || url.includes(keyword);
+            })
+            : tabs.slice();
+
+        if (filteredTabs.length === 0) {
+            switcherTabs = [];
+            switcherSelIdx = 0;
+            listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">未找到匹配的标签页</div>`;
+            return;
         }
 
-        const domainText = document.createElement('div');
-        Object.assign(domainText.style, {
-            fontSize: '12px', fontWeight: '600', color: 'rgba(45, 55, 75, 0.92)',
-            wordBreak: 'break-all', lineHeight: '1.4',
+        const groupedTabs = groupTabsByDomain(filteredTabs);
+        const displayTabs = [];
+
+        groupedTabs.forEach(group => {
+            const groupRow = document.createElement('div');
+            groupRow.className = 'ys-group-row';
+            Object.assign(groupRow.style, {
+                display: 'grid',
+                gridTemplateColumns: '130px minmax(0, 1fr)',
+                columnGap: '14px',
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '12px 6px',
+                background: 'transparent',
+                border: 'none',
+                borderBottom: '1px solid rgba(0, 0, 0, 0.03)',
+                boxShadow: 'none',
+            });
+
+            const leftCol = document.createElement('div');
+            leftCol.className = 'ys-group-left';
+            Object.assign(leftCol.style, {
+                minWidth: '0',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '8px',
+                paddingTop: '8px',
+                opacity: '0.65',
+                transition: 'opacity 0.2s ease',
+            });
+
+            const iconDiv = document.createElement('div');
+            Object.assign(iconDiv.style, {
+                width: '18px', height: '18px', flexShrink: '0',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                background: 'rgba(80, 110, 220, 0.12)', borderRadius: '4px',
+                fontSize: '10px', fontWeight: 'bold', color: 'rgba(50, 70, 160, 0.9)'
+            });
+            if (group.icon) {
+                const img = document.createElement('img');
+                img.src = group.icon; img.width = 14; img.height = 14; img.style.borderRadius = '2px';
+                img.onerror = () => { img.remove(); iconDiv.textContent = group.domain[0].toUpperCase(); };
+                iconDiv.appendChild(img);
+            } else {
+                iconDiv.textContent = group.domain[0].toUpperCase();
+            }
+
+            const domainText = document.createElement('div');
+            Object.assign(domainText.style, {
+                fontSize: '12px', fontWeight: '600', color: 'rgba(45, 55, 75, 0.92)',
+                wordBreak: 'break-all', lineHeight: '1.4',
+            });
+            domainText.textContent = group.domain;
+
+            leftCol.appendChild(iconDiv);
+            leftCol.appendChild(domainText);
+
+            const rightCol = document.createElement('div');
+            Object.assign(rightCol.style, {
+                minWidth: '0',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+            });
+
+            group.tabs.forEach(tab => {
+                const displayIdx = displayTabs.length;
+                displayTabs.push(tab);
+                buildTabItem(tab, displayIdx, rightCol);
+            });
+
+            groupRow.appendChild(leftCol);
+            groupRow.appendChild(rightCol);
+            listContainer.appendChild(groupRow);
         });
-        domainText.textContent = group.domain;
 
-        leftCol.appendChild(iconDiv);
-        leftCol.appendChild(domainText);
+        switcherTabs = displayTabs;
+        if (shouldPreferActive) {
+            switcherSelIdx = getDefaultSelectedIdx(displayTabs);
+        } else {
+            switcherSelIdx = Math.max(0, Math.min(displayTabs.length - 1, switcherSelIdx));
+        }
+        initSwitcherHighlight();
 
-        const rightCol = document.createElement('div');
-        Object.assign(rightCol.style, {
-            flexGrow: '1',
-            minWidth: '0',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: '4px',
-            borderLeft: '1px solid rgba(0, 0, 0, 0.06)',
-            marginLeft: '16px',
-            paddingLeft: '16px',
-        });
+        if (shouldRestoreScroll) {
+            listContainer.scrollTop = savedScrollTop;
+        } else {
+            scrollToSelected(true);
+        }
+        }
 
-        group.tabs.forEach(tab => {
-            buildTabItem(tab, tab.originalIndex, rightCol);
-        });
+        const prevH = shouldAnimate ? card.offsetHeight : 0;
+        rebuildListDOM();
 
-        groupRow.appendChild(leftCol);
-        groupRow.appendChild(rightCol);
-        list.appendChild(groupRow);
-    });
-
-    if (isRefresh) {
-        list.scrollTop = savedScrollTop;
+        if (shouldAnimate) {
+            const nextH = card.offsetHeight;
+            if (Math.abs(prevH - nextH) > 1.5) {
+                cardHeightAnimToken += 1;
+                const token = cardHeightAnimToken;
+                if (card._ysCardHeightOnEnd) {
+                    card.removeEventListener('transitionend', card._ysCardHeightOnEnd);
+                    card._ysCardHeightOnEnd = null;
+                }
+                card.style.transition = 'none';
+                card.style.height = `${prevH}px`;
+                void card.offsetHeight;
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (token !== cardHeightAnimToken) return;
+                        card.style.transition = `${CARD_OPEN_TRANSITION}, height 0.32s ${CARD_HEIGHT_EASE}`;
+                        card.style.height = `${nextH}px`;
+                    });
+                });
+                const onEnd = (e) => {
+                    if (e.propertyName !== 'height') return;
+                    if (token !== cardHeightAnimToken) return;
+                    card.removeEventListener('transitionend', onEnd);
+                    card._ysCardHeightOnEnd = null;
+                    card.style.height = '';
+                    card.style.transition = CARD_OPEN_TRANSITION;
+                };
+                card._ysCardHeightOnEnd = onEnd;
+                card.addEventListener('transitionend', onEnd);
+            }
+        }
     }
 
     card.appendChild(header);
-    card.appendChild(list);
+    card.appendChild(listContainer);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
+
+    const searchInput = document.getElementById('ys-search-input');
+    if (searchInput) {
+        searchInput.value = preservedKeyword;
+        searchInput.addEventListener('input', (e) => {
+            switcherSelIdx = 0;
+            renderList(e.target.value, { restoreScroll: false, preferActive: false, animate: true });
+        });
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const activeItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
+                if (activeItem) activeItem.click();
+            }
+        });
+        searchInput.addEventListener('focus', () => {
+            searchInput.style.background = 'rgba(255, 255, 255, 0.45)';
+            searchInput.style.borderColor = 'rgba(80, 110, 220, 0.4)';
+            searchInput.style.boxShadow = '0 0 0 3px rgba(80, 110, 220, 0.12), inset 0 1px 2px rgba(0,0,0,0.01)';
+        });
+        searchInput.addEventListener('blur', () => {
+            searchInput.style.background = 'rgba(255, 255, 255, 0.25)';
+            searchInput.style.borderColor = 'rgba(255, 255, 255, 0.65)';
+            searchInput.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02)';
+        });
+    }
 
     const regretBtn = document.getElementById('ys-regret-btn');
     if (regretBtn) {
@@ -311,21 +435,33 @@ function showSwitcher(tabs, isRefresh = false) {
         });
     }
 
-    if (isRefresh) {
-        list.scrollTop = savedScrollTop;
-    }
+    switcherKeydownHandler = (e) => {
+        if (!switcherVisible) return;
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            updateSwitcherSelection(switcherSelIdx + 1);
+            scrollToSelected();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            updateSwitcherSelection(switcherSelIdx - 1);
+            scrollToSelected();
+        } else if (e.key === 'Enter') {
+            if (e.isComposing) return;
+            e.preventDefault();
+            const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
+            if (item) item.click();
+        }
+    };
+    document.addEventListener('keydown', switcherKeydownHandler, true);
+
+    renderList(preservedKeyword, { restoreScroll: isRefresh, preferActive: !preservedKeyword, animate: false });
 
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
         card.style.transform = 'scale(1) translateY(0)';
-        if (isRefresh) {
-            list.scrollTop = savedScrollTop;
-        }
         setTimeout(() => {
-            if (!isRefresh) {
-                scrollToSelected(true);
-            }
-        }, 30);
+            if (searchInput) searchInput.focus();
+        }, 50);
     });
 }
 
@@ -347,7 +483,17 @@ function buildTabItem(tab, globalIdx, container) {
         position:       'relative',
     });
 
+    const leftArea = document.createElement('div');
+    Object.assign(leftArea.style, {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        flex: '1',
+        minWidth: '0',
+    });
+
     const title = document.createElement('div');
+    title.className = 'ys-tab-title';
     Object.assign(title.style, {
         fontSize:       '13px',
         fontWeight:     '500',
@@ -361,12 +507,14 @@ function buildTabItem(tab, globalIdx, container) {
     });
     title.textContent = tab.title || '(无标题)';
 
-    const actionArea = document.createElement('div');
-    Object.assign(actionArea.style, {
-        display:     'flex',
-        alignItems:  'center',
-        gap:         '6px',
-        flexShrink:  '0',
+    const statusSlot = document.createElement('div');
+    Object.assign(statusSlot.style, {
+        width: '20px',
+        height: '20px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: '0',
     });
 
     const closeBtn = document.createElement('div');
@@ -393,24 +541,60 @@ function buildTabItem(tab, globalIdx, container) {
         title.style.fontWeight = '600';
         title.dataset.isActive = 'true';
 
-        const badge = document.createElement('div');
-        Object.assign(badge.style, {
-            padding: '2px 7px',
-            borderRadius: '5px',
-            background: 'rgba(80, 110, 220, 0.14)',
-            border: '1px solid rgba(80, 110, 220, 0.28)',
+        const activeBadge = document.createElement('div');
+        Object.assign(activeBadge.style, {
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: '20px',
+            height: '20px',
+            padding: '0',
+            borderRadius: '6px',
+            background: 'rgba(80, 110, 220, 0.12)',
+            border: '1px solid rgba(80, 110, 220, 0.25)',
             color: 'rgba(50, 70, 160, 0.95)',
-            fontSize: '10px',
-            fontWeight: '700',
             flexShrink: '0',
-            lineHeight: '1.2',
+            boxSizing: 'border-box',
         });
-        badge.textContent = '当前';
-        actionArea.appendChild(badge);
+        activeBadge.innerHTML = `<span style="font-size:10px;opacity:0.85;">📍</span>`;
+        statusSlot.appendChild(activeBadge);
+    }
+
+    leftArea.appendChild(statusSlot);
+    leftArea.appendChild(title);
+
+    const actionArea = document.createElement('div');
+    Object.assign(actionArea.style, {
+        display:     'flex',
+        alignItems:  'center',
+        gap:         '6px',
+        flexShrink:  '0',
+        marginLeft:  '12px',
+    });
+
+    if (tab.windowName && tab.windowName !== '当前') {
+        const winBadge = document.createElement('div');
+        Object.assign(winBadge.style, {
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            height: '20px',
+            padding: '0 8px',
+            borderRadius: '6px',
+            background: 'rgba(140, 150, 170, 0.08)',
+            border: '1px solid rgba(140, 150, 170, 0.2)',
+            color: 'rgba(100, 110, 130, 0.9)',
+            fontSize: '11px',
+            fontWeight: '600',
+            gap: '4px',
+            boxSizing: 'border-box',
+        });
+        winBadge.innerHTML = `<span style="font-size:10px;opacity:0.8;">🪟</span><span>${tab.windowName}</span>`;
+        actionArea.appendChild(winBadge);
     }
 
     actionArea.appendChild(closeBtn);
-    item.appendChild(title);
+    item.appendChild(leftArea);
     item.appendChild(actionArea);
     container.appendChild(item);
 
@@ -432,7 +616,7 @@ function buildTabItem(tab, globalIdx, container) {
             chrome.runtime.sendMessage({ action: 'get_tabs' }, (res2) => {
                 if (chrome.runtime.lastError) return;
                 if (res2 && res2.tabs && res2.tabs.length > 0) {
-                    showSwitcher(res2.tabs, true);
+                    showSwitcher(res2.tabs, true, res2.currentWindowId);
                     initSwitcherHighlight();
                 } else {
                     hideSwitcher();
@@ -443,7 +627,15 @@ function buildTabItem(tab, globalIdx, container) {
 
     item.addEventListener('click', (e) => {
         e.stopPropagation();
-        chrome.runtime.sendMessage({ action: 'switch_tab', tabId: tab.id });
+        if (typeof tab.windowId === 'number') {
+            chrome.runtime.sendMessage({
+                action: 'switch_tab_global',
+                tabId: tab.id,
+                windowId: tab.windowId,
+            });
+        } else {
+            chrome.runtime.sendMessage({ action: 'switch_tab', tabId: tab.id });
+        }
         hideSwitcher();
     });
 }
@@ -452,7 +644,7 @@ function updateSwitcherSelection(newIdx) {
     const oldItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (oldItem) {
         oldItem.style.background = 'transparent';
-        const title = oldItem.querySelector('div:first-child');
+        const title = oldItem.querySelector('.ys-tab-title');
         if (title) {
             title.style.color = title.dataset.isActive === 'true'
                 ? 'rgba(50, 70, 160, 0.95)'
@@ -468,8 +660,8 @@ function updateSwitcherSelection(newIdx) {
 
     const newItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (newItem) {
-        newItem.style.background = 'rgba(80, 110, 220, 0.12)';
-        const title = newItem.querySelector('div:first-child');
+        newItem.style.background = 'rgba(80, 110, 220, 0.06)';
+        const title = newItem.querySelector('.ys-tab-title');
         if (title) title.style.color = 'rgba(50, 70, 160, 1)';
 
         const groupRow = newItem.closest('.ys-group-row');
@@ -496,6 +688,11 @@ function scrollToSelected(forceCenter = false) {
 function hideSwitcher() {
     switcherVisible = false;
     switcherTabs    = [];
+    switcherCurrentWindowId = null;
+    if (switcherKeydownHandler) {
+        document.removeEventListener('keydown', switcherKeydownHandler, true);
+        switcherKeydownHandler = null;
+    }
 
     const overlay = document.getElementById('ys-switcher-overlay');
     if (!overlay) return;
@@ -900,7 +1097,7 @@ document.addEventListener('keydown', function(event) {
             if (!switcherVisible) {
                 chrome.runtime.sendMessage({ action: 'get_tabs' }, (res) => {
                     if (!res || !res.tabs || res.tabs.length < 2) return;
-                    showSwitcher(res.tabs);
+                    showSwitcher(res.tabs, false, res.currentWindowId);
                     initSwitcherHighlight();
                 });
             } else {
