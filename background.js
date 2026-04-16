@@ -5,7 +5,7 @@ async function getDeepSeekApiKey() {
 }
 
 const CATEGORY_CACHE_VERSION = 'v3';
-const SITE_NAME_CACHE_VERSION = 'v1';
+const SITE_NAME_CACHE_VERSION = 'v2';
 
 function getDomainFromUrl(url) {
     try {
@@ -28,8 +28,8 @@ function normalizeCategory(rawCategory) {
     if (text.includes('🛠') || text.includes('效率办公')) return '🛠️ 效率办公';
     if (text.includes('💬') || text.includes('社交互动')) return '💬 社交互动';
     if (text.includes('🎡') || text.includes('生活娱乐')) return '🎡 生活娱乐';
-    if (text.includes('🔍') || text.includes('其他')) return '🔍 其他';
-    return '🔍 其他';
+    if (text.includes('📁') || text.includes('🔍') || text.includes('其他')) return '📁 其他分类';
+    return '📁 其他分类';
 }
 
 function siteNameCacheKey(url = '') {
@@ -72,9 +72,23 @@ function inferSiteNameByKeyword(title, url = '') {
     if (/confluence/.test(all)) return 'Confluence';
     if (/slack/.test(all)) return 'Slack';
     if (/chatgpt|openai/.test(all)) return 'OpenAI';
-    if (/claude/.test(all)) return 'Claude';
+    if (/claude\.ai/.test(all)) return 'Claude';
     if (/deepseek/.test(all)) return 'DeepSeek';
-    if (/cursor/.test(all)) return 'Cursor';
+    if (/cursor\.com|cursor\.sh/.test(all)) return 'Cursor';
+    if (/bilibili/.test(all)) return '哔哩哔哩';
+    if (/zhihu/.test(all)) return '知乎';
+    if (/weibo/.test(all)) return '微博';
+    if (/taobao/.test(all)) return '淘宝';
+    if (/jd\.com/.test(all)) return '京东';
+    if (/douyin|tiktok/.test(all)) return '抖音';
+    if (/xiaohongshu|xhs\.link|rednote/.test(all)) return '小红书';
+    if (/youtube/.test(all)) return 'YouTube';
+    if (/twitter|x\.com/.test(all)) return 'X';
+    if (/linkedin/.test(all)) return 'LinkedIn';
+    if (/reddit/.test(all)) return 'Reddit';
+    if (/stackoverflow/.test(all)) return 'Stack Overflow';
+    if (/npmjs/.test(all)) return 'npm';
+    if (/developer\.mozilla|mdn/.test(all)) return 'MDN';
 
     return null;
 }
@@ -95,7 +109,7 @@ function inferCategoryByKeyword(title, url = '') {
 async function getSmartCategory(title, url, apiKey) {
     const keywordCategory = inferCategoryByKeyword(title, url);
     if (keywordCategory) return keywordCategory;
-    if (!apiKey) return '🔍 其他';
+    if (!apiKey) return '📁 其他分类';
 
     const cacheKey = titleCacheKey(title, url);
     const cached = await chrome.storage.local.get(cacheKey);
@@ -119,7 +133,7 @@ async function getSmartCategory(title, url, apiKey) {
 🛠️ 效率办公（在线文档、任务管理、云存储、在线表单、日历日程、会议软件、云服务控制台、开发者平台、AI工具网站）、
 💬 社交互动（微博/朋友圈、论坛社区、即时聊天、问答社区、评论系统、群组协作）、
 🎡 生活娱乐（视频点播、音乐流媒体、在线游戏、直播平台、外卖/点评、旅游攻略）、
-🔍 其他（个人主页、实验性站点、计算器/二维码等工具类、404页面）。
+📁 其他分类（个人主页、实验性站点、计算器/二维码等工具类、404页面）。
 如果标题不够明确，请结合 URL 和域名判断。只需返回类别名称（带 Emoji），不要解释。`,
                     },
                     {
@@ -134,14 +148,14 @@ URL：${url || '(无URL)'}
         });
 
         const data = await response.json();
-        const rawCategory = data.choices?.[0]?.message?.content?.trim() || '🔍 其他';
+        const rawCategory = data.choices?.[0]?.message?.content?.trim() || '📁 其他分类';
         const category = normalizeCategory(rawCategory);
 
         await chrome.storage.local.set({ [cacheKey]: category });
         return category;
     } catch (error) {
         console.error('DeepSeek 呼叫失败:', error);
-        return '🔍 其他';
+        return '📁 其他分类';
     }
 }
 
@@ -170,13 +184,11 @@ async function getSmartSiteName(title, url, apiKey) {
                 messages: [
                     {
                         role: 'system',
-                        content: '你是一个品牌提取专家。请从网页标题、URL 和域名中提取最简洁的网站名称或品牌名。优先返回常见品牌写法（如：阿里云、GitHub、Notion）。只需返回名称，不要解释。',
+                        content: '你是一个品牌提取专家。请根据域名判断这是哪个网站，返回最简洁的网站名称或品牌名（如：阿里云、GitHub、Notion、哔哩哔哩）。只需返回名称，不要解释。',
                     },
                     {
                         role: 'user',
-                        content: `标题：${title || '(无标题)'}
-URL：${url || '(无URL)'}
-域名：${domain || '(无域名)'}`,
+                        content: `域名：${domain}`,
                     },
                 ],
                 temperature: 0.2,

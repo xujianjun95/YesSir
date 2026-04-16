@@ -129,7 +129,7 @@ function normalizeCategoryByDomain(classification, tabs) {
 
     const winnerByDomain = {};
     Object.entries(byDomain).forEach(([domain, stats]) => {
-        winnerByDomain[domain] = Object.entries(stats).sort((a, b) => b[1] - a[1])[0]?.[0] || '🔍 其他';
+        winnerByDomain[domain] = Object.entries(stats).sort((a, b) => b[1] - a[1])[0]?.[0] || '📁 其他分类';
     });
 
     const normalized = {};
@@ -138,10 +138,10 @@ function normalizeCategoryByDomain(classification, tabs) {
         if (!tab) return;
         const domain = getTabDomainKey(tab);
         if (domain === LOCAL_DOMAIN_KEY) {
-            normalized[tabId] = '🔍 其他';
+            normalized[tabId] = '📁 其他分类';
             return;
         }
-        normalized[tabId] = winnerByDomain[domain] || '🔍 其他';
+        normalized[tabId] = winnerByDomain[domain] || '📁 其他分类';
     });
 
     return normalized;
@@ -226,23 +226,19 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     });
     header.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;">🫡 Yes Sir 标签页管理</span>
-        <div style="display:flex; align-items:center; gap:10px;">
-          <div id="ys-category-filters" style="display:flex; gap:6px; align-items:center;"></div>
-
-          <div style="width:1px; height:16px; background:rgba(0,0,0,0.08); margin:0 2px;"></div>
-
-          <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
-            display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
-            background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
-            border-radius:8px; cursor:pointer; transition:all 0.2s; box-sizing:border-box;
-          ">
-            <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">💊 后悔药</span>
-          </div>
+        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;">🫡 Yes Sir 标签页管理</span>
+        <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
+          display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
+          background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
+          border-radius:8px; cursor:pointer; transition:all 0.2s; box-sizing:border-box;
+          white-space:nowrap; flex-shrink:0;
+        ">
+          <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">💊 后悔药</span>
         </div>
       </div>
-      <div style="position:relative;">
-        <input id="ys-search-input" type="text" placeholder="搜索标题、URL 或域名 (支持拼音/英文)..." style="
+      <div id="ys-category-filters" style="display:flex; gap:6px; align-items:center; width:100%; box-sizing:border-box; margin-top:8px;"></div>
+      <div style="position:relative; margin-top:10px;">
+        <input id="ys-search-input" type="text" placeholder="搜索标题、URL 或域名..." style="
           width:100%; padding:9px 12px 9px 34px; border-radius:10px;
           border:1px solid rgba(255, 255, 255, 0.65); background:rgba(255, 255, 255, 0.25);
           font-size:13px; color:rgba(40, 50, 70, 0.9); outline:none;
@@ -276,7 +272,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         '🛠️ 效率办公': 0,
         '💬 社交互动': 0,
         '🎡 生活娱乐': 0,
-        '🔍 其他': 0,
+        '📁 其他分类': 0,
     };
     let categoryCounts = { ...EMPTY_COUNTS };
 
@@ -284,7 +280,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         const activeInCurrent = items.findIndex(t => t.active && switcherCurrentWindowId !== null && t.windowId === switcherCurrentWindowId);
         if (activeInCurrent >= 0) return activeInCurrent;
         const activeAny = items.findIndex(t => t.active);
-        return activeAny >= 0 ? activeAny : 0;
+        return activeAny >= 0 ? activeAny : -1;
     };
 
     function renderList(filterText = '', opts = {}) {
@@ -481,7 +477,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         { label: '效率办公', emoji: '🛠️' },
         { label: '社交互动', emoji: '💬' },
         { label: '生活娱乐', emoji: '🎡' },
-        { label: '其他', emoji: '🔍' },
+        { label: '其他分类', emoji: '📁' },
     ];
 
     function initCategoryButtons(counts = categoryCounts) {
@@ -493,72 +489,45 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             const fullText = `${cat.emoji} ${cat.label}`;
             const count = counts[fullText] || 0;
             const isActive = activeCategoryFilter === fullText;
-            const isExpanded = isActive;
             const btn = document.createElement('div');
             btn.className = 'ys-cat-btn';
             btn.title = fullText;
             Object.assign(btn.style, {
                 height: '28px',
-                minWidth: '28px',
-                maxWidth: isExpanded ? '140px' : '28px',
-                padding: '0 7px',
+                padding: '0 8px',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
+                gap: '5px',
+                flex: '1',
                 borderRadius: '8px',
                 cursor: 'pointer',
                 background: isActive ? 'rgba(80, 110, 220, 0.16)' : 'rgba(0, 0, 0, 0.04)',
                 border: `1px solid ${isActive ? 'rgba(80, 110, 220, 0.32)' : 'rgba(0, 0, 0, 0.05)'}`,
                 color: isActive ? 'rgba(50, 70, 160, 0.95)' : 'rgba(50, 60, 80, 0.8)',
                 fontSize: '12px',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-                overflow: 'hidden',
                 whiteSpace: 'nowrap',
                 boxSizing: 'border-box',
                 userSelect: 'none',
                 lineHeight: '1',
+                transition: 'background 0.15s, border-color 0.15s, color 0.15s',
             });
 
             btn.innerHTML = `
-              <span class="btn-emoji" style="flex-shrink:0;">${cat.emoji}</span>
-              <span class="btn-text" style="
-                display:inline-block;
-                max-width:${isExpanded ? '120px' : '0'};
-                margin-left:${isExpanded ? '6px' : '0'};
-                opacity:${isExpanded ? '1' : '0'};
-                overflow:hidden;
-                transition:max-width 0.25s ease, margin-left 0.2s ease, opacity 0.2s;
-                font-weight:600;
-              ">${cat.label} · ${count}</span>`;
+              <span style="flex-shrink:0;">${cat.emoji}</span>
+              <span style="font-weight:600;">${cat.label} · ${count}</span>`;
 
             btn.addEventListener('mouseenter', () => {
-                btn.style.maxWidth = '140px';
-                btn.style.background = 'rgba(80, 110, 220, 0.08)';
-                btn.style.borderColor = 'rgba(80, 110, 220, 0.2)';
-                const textEl = btn.querySelector('.btn-text');
-                if (textEl) {
-                    textEl.style.maxWidth = '120px';
-                    textEl.style.marginLeft = '6px';
-                    textEl.style.opacity = '1';
+                if (activeCategoryFilter !== fullText) {
+                    btn.style.background = 'rgba(80, 110, 220, 0.08)';
+                    btn.style.borderColor = 'rgba(80, 110, 220, 0.2)';
                 }
             });
 
             btn.addEventListener('mouseleave', () => {
-                if (activeCategoryFilter === fullText) {
-                    btn.style.maxWidth = '140px';
-                    btn.style.background = 'rgba(80, 110, 220, 0.16)';
-                    btn.style.borderColor = 'rgba(80, 110, 220, 0.32)';
-                } else {
-                    btn.style.maxWidth = '28px';
+                if (activeCategoryFilter !== fullText) {
                     btn.style.background = 'rgba(0, 0, 0, 0.04)';
                     btn.style.borderColor = 'rgba(0, 0, 0, 0.05)';
-                }
-                const textEl = btn.querySelector('.btn-text');
-                if (textEl) {
-                    const shouldExpand = activeCategoryFilter === fullText;
-                    textEl.style.maxWidth = shouldExpand ? '120px' : '0';
-                    textEl.style.marginLeft = shouldExpand ? '6px' : '0';
-                    textEl.style.opacity = shouldExpand ? '1' : '0';
                 }
             });
 
@@ -566,7 +535,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 e.stopPropagation();
                 activeCategoryFilter = activeCategoryFilter === fullText ? null : fullText;
                 const si = document.getElementById('ys-search-input');
-                renderList(si ? si.value : '', { restoreScroll: false, preferActive: false, animate: true });
+                renderList(si ? si.value : '', { restoreScroll: false, preferActive: true, animate: true });
                 initCategoryButtons(counts);
             });
 
@@ -681,7 +650,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 if (Object.prototype.hasOwnProperty.call(categoryCounts, cat)) {
                     categoryCounts[cat] += 1;
                 } else {
-                    categoryCounts['🔍 其他'] += 1;
+                    categoryCounts['📁 其他分类'] += 1;
                 }
             });
             initCategoryButtons(categoryCounts);
@@ -905,10 +874,13 @@ function updateSwitcherSelection(newIdx) {
                 ? 'rgba(50, 70, 160, 0.95)'
                 : 'rgba(50, 60, 80, 0.9)';
         }
-        
         const groupRow = oldItem.closest('.ys-group-row');
-        // 恢复成默认的高透明度
         if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '0.65';
+    }
+
+    if (newIdx === -1) {
+        switcherSelIdx = -1;
+        return;
     }
 
     switcherSelIdx = Math.max(0, Math.min(switcherTabs.length - 1, newIdx));
