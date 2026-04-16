@@ -1,3 +1,5 @@
+importScripts('rules.js');
+
 // DeepSeek：优先从 chrome.storage.local.deepseekApiKey 读取，勿把密钥提交到仓库。
 async function getDeepSeekApiKey() {
     const { deepseekApiKey } = await chrome.storage.local.get('deepseekApiKey');
@@ -7,130 +9,15 @@ async function getDeepSeekApiKey() {
 const CATEGORY_CACHE_VERSION = 'v3';
 const SITE_NAME_CACHE_VERSION = 'v2';
 
-function getDomainFromUrl(url) {
-    try {
-        if (!url || !String(url).startsWith('http')) return '';
-        return new URL(url).hostname.toLowerCase();
-    } catch (_) {
-        return '';
-    }
-}
-
 function titleCacheKey(title, url = '') {
     const t = encodeURIComponent((title || '').trim().toLowerCase().slice(0, 200));
     const d = encodeURIComponent(getDomainFromUrl(url).slice(0, 120));
     return `cat_${CATEGORY_CACHE_VERSION}_${d}_${t}`;
 }
 
-function normalizeCategory(rawCategory) {
-    const text = String(rawCategory || '').trim();
-    if (text.includes('📖') || text.includes('信息资讯')) return '📖 信息资讯';
-    if (text.includes('🛠') || text.includes('效率办公')) return '🛠️ 效率办公';
-    if (text.includes('💬') || text.includes('社交互动')) return '💬 社交互动';
-    if (text.includes('🎡') || text.includes('生活娱乐')) return '🎡 生活娱乐';
-    if (text.includes('📁') || text.includes('🔍') || text.includes('其他')) return '📁 其他分类';
-    return '📁 其他分类';
-}
-
 function siteNameCacheKey(url = '') {
     const domain = encodeURIComponent(getDomainFromUrl(url).slice(0, 120));
     return `site_name_${SITE_NAME_CACHE_VERSION}_${domain}`;
-}
-
-function normalizeSiteName(rawName, url = '') {
-    let name = String(rawName || '').trim();
-    if (!name) return null;
-
-    // 清理模型偶发返回的引号、解释前缀和多行内容
-    name = name
-        .replace(/^["'「『“”]+|["'」』“”]+$/g, '')
-        .replace(/^网站名称[:：]\s*/i, '')
-        .split('\n')[0]
-        .trim();
-
-    if (!name) return null;
-    if (name.length > 20) name = name.slice(0, 20).trim();
-
-    const domain = getDomainFromUrl(url);
-    if (name.includes('.') && domain) return null;
-    return name;
-}
-
-function inferSiteNameByKeyword(title, url = '') {
-    const t = String(title || '').toLowerCase();
-    const d = getDomainFromUrl(url);
-    const all = `${t} ${d}`;
-
-    // 站点名优先按真实域名判断，避免“百度搜索 DeepSeek”这类标题把品牌识别错到查询词上。
-    if (/(\.|^)baidu\.com$/.test(d)) return '百度';
-    if (/(\.|^)aliyun\.com$/.test(d)) return '阿里云';
-    if (/(\.|^)github\.com$/.test(d)) return 'GitHub';
-    if (/(\.|^)gitlab\.com$/.test(d)) return 'GitLab';
-    if (/(\.|^)gitee\.com$/.test(d)) return 'Gitee';
-    if (/(\.|^)notion\.site$|(\.|^)notion\.so$/.test(d)) return 'Notion';
-    if (/(\.|^)feishu\.cn$|(\.|^)larksuite\.com$/.test(d)) return '飞书';
-    if (/(\.|^)openai\.com$/.test(d)) return 'OpenAI';
-    if (/(\.|^)claude\.ai$/.test(d)) return 'Claude';
-    if (/(\.|^)deepseek\.com$/.test(d)) return 'DeepSeek';
-    if (/(\.|^)cursor\.com$|(\.|^)cursor\.sh$/.test(d)) return 'Cursor';
-    if (/(\.|^)bilibili\.com$/.test(d)) return '哔哩哔哩';
-    if (/(\.|^)zhihu\.com$/.test(d)) return '知乎';
-    if (/(\.|^)weibo\.com$/.test(d)) return '微博';
-    if (/(\.|^)taobao\.com$/.test(d)) return '淘宝';
-    if (/(\.|^)jd\.com$/.test(d)) return '京东';
-    if (/(\.|^)douyin\.com$|(\.|^)tiktok\.com$/.test(d)) return '抖音';
-    if (/(\.|^)xiaohongshu\.com$|(\.|^)xhs\.link$|(\.|^)rednote\.com$/.test(d)) return '小红书';
-    if (/(\.|^)youtube\.com$/.test(d)) return 'YouTube';
-    if (/(\.|^)x\.com$|(\.|^)twitter\.com$/.test(d)) return 'X';
-    if (/(\.|^)linkedin\.com$/.test(d)) return 'LinkedIn';
-    if (/(\.|^)reddit\.com$/.test(d)) return 'Reddit';
-    if (/(\.|^)stackoverflow\.com$/.test(d)) return 'Stack Overflow';
-    if (/(\.|^)npmjs\.com$/.test(d)) return 'npm';
-    if (/(\.|^)developer\.mozilla\.org$|(\.|^)mdn\.mozilla\.org$/.test(d)) return 'MDN';
-
-    if (/aliyun/.test(all)) return '阿里云';
-    if (/github/.test(all)) return 'GitHub';
-    if (/gitlab/.test(all)) return 'GitLab';
-    if (/gitee/.test(all)) return 'Gitee';
-    if (/aithub/.test(all)) return 'Aithub';
-    if (/notion/.test(all)) return 'Notion';
-    if (/feishu|lark/.test(all)) return '飞书';
-    if (/jira/.test(all)) return 'Jira';
-    if (/confluence/.test(all)) return 'Confluence';
-    if (/slack/.test(all)) return 'Slack';
-    if (/chatgpt|openai/.test(all)) return 'OpenAI';
-    if (/claude\.ai/.test(all)) return 'Claude';
-    if (/deepseek/.test(all)) return 'DeepSeek';
-    if (/cursor\.com|cursor\.sh/.test(all)) return 'Cursor';
-    if (/bilibili/.test(all)) return '哔哩哔哩';
-    if (/zhihu/.test(all)) return '知乎';
-    if (/weibo/.test(all)) return '微博';
-    if (/taobao/.test(all)) return '淘宝';
-    if (/jd\.com/.test(all)) return '京东';
-    if (/douyin|tiktok/.test(all)) return '抖音';
-    if (/xiaohongshu|xhs\.link|rednote/.test(all)) return '小红书';
-    if (/youtube/.test(all)) return 'YouTube';
-    if (/twitter|x\.com/.test(all)) return 'X';
-    if (/linkedin/.test(all)) return 'LinkedIn';
-    if (/reddit/.test(all)) return 'Reddit';
-    if (/stackoverflow/.test(all)) return 'Stack Overflow';
-    if (/npmjs/.test(all)) return 'npm';
-    if (/developer\.mozilla|mdn/.test(all)) return 'MDN';
-
-    return null;
-}
-
-function inferCategoryByKeyword(title, url = '') {
-    const t = String(title || '').toLowerCase();
-    const u = String(url || '').toLowerCase();
-    const all = `${t} ${u}`;
-
-    // 优先保证“云服务/开发平台/AI 工具”命中效率办公
-    if (/(aliyun|aithub|github|gitlab|gitee|notion|feishu|lark|jira|confluence|slack|trello|docs\.google|drive\.google|aws|azure|cloud|vercel|netlify|supabase|openai|claude|deepseek|cursor|figma|canva|chatgpt)/.test(all)) {
-        return '🛠️ 效率办公';
-    }
-
-    return null;
 }
 
 async function getSmartCategory(title, url, apiKey) {

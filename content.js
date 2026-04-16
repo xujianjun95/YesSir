@@ -347,7 +347,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 alignItems: 'flex-start',
                 gap: '0',
                 paddingTop: '9px',
-                opacity: '0.65',
+                opacity: '1',
                 transition: 'opacity 0.2s ease',
             });
 
@@ -875,7 +875,7 @@ function updateSwitcherSelection(newIdx) {
                 : 'rgba(50, 60, 80, 0.9)';
         }
         const groupRow = oldItem.closest('.ys-group-row');
-        if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '0.65';
+        if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '1';
     }
 
     if (newIdx === -1) {
@@ -932,6 +932,7 @@ function scrollSelectedToTopIfNotLast() {
     const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (!list || !item) return false;
     if (switcherTabs.length === 0) return false;
+    if (activeCategoryFilter) return false;
     if (switcherSelIdx >= switcherTabs.length - 1) return false;
 
     // 如果当前页已经处于列表尾部的最后几行，就保持原来的相对位置，
