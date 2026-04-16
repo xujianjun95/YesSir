@@ -4,19 +4,57 @@ async function getDeepSeekApiKey() {
     return (deepseekApiKey && String(deepseekApiKey).trim()) || '';
 }
 
-function titleCacheKey(title) {
-    const t = (title || '').slice(0, 400);
-    return `cat_${t}`;
+const CATEGORY_CACHE_VERSION = 'v3';
+
+function getDomainFromUrl(url) {
+    try {
+        if (!url || !String(url).startsWith('http')) return '';
+        return new URL(url).hostname.toLowerCase();
+    } catch (_) {
+        return '';
+    }
 }
 
-async function getSmartCategory(title, apiKey) {
+function titleCacheKey(title, url = '') {
+    const t = encodeURIComponent((title || '').trim().toLowerCase().slice(0, 200));
+    const d = encodeURIComponent(getDomainFromUrl(url).slice(0, 120));
+    return `cat_${CATEGORY_CACHE_VERSION}_${d}_${t}`;
+}
+
+function normalizeCategory(rawCategory) {
+    const text = String(rawCategory || '').trim();
+    if (text.includes('📖') || text.includes('信息资讯')) return '📖 信息资讯';
+    if (text.includes('🛠') || text.includes('效率办公')) return '🛠️ 效率办公';
+    if (text.includes('💬') || text.includes('社交互动')) return '💬 社交互动';
+    if (text.includes('🎡') || text.includes('生活娱乐')) return '🎡 生活娱乐';
+    if (text.includes('🔍') || text.includes('其他')) return '🔍 其他';
+    return '🔍 其他';
+}
+
+function inferCategoryByKeyword(title, url = '') {
+    const t = String(title || '').toLowerCase();
+    const u = String(url || '').toLowerCase();
+    const all = `${t} ${u}`;
+
+    // 优先保证“云服务/开发平台/AI 工具”命中效率办公
+    if (/(aliyun|aithub|github|gitlab|gitee|notion|feishu|lark|jira|confluence|slack|trello|docs\.google|drive\.google|aws|azure|cloud|vercel|netlify|supabase|openai|claude|deepseek|cursor|figma|canva|chatgpt)/.test(all)) {
+        return '🛠️ 效率办公';
+    }
+
+    return null;
+}
+
+async function getSmartCategory(title, url, apiKey) {
+    const keywordCategory = inferCategoryByKeyword(title, url);
+    if (keywordCategory) return keywordCategory;
     if (!apiKey) return '🔍 其他';
 
-    const cacheKey = titleCacheKey(title);
+    const cacheKey = titleCacheKey(title, url);
     const cached = await chrome.storage.local.get(cacheKey);
-    if (cached[cacheKey]) return cached[cacheKey];
+    if (cached[cacheKey]) return normalizeCategory(cached[cacheKey]);
 
     try {
+        const domain = getDomainFromUrl(url);
         const response = await fetch('https://api.deepseek.com/chat/completions', {
             method: 'POST',
             headers: {
@@ -28,16 +66,28 @@ async function getSmartCategory(title, apiKey) {
                 messages: [
                     {
                         role: 'system',
-                        content: '你是一个网页分类专家。请将网页标题归类为以下之一：📈 投资盯盘、💻 研发工具、🍿 休闲摸鱼、🔍 其他。只需返回类别名称，不要解释。',
+                        content: `你是一个网页分类专家。请将网页标题归类为以下之一：
+📖 信息资讯（新闻门户、科技博客、百科词典、天气预报、股票行情、企业黄页）、
+🛠️ 效率办公（在线文档、任务管理、云存储、在线表单、日历日程、会议软件、云服务控制台、开发者平台、AI工具网站）、
+💬 社交互动（微博/朋友圈、论坛社区、即时聊天、问答社区、评论系统、群组协作）、
+🎡 生活娱乐（视频点播、音乐流媒体、在线游戏、直播平台、外卖/点评、旅游攻略）、
+🔍 其他（个人主页、实验性站点、计算器/二维码等工具类、404页面）。
+如果标题不够明确，请结合 URL 和域名判断。只需返回类别名称（带 Emoji），不要解释。`,
                     },
-                    { role: 'user', content: title || '(无标题)' },
+                    {
+                        role: 'user',
+                        content: `标题：${title || '(无标题)'}
+URL：${url || '(无URL)'}
+域名：${domain || '(无域名)'}`,
+                    },
                 ],
                 temperature: 0.3,
             }),
         });
 
         const data = await response.json();
-        const category = data.choices?.[0]?.message?.content?.trim() || '🔍 其他';
+        const rawCategory = data.choices?.[0]?.message?.content?.trim() || '🔍 其他';
+        const category = normalizeCategory(rawCategory);
 
         await chrome.storage.local.set({ [cacheKey]: category });
         return category;
@@ -209,7 +259,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 return;
             }
             for (const tab of tabList) {
-                results[tab.id] = await getSmartCategory(tab.title, apiKey);
+                results[tab.id] = await getSmartCategory(tab.title, tab.url, apiKey);
             }
             sendResponse({ classification: results });
         })();

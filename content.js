@@ -264,9 +264,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const CARD_HEIGHT_EASE = 'cubic-bezier(0.25, 0.8, 0.25, 1)';
     let cardHeightAnimToken = 0;
     const EMPTY_COUNTS = {
-        '📈 投资盯盘': 0,
-        '💻 研发工具': 0,
-        '🍿 休闲摸鱼': 0,
+        '📖 信息资讯': 0,
+        '🛠️ 效率办公': 0,
+        '💬 社交互动': 0,
+        '🎡 生活娱乐': 0,
         '🔍 其他': 0,
     };
     let categoryCounts = { ...EMPTY_COUNTS };
@@ -452,9 +453,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     }
 
     const CATEGORY_FILTERS = [
-        { label: '投资盯盘', emoji: '📈' },
-        { label: '研发工具', emoji: '💻' },
-        { label: '休闲摸鱼', emoji: '🍿' },
+        { label: '信息资讯', emoji: '📖' },
+        { label: '效率办公', emoji: '🛠️' },
+        { label: '社交互动', emoji: '💬' },
+        { label: '生活娱乐', emoji: '🎡' },
         { label: '其他', emoji: '🔍' },
     ];
 
@@ -634,7 +636,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }, 50);
     });
 
-    const tabsForClassify = tabs.map((t) => ({ id: t.id, title: t.title || '' }));
+    const tabsForClassify = tabs.map((t) => ({ id: t.id, title: t.title || '', url: t.url || '' }));
     chrome.runtime.sendMessage({ action: 'classify_tabs', tabs: tabsForClassify }, (res) => {
         if (chrome.runtime.lastError) return;
         if (res && res.classification) {
