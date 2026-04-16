@@ -1,12 +1,15 @@
 {
     "manifest_version": 3,
     "name": "Yes Sir",
-    "version": "1.3",
+    "version": "1.4",
     "description": "支持你在按住 Command(Mac)/Alt(Win) 的时候双击网页空白处来关闭当前标签页，或滚动鼠标滚轮来切换标签页",
     "permissions": [
       "tabs",
       "storage",
       "sessions"
+    ],
+    "host_permissions": [
+      "https://api.deepseek.com/*"
     ],
     "icons": {
       "16":  "icon_16.png",

@@ -1,3 +1,52 @@
+// DeepSeek：优先从 chrome.storage.local.deepseekApiKey 读取，勿把密钥提交到仓库。
+async function getDeepSeekApiKey() {
+    const { deepseekApiKey } = await chrome.storage.local.get('deepseekApiKey');
+    return (deepseekApiKey && String(deepseekApiKey).trim()) || '';
+}
+
+function titleCacheKey(title) {
+    const t = (title || '').slice(0, 400);
+    return `cat_${t}`;
+}
+
+async function getSmartCategory(title, apiKey) {
+    if (!apiKey) return '🔍 其他';
+
+    const cacheKey = titleCacheKey(title);
+    const cached = await chrome.storage.local.get(cacheKey);
+    if (cached[cacheKey]) return cached[cacheKey];
+
+    try {
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    {
+                        role: 'system',
+                        content: '你是一个网页分类专家。请将网页标题归类为以下之一：📈 投资盯盘、💻 研发工具、🍿 休闲摸鱼、🔍 其他。只需返回类别名称，不要解释。',
+                    },
+                    { role: 'user', content: title || '(无标题)' },
+                ],
+                temperature: 0.3,
+            }),
+        });
+
+        const data = await response.json();
+        const category = data.choices?.[0]?.message?.content?.trim() || '🔍 其他';
+
+        await chrome.storage.local.set({ [cacheKey]: category });
+        return category;
+    } catch (error) {
+        console.error('DeepSeek 呼叫失败:', error);
+        return '🔍 其他';
+    }
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // ── 统一记录函数：记录一次“使用” (关闭或切换) ──
@@ -143,6 +192,27 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 }))
             });
         });
+        return true;
+    }
+
+    // ── DeepSeek：按标签页标题智能分类（带缓存） ──
+    if (request.action === 'classify_tabs') {
+        (async () => {
+            const results = {};
+            const apiKey = await getDeepSeekApiKey();
+            const tabList = Array.isArray(request.tabs) ? request.tabs : [];
+            if (!apiKey) {
+                for (const tab of tabList) {
+                    results[tab.id] = '🔍 其他';
+                }
+                sendResponse({ classification: results });
+                return;
+            }
+            for (const tab of tabList) {
+                results[tab.id] = await getSmartCategory(tab.title, apiKey);
+            }
+            sendResponse({ classification: results });
+        })();
         return true;
     }
 

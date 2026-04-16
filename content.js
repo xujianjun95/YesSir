@@ -72,6 +72,22 @@ let switcherTabs     = [];
 let switcherSelIdx   = 0;
 let switcherCurrentWindowId = null;
 let switcherKeydownHandler = null;
+/** tabId -> AI 分类文案 */
+let tabCategoryMap = {};
+/** 当前选中的顶部分类筛选，null 表示不过滤 */
+let activeCategoryFilter = null;
+
+function getTabDomainKey(tab) {
+    let domain = '本地网页/其他';
+    try {
+        if (tab.url && tab.url.startsWith('http')) {
+            const url = new URL(tab.url);
+            const parts = url.hostname.split('.');
+            domain = parts.length >= 2 ? parts.slice(-2).join('.') : url.hostname;
+        }
+    } catch (e) {}
+    return domain;
+}
 
 // 工具函数：按域名对 Tab 进行分组
 function groupTabsByDomain(tabs) {
@@ -79,14 +95,7 @@ function groupTabsByDomain(tabs) {
     const domainMap = new Map();
 
     tabs.forEach((tab, i) => {
-        let domain = '本地网页/其他';
-        try {
-            if (tab.url && tab.url.startsWith('http')) {
-                const url = new URL(tab.url);
-                const parts = url.hostname.split('.');
-                domain = parts.length >= 2 ? parts.slice(-2).join('.') : url.hostname;
-            }
-        } catch(e) {}
+        const domain = getTabDomainKey(tab);
 
         if (!domainMap.has(domain)) {
             const newGroup = { domain, icon: tab.favIconUrl, tabs: [] };
@@ -100,6 +109,34 @@ function groupTabsByDomain(tabs) {
         group.tabs.push({ ...tab, originalIndex: i });
     });
     return groups;
+}
+
+function normalizeCategoryByDomain(classification, tabs) {
+    const byDomain = {};
+    const tabById = new Map(tabs.map((t) => [String(t.id), t]));
+
+    Object.entries(classification || {}).forEach(([tabId, cat]) => {
+        const tab = tabById.get(String(tabId));
+        if (!tab) return;
+        const domain = getTabDomainKey(tab);
+        if (!byDomain[domain]) byDomain[domain] = {};
+        byDomain[domain][cat] = (byDomain[domain][cat] || 0) + 1;
+    });
+
+    const winnerByDomain = {};
+    Object.entries(byDomain).forEach(([domain, stats]) => {
+        winnerByDomain[domain] = Object.entries(stats).sort((a, b) => b[1] - a[1])[0]?.[0] || '🔍 其他';
+    });
+
+    const normalized = {};
+    Object.keys(classification || {}).forEach((tabId) => {
+        const tab = tabById.get(String(tabId));
+        if (!tab) return;
+        const domain = getTabDomainKey(tab);
+        normalized[tabId] = winnerByDomain[domain] || '🔍 其他';
+    });
+
+    return normalized;
 }
 
 function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
@@ -116,6 +153,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     switcherTabs = tabs.slice();
     switcherSelIdx = 0;
     switcherVisible = true;
+    if (!isRefresh) {
+        activeCategoryFilter = null;
+        tabCategoryMap = {};
+    }
 
     const overlay = document.createElement('div');
     overlay.id = 'ys-switcher-overlay';
@@ -178,11 +219,15 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     header.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center;">
         <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;">🫡 Yes Sir 标签页管理</span>
-        <div style="display:flex; align-items:center;">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div id="ys-category-filters" style="display:flex; gap:6px; align-items:center;"></div>
+
+          <div style="width:1px; height:16px; background:rgba(0,0,0,0.08); margin:0 2px;"></div>
+
           <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
-            display:flex; align-items:center; gap:5px; padding:3px 8px;
+            display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
             background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
-            border-radius:6px; cursor:pointer; transition:all 0.1s;
+            border-radius:8px; cursor:pointer; transition:all 0.2s; box-sizing:border-box;
           ">
             <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">💊 后悔药</span>
           </div>
@@ -206,18 +251,25 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     listContainer.id = 'ys-switcher-list';
     Object.assign(listContainer.style, {
         overflowY:  'auto',
-        padding:    '12px 20px',
+        padding:    '0 20px',
         flexGrow:   '1',
         scrollbarWidth: 'none',
         overscrollBehavior: 'contain',
         display:    'flex',
         flexDirection: 'column',
-        gap:        '12px',
+        gap:        '0',
     });
 
     const CARD_OPEN_TRANSITION = 'transform 0.18s cubic-bezier(0.34,1.3,0.64,1)';
     const CARD_HEIGHT_EASE = 'cubic-bezier(0.25, 0.8, 0.25, 1)';
     let cardHeightAnimToken = 0;
+    const EMPTY_COUNTS = {
+        '📈 投资盯盘': 0,
+        '💻 研发工具': 0,
+        '🍿 休闲摸鱼': 0,
+        '🔍 其他': 0,
+    };
+    let categoryCounts = { ...EMPTY_COUNTS };
 
     const getDefaultSelectedIdx = (items) => {
         const activeInCurrent = items.findIndex(t => t.active && switcherCurrentWindowId !== null && t.windowId === switcherCurrentWindowId);
@@ -235,13 +287,20 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         listContainer.innerHTML = '';
 
         const keyword = filterText.trim().toLowerCase();
-        const filteredTabs = keyword
+        let filteredTabs = keyword
             ? tabs.filter((t) => {
                 const title = (t.title || '').toLowerCase();
                 const url = (t.url || '').toLowerCase();
                 return title.includes(keyword) || url.includes(keyword);
             })
             : tabs.slice();
+
+        if (activeCategoryFilter) {
+            filteredTabs = filteredTabs.filter((t) => {
+                const cat = tabCategoryMap[t.id] ?? tabCategoryMap[String(t.id)];
+                return cat === activeCategoryFilter;
+            });
+        }
 
         if (filteredTabs.length === 0) {
             switcherTabs = [];
@@ -275,10 +334,19 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 minWidth: '0',
                 display: 'flex',
                 alignItems: 'flex-start',
-                gap: '8px',
-                paddingTop: '8px',
+                gap: '0',
+                paddingTop: '9px',
                 opacity: '0.65',
                 transition: 'opacity 0.2s ease',
+            });
+
+            const domainRow = document.createElement('div');
+            domainRow.className = 'ys-domain-row';
+            Object.assign(domainRow.style, {
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                width: '100%',
             });
 
             const iconDiv = document.createElement('div');
@@ -298,14 +366,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             }
 
             const domainText = document.createElement('div');
+            domainText.className = 'ys-domain-label';
             Object.assign(domainText.style, {
+                flex: '1',
+                minWidth: '0',
                 fontSize: '12px', fontWeight: '600', color: 'rgba(45, 55, 75, 0.92)',
                 wordBreak: 'break-all', lineHeight: '1.4',
             });
             domainText.textContent = group.domain;
 
-            leftCol.appendChild(iconDiv);
-            leftCol.appendChild(domainText);
+            domainRow.appendChild(iconDiv);
+            domainRow.appendChild(domainText);
+            leftCol.appendChild(domainRow);
 
             const rightCol = document.createElement('div');
             Object.assign(rightCol.style, {
@@ -313,6 +385,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: '2px',
+                paddingTop: '0',
+                paddingBottom: '0',
             });
 
             group.tabs.forEach(tab => {
@@ -377,6 +451,100 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }
     }
 
+    const CATEGORY_FILTERS = [
+        { label: '投资盯盘', emoji: '📈' },
+        { label: '研发工具', emoji: '💻' },
+        { label: '休闲摸鱼', emoji: '🍿' },
+        { label: '其他', emoji: '🔍' },
+    ];
+
+    function initCategoryButtons(counts = categoryCounts) {
+        const filterContainer = document.getElementById('ys-category-filters');
+        if (!filterContainer) return;
+
+        filterContainer.innerHTML = '';
+        CATEGORY_FILTERS.forEach((cat) => {
+            const fullText = `${cat.emoji} ${cat.label}`;
+            const count = counts[fullText] || 0;
+            const isActive = activeCategoryFilter === fullText;
+            const btn = document.createElement('div');
+            btn.className = 'ys-cat-btn';
+            btn.title = fullText;
+            Object.assign(btn.style, {
+                height: '28px',
+                minWidth: '28px',
+                maxWidth: '28px',
+                padding: '0 7px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                background: isActive ? 'rgba(80, 110, 220, 0.16)' : 'rgba(0, 0, 0, 0.04)',
+                border: `1px solid ${isActive ? 'rgba(80, 110, 220, 0.32)' : 'rgba(0, 0, 0, 0.05)'}`,
+                color: isActive ? 'rgba(50, 70, 160, 0.95)' : 'rgba(50, 60, 80, 0.8)',
+                fontSize: '12px',
+                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                overflow: 'hidden',
+                whiteSpace: 'nowrap',
+                boxSizing: 'border-box',
+                userSelect: 'none',
+                lineHeight: '1',
+            });
+
+            btn.innerHTML = `
+              <span class="btn-emoji" style="flex-shrink:0;">${cat.emoji}</span>
+              <span class="btn-text" style="
+                display:inline-block;
+                max-width:0;
+                margin-left:0;
+                opacity:0;
+                overflow:hidden;
+                transition:max-width 0.25s ease, margin-left 0.2s ease, opacity 0.2s;
+                font-weight:600;
+              ">${cat.label} · ${count}</span>`;
+
+            btn.addEventListener('mouseenter', () => {
+                btn.style.maxWidth = '140px';
+                btn.style.background = 'rgba(80, 110, 220, 0.08)';
+                btn.style.borderColor = 'rgba(80, 110, 220, 0.2)';
+                const textEl = btn.querySelector('.btn-text');
+                if (textEl) {
+                    textEl.style.maxWidth = '120px';
+                    textEl.style.marginLeft = '6px';
+                    textEl.style.opacity = '1';
+                }
+            });
+
+            btn.addEventListener('mouseleave', () => {
+                btn.style.maxWidth = '28px';
+                if (activeCategoryFilter === fullText) {
+                    btn.style.background = 'rgba(80, 110, 220, 0.16)';
+                    btn.style.borderColor = 'rgba(80, 110, 220, 0.32)';
+                } else {
+                    btn.style.background = 'rgba(0, 0, 0, 0.04)';
+                    btn.style.borderColor = 'rgba(0, 0, 0, 0.05)';
+                }
+                const textEl = btn.querySelector('.btn-text');
+                if (textEl) {
+                    textEl.style.maxWidth = '0';
+                    textEl.style.marginLeft = '0';
+                    textEl.style.opacity = '0';
+                }
+            });
+
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                activeCategoryFilter = activeCategoryFilter === fullText ? null : fullText;
+                const si = document.getElementById('ys-search-input');
+                renderList(si ? si.value : '', { restoreScroll: false, preferActive: false, animate: true });
+                initCategoryButtons(counts);
+            });
+
+            filterContainer.appendChild(btn);
+        });
+    }
+
     card.appendChild(header);
     card.appendChild(listContainer);
     overlay.appendChild(card);
@@ -435,6 +603,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         });
     }
 
+    initCategoryButtons();
+
     switcherKeydownHandler = (e) => {
         if (!switcherVisible) return;
         if (e.key === 'ArrowDown') {
@@ -463,6 +633,28 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (searchInput) searchInput.focus();
         }, 50);
     });
+
+    const tabsForClassify = tabs.map((t) => ({ id: t.id, title: t.title || '' }));
+    chrome.runtime.sendMessage({ action: 'classify_tabs', tabs: tabsForClassify }, (res) => {
+        if (chrome.runtime.lastError) return;
+        if (res && res.classification) {
+            const normalizedClassification = normalizeCategoryByDomain(res.classification, tabs);
+            Object.assign(tabCategoryMap, normalizedClassification);
+            categoryCounts = { ...EMPTY_COUNTS };
+            Object.values(normalizedClassification).forEach((cat) => {
+                if (Object.prototype.hasOwnProperty.call(categoryCounts, cat)) {
+                    categoryCounts[cat] += 1;
+                } else {
+                    categoryCounts['🔍 其他'] += 1;
+                }
+            });
+            initCategoryButtons(categoryCounts);
+            if (activeCategoryFilter) {
+                const si = document.getElementById('ys-search-input');
+                renderList(si ? si.value : '', { restoreScroll: false, preferActive: false, animate: false });
+            }
+        }
+    });
 }
 
 function buildTabItem(tab, globalIdx, container) {
@@ -473,6 +665,7 @@ function buildTabItem(tab, globalIdx, container) {
         display:        'flex',
         alignItems:     'center',
         justifyContent: 'space-between',
+        minHeight:      '36px',
         padding:        '8px 12px',
         borderRadius:   '8px',
         cursor:         'pointer',
@@ -481,6 +674,7 @@ function buildTabItem(tab, globalIdx, container) {
         userSelect:     'none',
         pointerEvents:  'auto',
         position:       'relative',
+        boxSizing:      'border-box',
     });
 
     const leftArea = document.createElement('div');
