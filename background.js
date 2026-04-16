@@ -61,6 +61,33 @@ function inferSiteNameByKeyword(title, url = '') {
     const d = getDomainFromUrl(url);
     const all = `${t} ${d}`;
 
+    // 站点名优先按真实域名判断，避免“百度搜索 DeepSeek”这类标题把品牌识别错到查询词上。
+    if (/(\.|^)baidu\.com$/.test(d)) return '百度';
+    if (/(\.|^)aliyun\.com$/.test(d)) return '阿里云';
+    if (/(\.|^)github\.com$/.test(d)) return 'GitHub';
+    if (/(\.|^)gitlab\.com$/.test(d)) return 'GitLab';
+    if (/(\.|^)gitee\.com$/.test(d)) return 'Gitee';
+    if (/(\.|^)notion\.site$|(\.|^)notion\.so$/.test(d)) return 'Notion';
+    if (/(\.|^)feishu\.cn$|(\.|^)larksuite\.com$/.test(d)) return '飞书';
+    if (/(\.|^)openai\.com$/.test(d)) return 'OpenAI';
+    if (/(\.|^)claude\.ai$/.test(d)) return 'Claude';
+    if (/(\.|^)deepseek\.com$/.test(d)) return 'DeepSeek';
+    if (/(\.|^)cursor\.com$|(\.|^)cursor\.sh$/.test(d)) return 'Cursor';
+    if (/(\.|^)bilibili\.com$/.test(d)) return '哔哩哔哩';
+    if (/(\.|^)zhihu\.com$/.test(d)) return '知乎';
+    if (/(\.|^)weibo\.com$/.test(d)) return '微博';
+    if (/(\.|^)taobao\.com$/.test(d)) return '淘宝';
+    if (/(\.|^)jd\.com$/.test(d)) return '京东';
+    if (/(\.|^)douyin\.com$|(\.|^)tiktok\.com$/.test(d)) return '抖音';
+    if (/(\.|^)xiaohongshu\.com$|(\.|^)xhs\.link$|(\.|^)rednote\.com$/.test(d)) return '小红书';
+    if (/(\.|^)youtube\.com$/.test(d)) return 'YouTube';
+    if (/(\.|^)x\.com$|(\.|^)twitter\.com$/.test(d)) return 'X';
+    if (/(\.|^)linkedin\.com$/.test(d)) return 'LinkedIn';
+    if (/(\.|^)reddit\.com$/.test(d)) return 'Reddit';
+    if (/(\.|^)stackoverflow\.com$/.test(d)) return 'Stack Overflow';
+    if (/(\.|^)npmjs\.com$/.test(d)) return 'npm';
+    if (/(\.|^)developer\.mozilla\.org$|(\.|^)mdn\.mozilla\.org$/.test(d)) return 'MDN';
+
     if (/aliyun/.test(all)) return '阿里云';
     if (/github/.test(all)) return 'GitHub';
     if (/gitlab/.test(all)) return 'GitLab';

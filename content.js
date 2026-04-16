@@ -381,7 +381,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             Object.assign(domainText.style, {
                 flex: '1',
                 minWidth: '0',
-                fontSize: '12px', fontWeight: '600', color: 'rgba(45, 55, 75, 0.92)',
+                fontSize: '13px', fontWeight: '500', color: 'rgba(50, 60, 80, 0.9)',
                 wordBreak: 'break-all', lineHeight: '1.4',
             });
             const displayDomainName = domainToSiteNameMap[group.domain] || group.domain;
@@ -933,6 +933,11 @@ function scrollSelectedToTopIfNotLast() {
     if (!list || !item) return false;
     if (switcherTabs.length === 0) return false;
     if (switcherSelIdx >= switcherTabs.length - 1) return false;
+
+    // 如果当前页已经处于列表尾部的最后几行，就保持原来的相对位置，
+    // 只在外层兜底逻辑里保证它可见，不再强行顶到第一行。
+    const trailingItemsCount = switcherTabs.length - switcherSelIdx - 1;
+    if (trailingItemsCount <= 2) return false;
 
     // 当选中项靠近底部时，补一段不可见底部空间，确保它可以滚到“第一行”。
     const extraBottomSpace = Math.max(0, list.clientHeight - item.offsetHeight - 8);
