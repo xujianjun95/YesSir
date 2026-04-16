@@ -157,7 +157,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // ── 在面板中点击：关闭指定标签 ──
-    if (request.action === "close_tab_by_id") {
+    else if (request.action === "close_tab_by_id") {
         recordUsage();
         chrome.tabs.remove(request.tabId, () => {
             const err = chrome.runtime.lastError;
@@ -167,13 +167,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // ── 切换标签页 ──
-    if (request.action === "switch_tab") {
+    else if (request.action === "switch_tab") {
         recordUsage();
         chrome.tabs.update(request.tabId, { active: true });
     }
 
     // ── 全局切换标签页（支持跨窗口） ──
-    if (request.action === "switch_tab_global") {
+    else if (request.action === "switch_tab_global") {
         recordUsage();
         const targetWindowId = request.windowId;
         const targetTabId = request.tabId;
@@ -193,7 +193,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // ── 恢复最近关闭的最多 3 条会话（标签或窗口）──
-    if (request.action === "restore_last_3_tabs") {
+    else if (request.action === "restore_last_3_tabs") {
         chrome.sessions.getRecentlyClosed({ maxResults: 3 }, (sessions) => {
             if (chrome.runtime.lastError) {
                 sendResponse({ success: false, message: chrome.runtime.lastError.message });
@@ -226,7 +226,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // ── 获取近五天统计 ──
-    if (request.action === "get_daily_stats") {
+    else if (request.action === "get_daily_stats") {
         chrome.storage.local.get({ dailyStats: {} }, function(result) {
             sendResponse({ dailyStats: result.dailyStats });
         });
@@ -234,7 +234,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // ── 获取所有窗口标签页（用于全局看板） ──
-    if (request.action === "get_tabs") {
+    else if (request.action === "get_tabs") {
         const currentWindowId = sender.tab ? sender.tab.windowId : null;
         chrome.tabs.query({}, function(tabs) {
             const sortedTabs = tabs.slice().sort((a, b) => {
@@ -270,7 +270,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // ── DeepSeek：按标签页标题智能分类（带缓存） ──
-    if (request.action === 'classify_tabs') {
+    else if (request.action === 'classify_tabs') {
         (async () => {
             const results = {};
             const siteNames = {};
@@ -287,15 +287,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     return;
                 }
 
-                if (domainNameMemo.has(domain)) {
-                    siteNames[tab.id] = domainNameMemo.get(domain);
-                    return;
+                let pendingSiteName = domainNameMemo.get(domain);
+                if (!pendingSiteName) {
+                    pendingSiteName = getSmartSiteName(tab.title, tab.url, apiKey)
+                        .then((name) => name ?? null)
+                        .catch(() => null);
+                    domainNameMemo.set(domain, pendingSiteName);
                 }
-
-                const siteName = await getSmartSiteName(tab.title, tab.url, apiKey);
-                const normalizedName = normalizeSiteName(siteName, tab.url);
-                domainNameMemo.set(domain, normalizedName);
-                siteNames[tab.id] = normalizedName;
+                siteNames[tab.id] = await pendingSiteName;
             }));
 
             sendResponse({ classification: results, siteNames });

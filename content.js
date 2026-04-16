@@ -1,6 +1,7 @@
 // ─── Config & State ───────────────────────────────────────────────────────────
 
-const isMac = /Mac|iPhone|iPod|iPad/.test(navigator.platform) || navigator.userAgent.includes("Mac");
+const isMac = (navigator.userAgentData && navigator.userAgentData.platform === 'macOS')
+    || /Mac|iPhone|iPod|iPad/.test(navigator.userAgent);
 let modifierKey = isMac ? 'meta' : 'alt';
 
 const MOD_EVENT_KEY = { meta: 'Meta', alt: 'Alt', ctrl: 'Control', shift: 'Shift' };
@@ -62,6 +63,178 @@ function showToast(count) {
         toast.style.opacity = '0';
         setTimeout(() => toast.remove(), 220);
     }, 2000);
+}
+
+
+// ─── Settings Modals ──────────────────────────────────────────────────────────
+
+// 统一的弹窗工厂函数，保持毛玻璃 UI 风格一致
+function openYsModal(title, renderContent) {
+    const overlay = document.createElement('div');
+    Object.assign(overlay.style, {
+        position: 'fixed', inset: '0', zIndex: '2147483648',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0, 0, 0, 0.15)', backdropFilter: 'blur(4px)',
+        WebkitBackdropFilter: 'blur(4px)',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        opacity: '0', transition: 'opacity 0.2s ease'
+    });
+
+    const modal = document.createElement('div');
+    Object.assign(modal.style, {
+        background: 'rgba(252, 252, 254, 0.85)', backdropFilter: 'saturate(180%) blur(32px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(32px)',
+        border: '1px solid rgba(255, 255, 255, 0.8)', borderRadius: '16px',
+        boxShadow: '0 24px 48px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8)',
+        width: '320px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px',
+        transform: 'scale(0.95) translateY(10px)', transition: 'all 0.25s cubic-bezier(0.34,1.3,0.64,1)'
+    });
+
+    const header = document.createElement('div');
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.alignItems = 'center';
+    header.innerHTML = `
+        <span style="font-size:15px;font-weight:600;color:rgba(40,50,70,0.95);">${title}</span>
+        <div class="ys-modal-close" style="cursor:pointer;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(0,0,0,0.04);color:rgba(100,110,130,0.8);font-size:16px;line-height:1;transition:background 0.15s;">×</div>`;
+
+    modal.appendChild(header);
+
+    const contentBody = document.createElement('div');
+    renderContent(contentBody, close);
+    modal.appendChild(contentBody);
+
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    const closeBtn = header.querySelector('.ys-modal-close');
+    closeBtn.addEventListener('mouseenter', () => closeBtn.style.background = 'rgba(0,0,0,0.08)');
+    closeBtn.addEventListener('mouseleave', () => closeBtn.style.background = 'rgba(0,0,0,0.04)');
+    closeBtn.addEventListener('click', close);
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+
+    requestAnimationFrame(() => {
+        overlay.style.opacity = '1';
+        modal.style.transform = 'scale(1) translateY(0)';
+    });
+
+    function close() {
+        modal.style.transform = 'scale(0.95) translateY(10px)';
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.remove(), 200);
+    }
+}
+
+// 1. 修饰键设置弹窗
+function showModifierSettingsModal() {
+    openYsModal('⌨️ 修饰键设置', (container) => {
+        const render = () => {
+            const keys = ['meta', 'alt', 'ctrl', 'shift'];
+            let html = `
+                <div style="font-size:12px;color:rgba(100,110,130,0.85);margin-bottom:12px;line-height:1.5;">
+                    按住修饰键双击空白处关闭当前标签页 & 双击修饰键呼出标签页管理看板。
+                </div>
+                <div style="display:flex;flex-direction:column;gap:6px;">
+            `;
+            keys.forEach((k) => {
+                const isSel = k === modifierKey;
+                html += `
+                    <div data-key="${k}" class="ys-key-opt-modal" style="
+                        display:flex;align-items:center;gap:10px; padding:10px 14px; border-radius:10px; cursor:pointer;
+                        background:${isSel ? 'rgba(80,110,220,0.12)' : 'rgba(0,0,0,0.03)'};
+                        border:1px solid ${isSel ? 'rgba(80,110,220,0.3)' : 'transparent'};
+                        transition:all 0.15s;
+                    ">
+                        <div style="width:16px;height:16px;border-radius:50%;border:1.5px solid ${isSel ? 'rgba(80,110,220,0.9)' : 'rgba(100,110,130,0.4)'}; background:${isSel ? 'rgba(80,110,220,0.9)' : 'transparent'}; display:flex;align-items:center;justify-content:center;">
+                            ${isSel ? '<div style="width:6px;height:6px;border-radius:50%;background:#fff;"></div>' : ''}
+                        </div>
+                        <span style="font-size:13px; color:${isSel ? 'rgba(50,70,160,0.95)' : 'rgba(60,70,80,0.9)'}; font-weight:${isSel ? '600' : '500'}">${MOD_LABELS[k]}</span>
+                    </div>
+                `;
+            });
+            html += `</div>`;
+            container.innerHTML = html;
+
+            container.querySelectorAll('.ys-key-opt-modal').forEach((el) => {
+                el.addEventListener('mouseenter', () => {
+                    if (el.dataset.key !== modifierKey) el.style.background = 'rgba(0,0,0,0.06)';
+                });
+                el.addEventListener('mouseleave', () => {
+                    if (el.dataset.key !== modifierKey) el.style.background = 'rgba(0,0,0,0.03)';
+                });
+                el.addEventListener('click', () => {
+                    modifierKey = el.dataset.key;
+                    chrome.storage.local.set({ modifierKey });
+                    render();
+                });
+            });
+        };
+        render();
+    });
+}
+
+// 2. API Key 设置弹窗
+function showApiKeyModal() {
+    openYsModal('🔑 API Key 设置', (container, close) => {
+        container.innerHTML = `
+            <div style="font-size:12px;color:rgba(100,110,130,0.85);line-height:1.5;margin-bottom:12px;">
+                「🫡 Yes Sir」标签页管理的 AI 功能依托于大模型处理，当前版本仅支持配置 DeepSeek 提供的 API key。
+            </div>
+            <div style="position:relative;margin-bottom:16px;">
+                <input type="password" id="ys-apikey-input" placeholder="sk-..." autocomplete="off" style="
+                    width:100%; padding:10px 44px 10px 14px; border-radius:8px;
+                    border:1px solid rgba(0,0,0,0.15); background:rgba(255,255,255,0.6);
+                    font-size:13px; outline:none; box-sizing:border-box;
+                    box-shadow:inset 0 1px 2px rgba(0,0,0,0.02); transition:border-color 0.2s;
+                ">
+                <button id="ys-apikey-visibility-toggle" type="button" title="显示/隐藏 API key" style="
+                    position:absolute; right:8px; top:50%; transform:translateY(-50%);
+                    width:28px; height:28px; border:none; border-radius:7px;
+                    background:rgba(0,0,0,0.04); cursor:pointer;
+                    display:flex; align-items:center; justify-content:center;
+                    font-size:14px; line-height:1; transition:background 0.15s;
+                ">😎</button>
+            </div>
+            <div style="display:flex; justify-content:flex-end; gap:8px;">
+                <button id="ys-apikey-cancel" style="padding:7px 16px; border-radius:8px; border:1px solid rgba(0,0,0,0.1); background:rgba(255,255,255,0.5); cursor:pointer; font-size:13px; color:rgba(60,70,80,0.9); font-weight:500; transition:background 0.15s;">取消</button>
+                <button id="ys-apikey-save" style="padding:7px 16px; border-radius:8px; border:none; background:rgba(80,110,220,0.9); color:#fff; cursor:pointer; font-size:13px; font-weight:600; transition:background 0.15s; box-shadow:0 2px 6px rgba(80,110,220,0.2);">确定</button>
+            </div>
+        `;
+
+        const input = container.querySelector('#ys-apikey-input');
+        const visibilityBtn = container.querySelector('#ys-apikey-visibility-toggle');
+
+        input.addEventListener('focus', () => input.style.borderColor = 'rgba(80,110,220,0.5)');
+        input.addEventListener('blur', () => input.style.borderColor = 'rgba(0,0,0,0.15)');
+
+        visibilityBtn.addEventListener('mouseenter', () => visibilityBtn.style.background = 'rgba(0,0,0,0.08)');
+        visibilityBtn.addEventListener('mouseleave', () => visibilityBtn.style.background = 'rgba(0,0,0,0.04)');
+        visibilityBtn.addEventListener('click', () => {
+            const showing = input.type === 'text';
+            input.type = showing ? 'password' : 'text';
+            visibilityBtn.textContent = showing ? '😎' : '🙂';
+            visibilityBtn.title = showing ? '显示 API key' : '隐藏 API key';
+        });
+
+        chrome.storage.local.get(['deepseekApiKey'], (res) => {
+            if (res.deepseekApiKey) input.value = res.deepseekApiKey;
+        });
+
+        const cancelBtn = container.querySelector('#ys-apikey-cancel');
+        cancelBtn.addEventListener('mouseenter', () => cancelBtn.style.background = 'rgba(0,0,0,0.05)');
+        cancelBtn.addEventListener('mouseleave', () => cancelBtn.style.background = 'rgba(255,255,255,0.5)');
+        cancelBtn.addEventListener('click', close);
+
+        const saveBtn = container.querySelector('#ys-apikey-save');
+        saveBtn.addEventListener('mouseenter', () => saveBtn.style.background = 'rgba(60,90,200,0.95)');
+        saveBtn.addEventListener('mouseleave', () => saveBtn.style.background = 'rgba(80,110,220,0.9)');
+        saveBtn.addEventListener('click', () => {
+            const val = input.value.trim();
+            chrome.storage.local.set({ deepseekApiKey: val }, () => {
+                close();
+            });
+        });
+    });
 }
 
 
@@ -226,15 +399,28 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     });
     header.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;">🫡 Yes Sir 标签页管理</span>
-        <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
-          display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
-          background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
-          border-radius:8px; cursor:pointer; transition:all 0.2s; box-sizing:border-box;
-          white-space:nowrap; flex-shrink:0;
-        ">
-          <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">💊 后悔药</span>
+        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;">「🫡 Yes Sir」标签页管理</span>
+        
+        <div id="ys-top-actions" style="display:flex; gap:8px; position:relative;">
+            <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
+              display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
+              background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
+              border-radius:8px; cursor:pointer; transition:all 0.2s; box-sizing:border-box;
+              white-space:nowrap; flex-shrink:0;
+            ">
+              <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">💊 后悔药</span>
+            </div>
+            
+            <div id="ys-main-settings-btn" title="设置" style="
+              display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
+              background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
+              border-radius:8px; cursor:pointer; transition:all 0.2s; box-sizing:border-box;
+              white-space:nowrap; flex-shrink:0;
+            ">
+              <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">⚙️ 设置</span>
+            </div>
         </div>
+
       </div>
       <div id="ys-category-filters" style="display:flex; gap:6px; align-items:center; width:100%; box-sizing:border-box; margin-top:8px;"></div>
       <div style="position:relative; margin-top:10px;">
@@ -598,6 +784,74 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     }, 500);
                 }
             });
+        });
+    }
+
+    // 设置按钮下拉菜单逻辑
+    const settingsBtn = document.getElementById('ys-main-settings-btn');
+    if (settingsBtn) {
+        settingsBtn.addEventListener('mouseenter', () => settingsBtn.style.background = 'rgba(80, 110, 220, 0.15)');
+        settingsBtn.addEventListener('mouseleave', () => settingsBtn.style.background = 'rgba(80, 110, 220, 0.08)');
+        settingsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let menu = document.getElementById('ys-settings-dropdown');
+            if (menu) {
+                menu.remove();
+                return;
+            }
+            menu = document.createElement('div');
+            menu.id = 'ys-settings-dropdown';
+            Object.assign(menu.style, {
+                position: 'absolute',
+                top: '36px',
+                right: '0',
+                background: 'rgba(255, 255, 255, 0.85)',
+                backdropFilter: 'saturate(180%) blur(20px)',
+                WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+                border: '1px solid rgba(255, 255, 255, 0.8)',
+                boxShadow: '0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.5)',
+                borderRadius: '10px',
+                padding: '6px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+                zIndex: '100',
+                minWidth: '130px'
+            });
+
+            const createItem = (icon, text, onClick) => {
+                const item = document.createElement('div');
+                item.innerHTML = `<span style="margin-right:8px;font-size:13px;">${icon}</span><span style="font-size:12px;font-weight:600;color:rgba(50,60,80,0.9);">${text}</span>`;
+                Object.assign(item.style, {
+                    padding: '8px 12px',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    transition: 'background 0.15s'
+                });
+                item.addEventListener('mouseenter', () => item.style.background = 'rgba(80, 110, 220, 0.08)');
+                item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+                item.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    menu.remove();
+                    onClick();
+                });
+                return item;
+            };
+
+            menu.appendChild(createItem('⌨️', '修饰键设置', showModifierSettingsModal));
+            menu.appendChild(createItem('🔑', 'API Key 设置', showApiKeyModal));
+
+            document.getElementById('ys-top-actions').appendChild(menu);
+
+            const closeMenu = (ev) => {
+                if (!menu.contains(ev.target) && ev.target.closest('#ys-main-settings-btn') === null) {
+                    menu.remove();
+                    document.removeEventListener('click', closeMenu);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', closeMenu), 0);
         });
     }
 
@@ -1096,7 +1350,7 @@ function initFloatingWidget() {
     function repositionPanel() {
         if (!panelOpen) return;
         const panelH = panel.offsetHeight || 200;
-        const clampedY = Math.max(8, Math.min(window.innerHeight - panelH - 8, posY - 8));
+        const clampedY = Math.max(8, Math.min(window.innerHeight - panelH - 8, posY));
         panel.style.top = clampedY + 'px';
         if (snapEdge === 'right') { panel.style.right = '58px'; panel.style.left = 'auto'; }
         else                      { panel.style.left  = '58px'; panel.style.right = 'auto'; }
@@ -1196,34 +1450,20 @@ function initFloatingWidget() {
         const todayCount = days[4].count;
 
         panel.innerHTML = `
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-            <span style="font-size:12px;font-weight:600;color:rgba(60,70,110,0.85);letter-spacing:0.01em;">近 5 天使用统计</span>
-            <div style="display:flex;align-items:center;gap:6px;">
-              <span style="font-size:10px;color:rgba(120,130,160,0.7);">今日 <b style="color:rgba(80,110,200,0.85)">${todayCount}</b></span>
-              <button id="ys-settings-btn" style="
-                background:none;border:none;cursor:pointer;padding:2px;
-                display:flex;align-items:center;justify-content:center;
-                opacity:0.45;transition:opacity 0.15s;border-radius:4px;
-              " title="修饰键设置">
-                <svg width="13" height="13" viewBox="0 0 14 14" fill="none">
-                  <circle cx="7" cy="7" r="2" stroke="rgba(80,100,160,0.9)" stroke-width="1.4"/>
-                  <path d="M7 1v1.5M7 11.5V13M1 7h1.5M11.5 7H13M2.9 2.9l1.1 1.1M10 10l1.1 1.1M10 4l1.1-1.1M2.9 11.1L4 10"
-                    stroke="rgba(80,100,160,0.9)" stroke-width="1.3" stroke-linecap="round"/>
-                </svg>
-              </button>
-            </div>
+          <div style="display:flex;justify-content:center;align-items:center;margin-bottom:4px;">
+            <span style="font-size:12px;font-weight:600;color:rgba(60,70,110,0.85);letter-spacing:0.01em;">「🫡 Yes Sir」近 5 天使用统计</span>
           </div>
-          ${buildSVGChart(days)}
-          <div style="display:flex;justify-content:center;align-items:center;gap:4px;margin-top:4px;">
-            <span style="font-size:10px;color:rgba(120,130,160,0.7);">五日合计</span>
-            <span style="font-size:13px;font-weight:700;color:rgba(80,110,200,0.85);">${total5}</span>
-            <span style="font-size:10px;color:rgba(120,130,160,0.7);">次</span>
+          <div style="display:flex;justify-content:center;width:100%;">
+            ${buildSVGChart(days)}
+          </div>
+          <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:4px;">
+            <span style="font-size:10px;color:rgba(120,130,160,0.7);">今日 <b style="font-size:13px;font-weight:700;color:rgba(80,110,200,0.85)">${todayCount}</b> 次</span>
+            <div style="display:flex;align-items:center;gap:4px;">
+              <span style="font-size:10px;color:rgba(120,130,160,0.7);">五日合计</span>
+              <span style="font-size:13px;font-weight:700;color:rgba(80,110,200,0.85);">${total5}</span>
+              <span style="font-size:10px;color:rgba(120,130,160,0.7);">次</span>
+            </div>
           </div>`;
-
-        const settingsBtn = panel.querySelector('#ys-settings-btn');
-        settingsBtn.addEventListener('mouseenter', () => settingsBtn.style.opacity = '1');
-        settingsBtn.addEventListener('mouseleave', () => settingsBtn.style.opacity = '0.45');
-        settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); renderSettingsView(); });
     }
 
     function renderSettingsView() {
@@ -1291,12 +1531,14 @@ function initFloatingWidget() {
     }
 
     function buildSVGChart(days) {
+        if (!Array.isArray(days) || days.length === 0) return '';
         const W = 182, H = 92, padL = 22, padR = 6, padT = 10, padB = 22;
         const cW = W - padL - padR, cH = H - padT - padB;
         const counts = days.map(d => d.count);
         const maxVal = Math.max(...counts, 1);
+        const divisor = days.length > 1 ? (days.length - 1) : 1;
         const pts = days.map((d, i) => ({
-            x: padL + (i / (days.length - 1)) * cW,
+            x: padL + (i / divisor) * cW,
             y: padT + (1 - d.count / maxVal) * cH, ...d
         }));
 
