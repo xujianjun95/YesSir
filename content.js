@@ -74,6 +74,8 @@ let switcherCurrentWindowId = null;
 let switcherKeydownHandler = null;
 /** tabId -> AI 分类文案 */
 let tabCategoryMap = {};
+/** domain -> AI 提取的网站名称 */
+let domainToSiteNameMap = {};
 /** 当前选中的顶部分类筛选，null 表示不过滤 */
 let activeCategoryFilter = null;
 
@@ -114,11 +116,13 @@ function groupTabsByDomain(tabs) {
 function normalizeCategoryByDomain(classification, tabs) {
     const byDomain = {};
     const tabById = new Map(tabs.map((t) => [String(t.id), t]));
+    const LOCAL_DOMAIN_KEY = '本地网页/其他';
 
     Object.entries(classification || {}).forEach(([tabId, cat]) => {
         const tab = tabById.get(String(tabId));
         if (!tab) return;
         const domain = getTabDomainKey(tab);
+        if (domain === LOCAL_DOMAIN_KEY) return;
         if (!byDomain[domain]) byDomain[domain] = {};
         byDomain[domain][cat] = (byDomain[domain][cat] || 0) + 1;
     });
@@ -133,6 +137,10 @@ function normalizeCategoryByDomain(classification, tabs) {
         const tab = tabById.get(String(tabId));
         if (!tab) return;
         const domain = getTabDomainKey(tab);
+        if (domain === LOCAL_DOMAIN_KEY) {
+            normalized[tabId] = '🔍 其他';
+            return;
+        }
         normalized[tabId] = winnerByDomain[domain] || '🔍 其他';
     });
 
@@ -170,8 +178,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         paddingTop:     'max(8vh, 56px)',
         boxSizing:      'border-box',
         background:     'rgba(160, 175, 200, 0.16)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
         opacity:        '0',
         transition:     'opacity 0.15s ease',
         pointerEvents:  'auto',
@@ -193,8 +201,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     card.id = 'ys-switcher-card';
     Object.assign(card.style, {
         background:     'rgba(248, 248, 246, 0.46)',
-        backdropFilter: 'saturate(180%) blur(28px)',
-        WebkitBackdropFilter: 'saturate(180%) blur(28px)',
+        backdropFilter: 'saturate(180%) blur(32px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(32px)',
         border:         '1px solid rgba(255, 255, 255, 0.52)',
         borderRadius:   '20px',
         boxShadow:      '0 24px 64px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6)',
@@ -283,6 +291,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         const shouldRestoreScroll = !!opts.restoreScroll;
         const shouldPreferActive = !!opts.preferActive;
         const shouldAnimate = !!opts.animate;
+        const explicitRestoreScrollTop = Number.isFinite(opts.scrollTop) ? opts.scrollTop : null;
+        const prevScrollTop = listContainer.scrollTop;
 
         function rebuildListDOM() {
         listContainer.innerHTML = '';
@@ -292,7 +302,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             ? tabs.filter((t) => {
                 const title = (t.title || '').toLowerCase();
                 const url = (t.url || '').toLowerCase();
-                return title.includes(keyword) || url.includes(keyword);
+                const domain = getTabDomainKey(t).toLowerCase();
+                const siteName = (domainToSiteNameMap[domain] || '').toLowerCase();
+                return title.includes(keyword)
+                    || url.includes(keyword)
+                    || domain.includes(keyword)
+                    || siteName.includes(keyword);
             })
             : tabs.slice();
 
@@ -302,7 +317,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 return cat === activeCategoryFilter;
             });
         }
-
         if (filteredTabs.length === 0) {
             switcherTabs = [];
             switcherSelIdx = 0;
@@ -374,7 +388,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 fontSize: '12px', fontWeight: '600', color: 'rgba(45, 55, 75, 0.92)',
                 wordBreak: 'break-all', lineHeight: '1.4',
             });
-            domainText.textContent = group.domain;
+            const displayDomainName = domainToSiteNameMap[group.domain] || group.domain;
+            domainText.textContent = displayDomainName;
 
             domainRow.appendChild(iconDiv);
             domainRow.appendChild(domainText);
@@ -410,9 +425,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         initSwitcherHighlight();
 
         if (shouldRestoreScroll) {
-            listContainer.scrollTop = savedScrollTop;
+            listContainer.scrollTop = explicitRestoreScrollTop !== null ? explicitRestoreScrollTop : prevScrollTop;
         } else {
-            scrollToSelected(true);
+            if (shouldPreferActive) {
+                const pinnedToTop = scrollSelectedToTopIfNotLast();
+                if (!pinnedToTop) {
+                    // 当选中项无法置顶（例如它是最后一个）时，至少保证首屏可见。
+                    ensureSelectedVisibleInViewport();
+                    requestAnimationFrame(() => ensureSelectedVisibleInViewport());
+                }
+            } else {
+                scrollToSelected(true);
+            }
         }
         }
 
@@ -469,13 +493,14 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             const fullText = `${cat.emoji} ${cat.label}`;
             const count = counts[fullText] || 0;
             const isActive = activeCategoryFilter === fullText;
+            const isExpanded = isActive;
             const btn = document.createElement('div');
             btn.className = 'ys-cat-btn';
             btn.title = fullText;
             Object.assign(btn.style, {
                 height: '28px',
                 minWidth: '28px',
-                maxWidth: '28px',
+                maxWidth: isExpanded ? '140px' : '28px',
                 padding: '0 7px',
                 display: 'flex',
                 alignItems: 'center',
@@ -498,9 +523,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
               <span class="btn-emoji" style="flex-shrink:0;">${cat.emoji}</span>
               <span class="btn-text" style="
                 display:inline-block;
-                max-width:0;
-                margin-left:0;
-                opacity:0;
+                max-width:${isExpanded ? '120px' : '0'};
+                margin-left:${isExpanded ? '6px' : '0'};
+                opacity:${isExpanded ? '1' : '0'};
                 overflow:hidden;
                 transition:max-width 0.25s ease, margin-left 0.2s ease, opacity 0.2s;
                 font-weight:600;
@@ -519,19 +544,21 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             });
 
             btn.addEventListener('mouseleave', () => {
-                btn.style.maxWidth = '28px';
                 if (activeCategoryFilter === fullText) {
+                    btn.style.maxWidth = '140px';
                     btn.style.background = 'rgba(80, 110, 220, 0.16)';
                     btn.style.borderColor = 'rgba(80, 110, 220, 0.32)';
                 } else {
+                    btn.style.maxWidth = '28px';
                     btn.style.background = 'rgba(0, 0, 0, 0.04)';
                     btn.style.borderColor = 'rgba(0, 0, 0, 0.05)';
                 }
                 const textEl = btn.querySelector('.btn-text');
                 if (textEl) {
-                    textEl.style.maxWidth = '0';
-                    textEl.style.marginLeft = '0';
-                    textEl.style.opacity = '0';
+                    const shouldExpand = activeCategoryFilter === fullText;
+                    textEl.style.maxWidth = shouldExpand ? '120px' : '0';
+                    textEl.style.marginLeft = shouldExpand ? '6px' : '0';
+                    textEl.style.opacity = shouldExpand ? '1' : '0';
                 }
             });
 
@@ -626,7 +653,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     };
     document.addEventListener('keydown', switcherKeydownHandler, true);
 
-    renderList(preservedKeyword, { restoreScroll: isRefresh, preferActive: !preservedKeyword, animate: false });
+    renderList(preservedKeyword, {
+        restoreScroll: isRefresh,
+        preferActive: !preservedKeyword,
+        animate: false,
+        scrollTop: savedScrollTop,
+    });
 
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
@@ -639,6 +671,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const tabsForClassify = tabs.map((t) => ({ id: t.id, title: t.title || '', url: t.url || '' }));
     chrome.runtime.sendMessage({ action: 'classify_tabs', tabs: tabsForClassify }, (res) => {
         if (chrome.runtime.lastError) return;
+        let shouldRerender = false;
+
         if (res && res.classification) {
             const normalizedClassification = normalizeCategoryByDomain(res.classification, tabs);
             Object.assign(tabCategoryMap, normalizedClassification);
@@ -652,9 +686,25 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             });
             initCategoryButtons(categoryCounts);
             if (activeCategoryFilter) {
-                const si = document.getElementById('ys-search-input');
-                renderList(si ? si.value : '', { restoreScroll: false, preferActive: false, animate: false });
+                shouldRerender = true;
             }
+        }
+
+        if (res && res.siteNames) {
+            tabs.forEach((tab) => {
+                const name = res.siteNames[tab.id] ?? res.siteNames[String(tab.id)];
+                if (!name) return;
+                const domain = getTabDomainKey(tab);
+                if (domainToSiteNameMap[domain] !== name) {
+                    domainToSiteNameMap[domain] = name;
+                    shouldRerender = true;
+                }
+            });
+        }
+
+        if (shouldRerender) {
+            const si = document.getElementById('ys-search-input');
+            renderList(si ? si.value : '', { restoreScroll: true, preferActive: false, animate: false });
         }
     });
 }
@@ -671,13 +721,14 @@ function buildTabItem(tab, globalIdx, container) {
         padding:        '8px 12px',
         borderRadius:   '8px',
         cursor:         'pointer',
-        transition:     'none',
+        transition:     'background 0.12s ease',
         background:     'transparent',
         userSelect:     'none',
         pointerEvents:  'auto',
         position:       'relative',
         boxSizing:      'border-box',
     });
+    item.dataset.selected = 'false';
 
     const leftArea = document.createElement('div');
     Object.assign(leftArea.style, {
@@ -699,7 +750,7 @@ function buildTabItem(tab, globalIdx, container) {
         whiteSpace:     'nowrap',
         flex:           '1',
         minWidth:       '0',
-        transition:     'none',
+        transition:     'color 0.12s ease',
     });
     title.textContent = tab.title || '(无标题)';
 
@@ -797,11 +848,16 @@ function buildTabItem(tab, globalIdx, container) {
     item.addEventListener('mouseenter', () => {
         closeBtn.style.opacity = '1';
         closeBtn.style.pointerEvents = 'auto';
-        updateSwitcherSelection(globalIdx);
+        if (item.dataset.selected !== 'true') {
+            item.style.background = 'rgba(130, 140, 160, 0.12)';
+        }
     });
     item.addEventListener('mouseleave', () => {
         closeBtn.style.opacity = '0';
         closeBtn.style.pointerEvents = 'none';
+        if (item.dataset.selected !== 'true') {
+            item.style.background = 'transparent';
+        }
     });
 
     closeBtn.addEventListener('click', (e) => {
@@ -839,7 +895,10 @@ function buildTabItem(tab, globalIdx, container) {
 function updateSwitcherSelection(newIdx) {
     const oldItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (oldItem) {
-        oldItem.style.background = 'transparent';
+        oldItem.dataset.selected = 'false';
+        oldItem.style.background = oldItem.matches(':hover')
+            ? 'rgba(130, 140, 160, 0.12)'
+            : 'transparent';
         const title = oldItem.querySelector('.ys-tab-title');
         if (title) {
             title.style.color = title.dataset.isActive === 'true'
@@ -856,7 +915,8 @@ function updateSwitcherSelection(newIdx) {
 
     const newItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (newItem) {
-        newItem.style.background = 'rgba(80, 110, 220, 0.06)';
+        newItem.dataset.selected = 'true';
+        newItem.style.background = 'rgba(80, 110, 220, 0.12)';
         const title = newItem.querySelector('.ys-tab-title');
         if (title) title.style.color = 'rgba(50, 70, 160, 1)';
 
@@ -878,6 +938,56 @@ function scrollToSelected(forceCenter = false) {
                 item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
             }
         }
+    }
+}
+
+function setListBottomSpacerHeight(list, height) {
+    if (!list) return;
+    let spacer = document.getElementById('ys-scroll-spacer');
+    if (!spacer) {
+        spacer = document.createElement('div');
+        spacer.id = 'ys-scroll-spacer';
+        spacer.style.width = '100%';
+        spacer.style.flexShrink = '0';
+        spacer.style.pointerEvents = 'none';
+        list.appendChild(spacer);
+    }
+    spacer.style.height = `${Math.max(0, Math.floor(height))}px`;
+}
+
+function scrollSelectedToTopIfNotLast() {
+    const list = document.getElementById('ys-switcher-list');
+    const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
+    if (!list || !item) return false;
+    if (switcherTabs.length === 0) return false;
+    if (switcherSelIdx >= switcherTabs.length - 1) return false;
+
+    // 当选中项靠近底部时，补一段不可见底部空间，确保它可以滚到“第一行”。
+    const extraBottomSpace = Math.max(0, list.clientHeight - item.offsetHeight - 8);
+    setListBottomSpacerHeight(list, extraBottomSpace);
+
+    const listRect = list.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const targetTop = list.scrollTop + (itemRect.top - listRect.top);
+    const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+    list.scrollTop = Math.max(0, Math.min(maxScrollTop, targetTop));
+    return true;
+}
+
+function ensureSelectedVisibleInViewport() {
+    const list = document.getElementById('ys-switcher-list');
+    const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
+    if (!list || !item) return;
+
+    const itemTop = item.offsetTop;
+    const itemBottom = itemTop + item.offsetHeight;
+    const viewTop = list.scrollTop;
+    const viewBottom = viewTop + list.clientHeight;
+
+    if (itemBottom > viewBottom) {
+        list.scrollTop = itemBottom - list.clientHeight;
+    } else if (itemTop < viewTop) {
+        list.scrollTop = itemTop;
     }
 }
 

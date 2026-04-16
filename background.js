@@ -5,6 +5,7 @@ async function getDeepSeekApiKey() {
 }
 
 const CATEGORY_CACHE_VERSION = 'v3';
+const SITE_NAME_CACHE_VERSION = 'v1';
 
 function getDomainFromUrl(url) {
     try {
@@ -29,6 +30,53 @@ function normalizeCategory(rawCategory) {
     if (text.includes('🎡') || text.includes('生活娱乐')) return '🎡 生活娱乐';
     if (text.includes('🔍') || text.includes('其他')) return '🔍 其他';
     return '🔍 其他';
+}
+
+function siteNameCacheKey(url = '') {
+    const domain = encodeURIComponent(getDomainFromUrl(url).slice(0, 120));
+    return `site_name_${SITE_NAME_CACHE_VERSION}_${domain}`;
+}
+
+function normalizeSiteName(rawName, url = '') {
+    let name = String(rawName || '').trim();
+    if (!name) return null;
+
+    // 清理模型偶发返回的引号、解释前缀和多行内容
+    name = name
+        .replace(/^["'「『“”]+|["'」』“”]+$/g, '')
+        .replace(/^网站名称[:：]\s*/i, '')
+        .split('\n')[0]
+        .trim();
+
+    if (!name) return null;
+    if (name.length > 20) name = name.slice(0, 20).trim();
+
+    const domain = getDomainFromUrl(url);
+    if (name.includes('.') && domain) return null;
+    return name;
+}
+
+function inferSiteNameByKeyword(title, url = '') {
+    const t = String(title || '').toLowerCase();
+    const d = getDomainFromUrl(url);
+    const all = `${t} ${d}`;
+
+    if (/aliyun/.test(all)) return '阿里云';
+    if (/github/.test(all)) return 'GitHub';
+    if (/gitlab/.test(all)) return 'GitLab';
+    if (/gitee/.test(all)) return 'Gitee';
+    if (/aithub/.test(all)) return 'Aithub';
+    if (/notion/.test(all)) return 'Notion';
+    if (/feishu|lark/.test(all)) return '飞书';
+    if (/jira/.test(all)) return 'Jira';
+    if (/confluence/.test(all)) return 'Confluence';
+    if (/slack/.test(all)) return 'Slack';
+    if (/chatgpt|openai/.test(all)) return 'OpenAI';
+    if (/claude/.test(all)) return 'Claude';
+    if (/deepseek/.test(all)) return 'DeepSeek';
+    if (/cursor/.test(all)) return 'Cursor';
+
+    return null;
 }
 
 function inferCategoryByKeyword(title, url = '') {
@@ -94,6 +142,57 @@ URL：${url || '(无URL)'}
     } catch (error) {
         console.error('DeepSeek 呼叫失败:', error);
         return '🔍 其他';
+    }
+}
+
+async function getSmartSiteName(title, url, apiKey) {
+    const keywordName = inferSiteNameByKeyword(title, url);
+    if (keywordName) return keywordName;
+
+    const cacheKey = siteNameCacheKey(url);
+    const cached = await chrome.storage.local.get(cacheKey);
+    if (cached[cacheKey]) return normalizeSiteName(cached[cacheKey], url);
+
+    if (!apiKey) return null;
+
+    try {
+        const domain = getDomainFromUrl(url);
+        if (!domain) return null;
+
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    {
+                        role: 'system',
+                        content: '你是一个品牌提取专家。请从网页标题、URL 和域名中提取最简洁的网站名称或品牌名。优先返回常见品牌写法（如：阿里云、GitHub、Notion）。只需返回名称，不要解释。',
+                    },
+                    {
+                        role: 'user',
+                        content: `标题：${title || '(无标题)'}
+URL：${url || '(无URL)'}
+域名：${domain || '(无域名)'}`,
+                    },
+                ],
+                temperature: 0.2,
+            }),
+        });
+
+        const data = await response.json();
+        const rawName = data.choices?.[0]?.message?.content?.trim() || '';
+        const siteName = normalizeSiteName(rawName, url);
+        if (siteName) {
+            await chrome.storage.local.set({ [cacheKey]: siteName });
+        }
+        return siteName;
+    } catch (error) {
+        console.error('DeepSeek 站点名提取失败:', error);
+        return null;
     }
 }
 
@@ -249,19 +348,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'classify_tabs') {
         (async () => {
             const results = {};
+            const siteNames = {};
             const apiKey = await getDeepSeekApiKey();
             const tabList = Array.isArray(request.tabs) ? request.tabs : [];
-            if (!apiKey) {
-                for (const tab of tabList) {
-                    results[tab.id] = '🔍 其他';
-                }
-                sendResponse({ classification: results });
-                return;
-            }
-            for (const tab of tabList) {
+            const domainNameMemo = new Map();
+
+            await Promise.all(tabList.map(async (tab) => {
                 results[tab.id] = await getSmartCategory(tab.title, tab.url, apiKey);
-            }
-            sendResponse({ classification: results });
+
+                const domain = getDomainFromUrl(tab.url);
+                if (!domain) {
+                    siteNames[tab.id] = null;
+                    return;
+                }
+
+                if (domainNameMemo.has(domain)) {
+                    siteNames[tab.id] = domainNameMemo.get(domain);
+                    return;
+                }
+
+                const siteName = await getSmartSiteName(tab.title, tab.url, apiKey);
+                const normalizedName = normalizeSiteName(siteName, tab.url);
+                domainNameMemo.set(domain, normalizedName);
+                siteNames[tab.id] = normalizedName;
+            }));
+
+            sendResponse({ classification: results, siteNames });
         })();
         return true;
     }
