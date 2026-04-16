@@ -317,13 +317,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
             const uniqueWindowIds = [...new Set(sortedTabs.map(t => t.windowId))];
             const windowMap = {};
-            let winCounter = 1;
 
             uniqueWindowIds.forEach((id) => {
                 if (currentWindowId !== null && id === currentWindowId) {
                     windowMap[id] = '当前';
                 } else {
-                    windowMap[id] = `窗口 ${winCounter++}`;
+                    windowMap[id] = '其他窗口';
                 }
             });
 
