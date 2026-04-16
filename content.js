@@ -952,6 +952,7 @@ function buildTabItem(tab, globalIdx, container) {
         boxSizing:      'border-box',
     });
     item.dataset.selected = 'false';
+    item.dataset.activeInSourceWindow = 'false';
 
     const leftArea = document.createElement('div');
     Object.assign(leftArea.style, {
@@ -1010,6 +1011,8 @@ function buildTabItem(tab, globalIdx, container) {
     if (tab.active) {
         title.style.fontWeight = '600';
         title.dataset.isActive = 'true';
+        const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
+        item.dataset.activeInSourceWindow = isSourceWindowActive ? 'true' : 'false';
 
         const activeBadge = document.createElement('div');
         Object.assign(activeBadge.style, {
@@ -1072,14 +1075,14 @@ function buildTabItem(tab, globalIdx, container) {
         closeBtn.style.opacity = '1';
         closeBtn.style.pointerEvents = 'auto';
         if (item.dataset.selected !== 'true') {
-            item.style.background = getUnselectedItemBackground(item, true);
+            updateSwitcherSelection(globalIdx);
         }
     });
     item.addEventListener('mouseleave', () => {
         closeBtn.style.opacity = '0';
         closeBtn.style.pointerEvents = 'none';
         if (item.dataset.selected !== 'true') {
-            item.style.background = getUnselectedItemBackground(item, false);
+            item.style.background = getUnselectedItemBackground(item);
         }
     });
 
@@ -1115,21 +1118,20 @@ function buildTabItem(tab, globalIdx, container) {
     });
 }
 
-function isActiveTabItem(item) {
-    const title = item ? item.querySelector('.ys-tab-title') : null;
-    return !!(title && title.dataset.isActive === 'true');
+function isSourceWindowActiveTabItem(item) {
+    return !!(item && item.dataset.activeInSourceWindow === 'true');
 }
 
-function getUnselectedItemBackground(item, isHovered) {
-    if (isActiveTabItem(item)) return 'rgba(80, 110, 220, 0.12)';
-    return isHovered ? 'rgba(130, 140, 160, 0.12)' : 'transparent';
+function getUnselectedItemBackground(item) {
+    if (isSourceWindowActiveTabItem(item)) return 'rgba(80, 110, 220, 0.12)';
+    return 'transparent';
 }
 
 function updateSwitcherSelection(newIdx) {
     const oldItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (oldItem) {
         oldItem.dataset.selected = 'false';
-        oldItem.style.background = getUnselectedItemBackground(oldItem, oldItem.matches(':hover'));
+        oldItem.style.background = getUnselectedItemBackground(oldItem);
         const title = oldItem.querySelector('.ys-tab-title');
         if (title) {
             title.style.color = title.dataset.isActive === 'true'
@@ -1150,9 +1152,7 @@ function updateSwitcherSelection(newIdx) {
     const newItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (newItem) {
         newItem.dataset.selected = 'true';
-        const newTitle = newItem.querySelector('.ys-tab-title');
-        const isActiveTab = newTitle && newTitle.dataset.isActive === 'true';
-        newItem.style.background = isActiveTab
+        newItem.style.background = isSourceWindowActiveTabItem(newItem)
             ? 'rgba(80, 110, 220, 0.12)'
             : 'rgba(130, 140, 160, 0.12)';
         const title = newItem.querySelector('.ys-tab-title');
