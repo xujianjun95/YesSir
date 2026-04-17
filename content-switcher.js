@@ -184,11 +184,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     const topActions = header.querySelector('#ys-top-actions');
 
-    function createFluidButton(id, emoji, label, colors, titleAttr) {
+    function createFluidButton(id, emoji, label, colors, titleAttr, opts = {}) {
         const btn = document.createElement('div');
         btn.id = id;
         btn.classList.add('ys-fluid-btn');
         btn.dataset.selected = 'false';
+        btn.dataset.lockExpanded = opts.lockExpanded ? 'true' : 'false';
         btn.title = titleAttr || label;
         btn.fluidColors = colors;
 
@@ -235,12 +236,17 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         });
 
         btn.addEventListener('mouseleave', () => {
+            if (btn.dataset.lockExpanded === 'true') return;
             if (btn.dataset.selected === 'true') return;
             collapseFluidEl(btn);
         });
 
         // 捕获阶段：先切换「钉住展开」状态，再执行业务 click
         btn.addEventListener('click', () => {
+            if (btn.dataset.lockExpanded === 'true') {
+                applyFluidExpanded();
+                return;
+            }
             const isSelected = btn.dataset.selected === 'true';
             const next = !isSelected;
             btn.dataset.selected = next ? 'true' : 'false';
@@ -249,7 +255,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 const parent = btn.parentElement;
                 if (parent) {
                     parent.querySelectorAll('.ys-fluid-btn').forEach((el) => {
-                        if (el !== btn && el.dataset.selected === 'true') {
+                        if (el !== btn && el.dataset.selected === 'true' && el.dataset.lockExpanded !== 'true') {
                             el.dataset.selected = 'false';
                             collapseFluidEl(el);
                         }
@@ -260,6 +266,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             // 取消选中时不立刻收缩：若仍在 hover，由 mouseenter 已保持展开；移出后由 mouseleave 收缩
         }, true);
 
+        if (btn.dataset.lockExpanded === 'true') {
+            applyFluidExpanded();
+        }
+
         return btn;
     }
 
@@ -269,7 +279,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         hoverBg: 'rgba(0, 180, 200, 0.18)',
         border: 'rgba(0, 180, 200, 0.25)',
         text: 'rgba(10, 150, 170, 0.95)',
-    }, 'AI 智能聚类：仅在当前窗口内按子主题创建标签组');
+    }, 'AI 智能聚类：仅在当前窗口内按子主题创建标签组', { lockExpanded: true });
 
     const regretBtn = createFluidButton('ys-regret-btn', '💊', '后悔药', {
         defaultBg: 'rgba(0, 0, 0, 0.04)',
@@ -748,7 +758,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 flex: '1',
                 minWidth: '0',
                 fontSize: '13px', fontWeight: '500', color: 'rgba(50, 60, 80, 0.9)',
-                wordBreak: 'break-all', lineHeight: '1.4',
+                lineHeight: '1.4',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
             });
             const displayDomainName = domainToSiteNameMap[group.domain] || group.domain;
             domainText.textContent = displayDomainName;
@@ -1153,16 +1166,6 @@ function buildTabItem(tab, globalIdx, container) {
     });
     title.textContent = tab.title || '(无标题)';
 
-    const statusSlot = document.createElement('div');
-    Object.assign(statusSlot.style, {
-        width: '20px',
-        height: '20px',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: '0',
-    });
-
     const closeBtn = document.createElement('div');
     closeBtn.className = 'ys-close-btn';
     closeBtn.textContent = '×';
@@ -1189,6 +1192,20 @@ function buildTabItem(tab, globalIdx, container) {
         const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
         item.dataset.activeInSourceWindow = isSourceWindowActive ? 'true' : 'false';
 
+    }
+
+    leftArea.appendChild(title);
+
+    const actionArea = document.createElement('div');
+    Object.assign(actionArea.style, {
+        display:     'flex',
+        alignItems:  'center',
+        gap:         '6px',
+        flexShrink:  '0',
+        marginLeft:  '12px',
+    });
+
+    if (tab.active) {
         const activeBadge = document.createElement('div');
         Object.assign(activeBadge.style, {
             display: 'inline-flex',
@@ -1205,40 +1222,7 @@ function buildTabItem(tab, globalIdx, container) {
             boxSizing: 'border-box',
         });
         activeBadge.innerHTML = `<span style="font-size:10px;opacity:0.85;">📍</span>`;
-        statusSlot.appendChild(activeBadge);
-    }
-
-    leftArea.appendChild(statusSlot);
-    leftArea.appendChild(title);
-
-    const actionArea = document.createElement('div');
-    Object.assign(actionArea.style, {
-        display:     'flex',
-        alignItems:  'center',
-        gap:         '6px',
-        flexShrink:  '0',
-        marginLeft:  '12px',
-    });
-
-    if (tab.windowName && tab.windowName !== '当前') {
-        const winBadge = document.createElement('div');
-        Object.assign(winBadge.style, {
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            height: '20px',
-            padding: '0 8px',
-            borderRadius: '6px',
-            background: 'rgba(140, 150, 170, 0.08)',
-            border: '1px solid rgba(140, 150, 170, 0.2)',
-            color: 'rgba(100, 110, 130, 0.9)',
-            fontSize: '11px',
-            fontWeight: '600',
-            gap: '4px',
-            boxSizing: 'border-box',
-        });
-        winBadge.innerHTML = `<span style="font-size:10px;opacity:0.8;">🪟</span><span>${tab.windowName}</span>`;
-        actionArea.appendChild(winBadge);
+        actionArea.appendChild(activeBadge);
     }
 
     actionArea.appendChild(closeBtn);
