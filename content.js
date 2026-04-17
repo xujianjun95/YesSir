@@ -65,6 +65,52 @@ function showToast(count) {
     }, 2000);
 }
 
+/** 自定义文案 Toast（与 showToast 视觉一致），供看板等复用 */
+function showYsMessageToast(message, durationMs = 3200) {
+    const existing = document.getElementById('ys-message-toast');
+    if (existing) existing.remove();
+
+    const toast = document.createElement('div');
+    toast.id = 'ys-message-toast';
+    toast.innerText = message;
+
+    Object.assign(toast.style, {
+        position:           'fixed',
+        bottom:             '15%',
+        left:               '50%',
+        transform:          'translateX(-50%)',
+        padding:            '9px 18px',
+        maxWidth:           'min(92vw, 420px)',
+        background:         'rgba(250, 252, 255, 0.9)',
+        backdropFilter:     'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border:             '1px solid rgba(255, 255, 255, 0.9)',
+        borderRadius:       '10px',
+        color:              'rgba(40, 50, 70, 0.95)',
+        fontSize:           '13px',
+        fontWeight:         '600',
+        letterSpacing:      '0.01em',
+        boxShadow:          '0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8)',
+        zIndex:             '2147483647',
+        pointerEvents:      'none',
+        opacity:            '0',
+        transition:         'opacity 0.22s ease-in-out',
+        fontFamily:         '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        whiteSpace:         'normal',
+        lineHeight:         '1.45',
+        textAlign:          'center',
+        boxSizing:          'border-box',
+    });
+
+    document.body.appendChild(toast);
+    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 220);
+    }, durationMs);
+}
+
 
 // ─── Settings Modals ──────────────────────────────────────────────────────────
 

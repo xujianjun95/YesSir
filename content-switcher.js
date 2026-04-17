@@ -524,6 +524,78 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         });
     }
 
+    const topActionsEl = header.querySelector('#ys-top-actions');
+    const regretBtnAnchor = document.getElementById('ys-regret-btn');
+    if (topActionsEl && regretBtnAnchor) {
+        const aiGroupBtn = document.createElement('div');
+        aiGroupBtn.id = 'ys-ai-group-btn';
+        aiGroupBtn.title = 'AI 智能聚类：仅在当前窗口内按子主题创建标签组';
+        Object.assign(aiGroupBtn.style, {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '5px',
+            height: '28px',
+            padding: '0 10px',
+            background: 'rgba(50, 200, 150, 0.08)',
+            border: '1px solid rgba(50, 200, 150, 0.22)',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            transition: 'all 0.2s',
+            boxSizing: 'border-box',
+            whiteSpace: 'nowrap',
+            flexShrink: '0',
+        });
+        aiGroupBtn.innerHTML = '<span style="font-size:11px;font-weight:600;color:rgba(30,130,100,0.9);">✨ AI 聚合</span>';
+        topActionsEl.insertBefore(aiGroupBtn, regretBtnAnchor);
+        aiGroupBtn.addEventListener('mouseenter', () => {
+            aiGroupBtn.style.background = 'rgba(50, 200, 150, 0.14)';
+        });
+        aiGroupBtn.addEventListener('mouseleave', () => {
+            aiGroupBtn.style.background = 'rgba(50, 200, 150, 0.08)';
+        });
+        aiGroupBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            let tabsToProcess = switcherTabs.filter((t) => t.url && /^https?:\/\//i.test(t.url));
+            if (switcherCurrentWindowId !== null && switcherCurrentWindowId !== undefined) {
+                const wid = Number(switcherCurrentWindowId);
+                tabsToProcess = tabsToProcess.filter((t) => Number(t.windowId) === wid);
+            }
+            if (tabsToProcess.length === 0) {
+                showYsMessageToast('当前窗口没有可聚合的 http(s) 标签页', 2800);
+                return;
+            }
+
+            const finishProcessing = showProcessingToast(tabsToProcess.length);
+            chrome.runtime.sendMessage({
+                action: 'ai_batch_group',
+                tabs: tabsToProcess,
+                windowId: switcherCurrentWindowId,
+            }, (res) => {
+                finishProcessing();
+
+                if (chrome.runtime.lastError) {
+                    showCustomToast('聚合失败：' + chrome.runtime.lastError.message, 4000);
+                    return;
+                }
+                if (res && res.success) {
+                    showCustomToast(`✅ 整理完毕，已为您创建 ${res.groupCount} 个标签组`, 3200);
+                    setTimeout(() => hideSwitcher(), 1500);
+                } else {
+                    let hint = '聚合未完成';
+                    if (res && res.error === 'no_api_key') hint = '请先在设置中配置 DeepSeek API Key';
+                    else if (res && res.message) {
+                        hint = res.message;
+                        if (/failed to fetch|networkerror|load failed/i.test(hint)) {
+                            hint = '网络无法连接 DeepSeek（api.deepseek.com）。请检查网络/代理，或在扩展页重新加载本扩展后再试。';
+                        }
+                    } else if (res && res.error === 'parse_failed') hint = 'AI 返回格式异常，请重试';
+                    else if (res && res.error === 'no_http_tabs') hint = '没有可聚合的页面';
+                    showCustomToast('⚠️ ' + hint, 5500);
+                }
+            });
+        });
+    }
+
     const regretBtn = document.getElementById('ys-regret-btn');
     if (regretBtn) {
         regretBtn.addEventListener('mouseenter', () => {
@@ -1029,4 +1101,124 @@ function initSwitcherHighlight() {
     requestAnimationFrame(() => {
         updateSwitcherSelection(switcherSelIdx);
     });
+}
+
+/** AI 聚合等耗时操作：Emoji 每秒轮播 + 左右挤开过渡，返回关闭函数 */
+function showProcessingToast(count) {
+    const existed = document.getElementById('ys-processing-toast');
+    if (existed) existed.remove();
+
+    const emojis = ['🫡', '🤔', '⏳', '🔍', '🪄', '⚙️', '🚀', '🧠', '🧩', '✨'];
+    let emojiIdx = 0;
+    const SLIDE_PX = 14;
+    const OUT_MS = 200;
+    const IN_MS = 260;
+
+    const toast = document.createElement('div');
+    toast.id = 'ys-processing-toast';
+    Object.assign(toast.style, {
+        position: 'fixed',
+        bottom: '15%',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        padding: '9px 18px',
+        maxWidth: 'min(92vw, 440px)',
+        background: 'rgba(250, 252, 255, 0.9)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: '1px solid rgba(255, 255, 255, 0.9)',
+        borderRadius: '10px',
+        color: 'rgba(40, 50, 70, 0.95)',
+        fontSize: '13px',
+        fontWeight: '600',
+        letterSpacing: '0.01em',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8)',
+        zIndex: '2147483647',
+        pointerEvents: 'none',
+        opacity: '0',
+        transition: 'opacity 0.22s ease-in-out',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '8px',
+        boxSizing: 'border-box',
+        lineHeight: '1.45',
+    });
+
+    const emojiSlot = document.createElement('span');
+    Object.assign(emojiSlot.style, {
+        overflow: 'hidden',
+        width: '28px',
+        height: '1.35em',
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: '0',
+    });
+
+    const emojiSpan = document.createElement('span');
+    emojiSpan.className = 'ys-processing-emoji';
+    Object.assign(emojiSpan.style, {
+        display: 'inline-block',
+        fontSize: '15px',
+        lineHeight: '1.2',
+        transform: 'translateX(0)',
+        opacity: '1',
+        transition: `transform ${OUT_MS}ms cubic-bezier(0.4, 0, 0.2, 1), opacity ${OUT_MS}ms ease`,
+        willChange: 'transform, opacity',
+    });
+    emojiSpan.textContent = emojis[0];
+    emojiSlot.appendChild(emojiSpan);
+
+    const textSpan = document.createElement('span');
+    textSpan.textContent = `Yes Sir，正在整理 ${count} 个标签页，请稍作等待…`;
+
+    toast.appendChild(emojiSlot);
+    toast.appendChild(textSpan);
+    document.body.appendChild(toast);
+
+    requestAnimationFrame(() => { toast.style.opacity = '1'; });
+
+    function swapEmoji() {
+        if (!emojiSpan.isConnected) return;
+        emojiIdx = (emojiIdx + 1) % emojis.length;
+        const next = emojis[emojiIdx];
+
+        emojiSpan.style.transition = `transform ${OUT_MS}ms cubic-bezier(0.4, 0, 0.2, 1), opacity ${OUT_MS}ms ease`;
+        emojiSpan.style.transform = `translateX(-${SLIDE_PX}px)`;
+        emojiSpan.style.opacity = '0';
+
+        setTimeout(() => {
+            if (!emojiSpan.isConnected) return;
+            emojiSpan.textContent = next;
+            emojiSpan.style.transition = 'none';
+            emojiSpan.style.transform = `translateX(${SLIDE_PX}px)`;
+            emojiSpan.style.opacity = '0';
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    if (!emojiSpan.isConnected) return;
+                    emojiSpan.style.transition = `transform ${IN_MS}ms cubic-bezier(0.22, 1.1, 0.36, 1), opacity ${IN_MS * 0.85}ms ease`;
+                    emojiSpan.style.transform = 'translateX(0)';
+                    emojiSpan.style.opacity = '1';
+                });
+            });
+        }, OUT_MS);
+    }
+
+    const intervalId = setInterval(swapEmoji, 2000);
+
+    return function closeProcessingToast() {
+        clearInterval(intervalId);
+        toast.style.opacity = '0';
+        setTimeout(() => {
+            if (toast.isConnected) toast.remove();
+        }, 220);
+    };
+}
+
+/** 结果提示：与 content.js 的 showYsMessageToast 同款毛玻璃样式，避免三套视觉 */
+function showCustomToast(msg, durationMs = 3000) {
+    if (typeof showYsMessageToast === 'function') {
+        showYsMessageToast(msg, durationMs);
+    }
 }
