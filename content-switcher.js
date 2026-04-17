@@ -6,12 +6,25 @@ let switcherTabs     = [];
 let switcherSelIdx   = 0;
 let switcherCurrentWindowId = null;
 let switcherKeydownHandler = null;
+let switcherMouseMoveHandler = null;
+/** 使用方向键导航后，忽略鼠标 hover 对行高亮/favicon/关闭钮的影响，仅随键盘选中行变化 */
+let switcherKeyboardNavActive = false;
 /** tabId -> AI 分类文案 */
 let tabCategoryMap = {};
 /** domain -> AI 提取的网站名称 */
 let domainToSiteNameMap = {};
 /** 当前选中的顶部分类筛选，null 表示不过滤 */
 let activeCategoryFilter = null;
+/** tabId -> AI 生成的页面功能标签 */
+let tabPageLabelMap = {};
+
+/** 同一二级域名下多子品牌（如 music.163.com / news.163.com）时，左侧分组统一用母品牌名与 favicon */
+const GROUP_DOMAIN_BRANDING = {
+    '163.com': {
+        displayName: '网易',
+        iconUrl: 'https://www.163.com/favicon.ico',
+    },
+};
 
 function getTabDomainKey(tab) {
     let domain = '本地网页/其他';
@@ -25,6 +38,58 @@ function getTabDomainKey(tab) {
     return domain;
 }
 
+const TAB_ROW_ICON_VISIBLE_OPACITY = '0.7';
+
+/** 键盘/鼠标共用的「选中行」背景（与当前页蓝底区分） */
+const TAB_ROW_SELECTED_BG = 'rgba(130, 140, 160, 0.14)';
+/** 当前窗口内正在浏览的标签行（未处于键盘选中态时） */
+const TAB_ROW_ACTIVE_BG = 'rgba(80, 110, 220, 0.12)';
+
+/** 行内 favicon：键盘选中、鼠标悬停（未进入纯键盘模式时），或当前窗口当前页时显示 */
+function refreshTabRowIconVis(itemEl) {
+    if (!itemEl) return;
+    const slot = itemEl.querySelector('.ys-tab-icon-slot');
+    if (!slot || !slot.childNodes.length) return;
+    const hoverShows = !switcherKeyboardNavActive && itemEl.matches(':hover');
+    const show = itemEl.dataset.selected === 'true'
+        || hoverShows
+        || itemEl.dataset.activeInSourceWindow === 'true';
+    slot.style.opacity = show ? TAB_ROW_ICON_VISIBLE_OPACITY : '0';
+}
+
+/** 方向键切换后刷新所有行，清除仍停留在鼠标下的 hover 态（favicon/关闭钮） */
+function refreshAllSwitcherRowsUi() {
+    document.querySelectorAll('[id^="ys-tab-item-"]').forEach((item) => {
+        refreshTabRowIconVis(item);
+        const closeBtn = item.querySelector('.ys-close-btn');
+        if (!closeBtn) return;
+        if (switcherKeyboardNavActive) {
+            const sel = item.dataset.selected === 'true';
+            if (sel && item.matches(':hover')) {
+                closeBtn.style.opacity = '1';
+                closeBtn.style.pointerEvents = 'auto';
+            } else {
+                closeBtn.style.opacity = '0';
+                closeBtn.style.pointerEvents = 'none';
+            }
+        }
+    });
+}
+
+/** Chrome 内置页等常不提供 favIconUrl；悬停时用 emoji 兜底，避免「有 hover 无图标」 */
+function getTabRowIconFallback(tab) {
+    const u = String(tab.url || '');
+    if (u.startsWith('chrome://extensions')) return '🧩';
+    if (/^chrome:\/\/newtab/i.test(u)) return '📄';
+    if (u.startsWith('chrome://downloads')) return '⬇️';
+    if (u.startsWith('chrome://settings')) return '⚙️';
+    if (u.startsWith('chrome://')) return '🔧';
+    if (u.startsWith('edge://')) return '🔧';
+    if (u.startsWith('about:')) return '📄';
+    if (u.startsWith('chrome-extension://')) return '🧩';
+    return '🌐';
+}
+
 // 工具函数：按域名对 Tab 进行分组
 function groupTabsByDomain(tabs) {
     const groups = [];
@@ -32,16 +97,22 @@ function groupTabsByDomain(tabs) {
 
     tabs.forEach((tab, i) => {
         const domain = getTabDomainKey(tab);
+        const brand = GROUP_DOMAIN_BRANDING[domain];
 
         if (!domainMap.has(domain)) {
-            const newGroup = { domain, icon: tab.favIconUrl, tabs: [] };
+            const newGroup = {
+                domain,
+                icon: brand?.iconUrl || tab.favIconUrl || '',
+                displayNameOverride: brand?.displayName || null,
+                tabs: [],
+            };
             domainMap.set(domain, newGroup);
             groups.push(newGroup);
         }
 
         const group = domainMap.get(domain);
-        if (!group.icon && tab.favIconUrl) group.icon = tab.favIconUrl;
-        
+        if (!brand && !group.icon && tab.favIconUrl) group.icon = tab.favIconUrl;
+
         group.tabs.push({ ...tab, originalIndex: i });
     });
     return groups;
@@ -94,10 +165,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     switcherCurrentWindowId = currentWindowId;
     switcherTabs = tabs.slice();
     switcherSelIdx = 0;
+    switcherKeyboardNavActive = false;
     switcherVisible = true;
     if (!isRefresh) {
         activeCategoryFilter = null;
         tabCategoryMap = {};
+        tabPageLabelMap = {};
     }
 
     const overlay = document.createElement('div');
@@ -746,8 +819,22 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (group.icon) {
                 const img = document.createElement('img');
                 img.src = group.icon; img.width = 14; img.height = 14; img.style.borderRadius = '2px';
-                img.onerror = () => { img.remove(); iconDiv.textContent = group.domain[0].toUpperCase(); };
+                img.onerror = () => {
+                    img.remove();
+                    if (group.domain === '本地网页/其他') {
+                        iconDiv.textContent = '📄';
+                        iconDiv.style.fontSize = '11px';
+                    } else if (group.displayNameOverride) {
+                        iconDiv.textContent = group.displayNameOverride.charAt(0);
+                        iconDiv.style.fontSize = '11px';
+                    } else {
+                        iconDiv.textContent = group.domain[0].toUpperCase();
+                    }
+                };
                 iconDiv.appendChild(img);
+            } else if (group.domain === '本地网页/其他') {
+                iconDiv.textContent = '📄';
+                iconDiv.style.fontSize = '11px';
             } else {
                 iconDiv.textContent = group.domain[0].toUpperCase();
             }
@@ -763,7 +850,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
             });
-            const displayDomainName = domainToSiteNameMap[group.domain] || group.domain;
+            const displayDomainName = group.displayNameOverride || domainToSiteNameMap[group.domain] || group.domain;
             domainText.textContent = displayDomainName;
 
             domainRow.appendChild(iconDiv);
@@ -1049,10 +1136,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         if (!switcherVisible) return;
         if (e.key === 'ArrowDown') {
             e.preventDefault();
+            switcherKeyboardNavActive = true;
             updateSwitcherSelection(switcherSelIdx + 1);
             scrollToSelected();
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
+            switcherKeyboardNavActive = true;
             updateSwitcherSelection(switcherSelIdx - 1);
             scrollToSelected();
         } else if (e.key === 'Enter') {
@@ -1063,6 +1152,36 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }
     };
     document.addEventListener('keydown', switcherKeydownHandler, true);
+
+    // 键盘接管选中后，只有「真实鼠标移动」才把控制权交还给鼠标 hover，
+    // 避免 DOM 变化/滚动时 :hover 误触发。mousemove 只在鼠标物理移动时派发。
+    let lastMX = null, lastMY = null;
+    switcherMouseMoveHandler = (e) => {
+        if (lastMX === e.clientX && lastMY === e.clientY) return;
+        lastMX = e.clientX; lastMY = e.clientY;
+        if (!switcherKeyboardNavActive) return;
+        switcherKeyboardNavActive = false;
+
+        const overlayEl = document.getElementById('ys-switcher-overlay');
+        if (!overlayEl) return;
+
+        const hovered = e.target && e.target.closest
+            ? e.target.closest('[id^="ys-tab-item-"]')
+            : null;
+        if (hovered && overlayEl.contains(hovered)) {
+            const idx = Number(hovered.id.replace('ys-tab-item-', ''));
+            if (Number.isFinite(idx) && idx !== switcherSelIdx) {
+                updateSwitcherSelection(idx);
+            }
+            const closeBtn = hovered.querySelector('.ys-close-btn');
+            if (closeBtn) {
+                closeBtn.style.opacity = '1';
+                closeBtn.style.pointerEvents = 'auto';
+            }
+        }
+        refreshAllSwitcherRowsUi();
+    };
+    document.addEventListener('mousemove', switcherMouseMoveHandler, true);
 
     renderList(preservedKeyword, {
         restoreScroll: isRefresh,
@@ -1079,16 +1198,19 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }, 50);
     });
 
-    const tabsForClassify = tabs.map((t) => ({ id: t.id, title: t.title || '', url: t.url || '' }));
-    chrome.runtime.sendMessage({ action: 'classify_tabs', tabs: tabsForClassify }, (res) => {
-        if (chrome.runtime.lastError) return;
+    const tabsForAi = tabs.map((t) => ({ id: t.id, title: t.title || '', url: t.url || '' }));
+    const applyAiSnapshotToView = (res) => {
+        if (!res) return;
         let shouldRerender = false;
 
-        if (res && res.classification) {
+        if (res.classification) {
             const normalizedClassification = normalizeCategoryByDomain(res.classification, tabs);
-            Object.assign(tabCategoryMap, normalizedClassification);
             categoryCounts = { ...EMPTY_COUNTS };
-            Object.values(normalizedClassification).forEach((cat) => {
+            Object.entries(normalizedClassification).forEach(([tabId, cat]) => {
+                if (tabCategoryMap[tabId] !== cat) {
+                    tabCategoryMap[tabId] = cat;
+                    shouldRerender = true;
+                }
                 if (Object.prototype.hasOwnProperty.call(categoryCounts, cat)) {
                     categoryCounts[cat] += 1;
                 } else {
@@ -1096,12 +1218,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 }
             });
             initCategoryButtons(categoryCounts);
-            if (activeCategoryFilter) {
-                shouldRerender = true;
-            }
+            if (activeCategoryFilter) shouldRerender = true;
         }
 
-        if (res && res.siteNames) {
+        if (res.siteNames) {
             tabs.forEach((tab) => {
                 const name = res.siteNames[tab.id] ?? res.siteNames[String(tab.id)];
                 if (!name) return;
@@ -1113,10 +1233,29 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             });
         }
 
+        if (res.labels) {
+            Object.entries(res.labels).forEach(([tabId, label]) => {
+                if (label && tabPageLabelMap[tabId] !== label) {
+                    tabPageLabelMap[tabId] = label;
+                    shouldRerender = true;
+                }
+            });
+        }
+
         if (shouldRerender) {
             const si = document.getElementById('ys-search-input');
             renderList(si ? si.value : '', { restoreScroll: true, preferActive: false, animate: false });
         }
+    };
+
+    // 先读缓存快照，优先秒开；再异步补齐缺失项。
+    chrome.runtime.sendMessage({ action: 'get_ai_snapshot', tabs: tabsForAi }, (res) => {
+        if (chrome.runtime.lastError) return;
+        applyAiSnapshotToView(res);
+    });
+    chrome.runtime.sendMessage({ action: 'prewarm_ai_snapshot', tabs: tabsForAi }, (res) => {
+        if (chrome.runtime.lastError) return;
+        applyAiSnapshotToView(res);
     });
 }
 
@@ -1127,7 +1266,7 @@ function buildTabItem(tab, globalIdx, container) {
     Object.assign(item.style, {
         display:        'flex',
         alignItems:     'center',
-        justifyContent: 'space-between',
+        justifyContent: 'flex-start',
         minHeight:      '36px',
         padding:        '8px 12px',
         borderRadius:   '8px',
@@ -1151,6 +1290,49 @@ function buildTabItem(tab, globalIdx, container) {
         minWidth: '0',
     });
 
+    const iconSlot = document.createElement('div');
+    iconSlot.className = 'ys-tab-icon-slot';
+    Object.assign(iconSlot.style, {
+        width: '18px',
+        height: '18px',
+        flexShrink: '0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        opacity: '0',
+        transition: 'opacity 0.15s ease',
+        overflow: 'hidden',
+        borderRadius: '4px',
+    });
+    function mountIconFallback() {
+        iconSlot.textContent = '';
+        const span = document.createElement('span');
+        span.textContent = getTabRowIconFallback(tab);
+        Object.assign(span.style, {
+            fontSize: '12px',
+            lineHeight: '1',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+        });
+        iconSlot.appendChild(span);
+    }
+    if (tab.favIconUrl) {
+        const iconImg = document.createElement('img');
+        iconImg.src = tab.favIconUrl;
+        iconImg.width = 16;
+        iconImg.height = 16;
+        iconImg.style.borderRadius = '3px';
+        iconImg.style.display = 'block';
+        iconImg.onerror = () => {
+            iconImg.remove();
+            mountIconFallback();
+        };
+        iconSlot.appendChild(iconImg);
+    } else {
+        mountIconFallback();
+    }
+
     const title = document.createElement('div');
     title.className = 'ys-tab-title';
     Object.assign(title.style, {
@@ -1164,7 +1346,10 @@ function buildTabItem(tab, globalIdx, container) {
         minWidth:       '0',
         transition:     'color 0.12s ease',
     });
-    title.textContent = tab.title || '(无标题)';
+    const rawTitle = tab.title || '(无标题)';
+    let displayTitle = /^📍\s*/u.test(rawTitle) ? rawTitle.replace(/^📍\s*/u, '').trim() : rawTitle;
+    if (!displayTitle) displayTitle = '(无标题)';
+    title.textContent = displayTitle;
 
     const closeBtn = document.createElement('div');
     closeBtn.className = 'ys-close-btn';
@@ -1186,26 +1371,20 @@ function buildTabItem(tab, globalIdx, container) {
         cursor:          'pointer',
     });
 
+    const tailCluster = document.createElement('div');
+    Object.assign(tailCluster.style, {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '4px',
+        flexShrink: '0',
+    });
+
     if (tab.active) {
         title.style.fontWeight = '600';
         title.dataset.isActive = 'true';
         const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
         item.dataset.activeInSourceWindow = isSourceWindowActive ? 'true' : 'false';
 
-    }
-
-    leftArea.appendChild(title);
-
-    const actionArea = document.createElement('div');
-    Object.assign(actionArea.style, {
-        display:     'flex',
-        alignItems:  'center',
-        gap:         '6px',
-        flexShrink:  '0',
-        marginLeft:  '12px',
-    });
-
-    if (tab.active) {
         const activeBadge = document.createElement('div');
         Object.assign(activeBadge.style, {
             display: 'inline-flex',
@@ -1222,8 +1401,43 @@ function buildTabItem(tab, globalIdx, container) {
             boxSizing: 'border-box',
         });
         activeBadge.innerHTML = `<span style="font-size:10px;opacity:0.85;">📍</span>`;
-        actionArea.appendChild(activeBadge);
+        tailCluster.appendChild(activeBadge);
     }
+
+    // 页面功能标签（AI；单标签分组也会请求）
+    const pageLabel = tabPageLabelMap[tab.id] ?? tabPageLabelMap[String(tab.id)];
+    if (pageLabel) {
+        const labelEl = document.createElement('span');
+        labelEl.className = 'ys-page-label';
+        labelEl.textContent = pageLabel;
+        Object.assign(labelEl.style, {
+            fontSize:       '10px',
+            fontWeight:     '500',
+            color:          'rgba(100, 115, 145, 0.5)',
+            background:     'rgba(0, 0, 0, 0.04)',
+            borderRadius:   '4px',
+            padding:        '1px 5px',
+            flexShrink:     '0',
+            whiteSpace:     'nowrap',
+            lineHeight:     '1.6',
+        });
+        tailCluster.appendChild(labelEl);
+    }
+
+    leftArea.appendChild(iconSlot);
+    leftArea.appendChild(title);
+    if (tailCluster.childNodes.length > 0) {
+        leftArea.appendChild(tailCluster);
+    }
+
+    const actionArea = document.createElement('div');
+    Object.assign(actionArea.style, {
+        display:     'flex',
+        alignItems:  'center',
+        gap:         '6px',
+        flexShrink:  '0',
+        marginLeft:  '12px',
+    });
 
     actionArea.appendChild(closeBtn);
     item.appendChild(leftArea);
@@ -1231,15 +1445,25 @@ function buildTabItem(tab, globalIdx, container) {
     container.appendChild(item);
 
     item.addEventListener('mouseenter', () => {
-        closeBtn.style.opacity = '1';
-        closeBtn.style.pointerEvents = 'auto';
-        if (item.dataset.selected !== 'true') {
+        if (!switcherKeyboardNavActive) {
+            closeBtn.style.opacity = '1';
+            closeBtn.style.pointerEvents = 'auto';
+        } else if (item.dataset.selected === 'true') {
+            closeBtn.style.opacity = '1';
+            closeBtn.style.pointerEvents = 'auto';
+        } else {
+            closeBtn.style.opacity = '0';
+            closeBtn.style.pointerEvents = 'none';
+        }
+        refreshTabRowIconVis(item);
+        if (!switcherKeyboardNavActive && item.dataset.selected !== 'true') {
             updateSwitcherSelection(globalIdx);
         }
     });
     item.addEventListener('mouseleave', () => {
         closeBtn.style.opacity = '0';
         closeBtn.style.pointerEvents = 'none';
+        refreshTabRowIconVis(item);
         if (item.dataset.selected !== 'true') {
             item.style.background = getUnselectedItemBackground(item);
         }
@@ -1275,6 +1499,8 @@ function buildTabItem(tab, globalIdx, container) {
         }
         hideSwitcher();
     });
+
+    refreshTabRowIconVis(item);
 }
 
 function isSourceWindowActiveTabItem(item) {
@@ -1282,7 +1508,7 @@ function isSourceWindowActiveTabItem(item) {
 }
 
 function getUnselectedItemBackground(item) {
-    if (isSourceWindowActiveTabItem(item)) return 'rgba(80, 110, 220, 0.12)';
+    if (isSourceWindowActiveTabItem(item)) return TAB_ROW_ACTIVE_BG;
     return 'transparent';
 }
 
@@ -1299,6 +1525,7 @@ function updateSwitcherSelection(newIdx) {
         }
         const groupRow = oldItem.closest('.ys-group-row');
         if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '1';
+        refreshTabRowIconVis(oldItem);
     }
 
     if (newIdx === -1) {
@@ -1312,8 +1539,8 @@ function updateSwitcherSelection(newIdx) {
     if (newItem) {
         newItem.dataset.selected = 'true';
         newItem.style.background = isSourceWindowActiveTabItem(newItem)
-            ? 'rgba(80, 110, 220, 0.12)'
-            : 'rgba(130, 140, 160, 0.12)';
+            ? TAB_ROW_ACTIVE_BG
+            : TAB_ROW_SELECTED_BG;
         const title = newItem.querySelector('.ys-tab-title');
         if (title) {
             title.style.color = title.dataset.isActive === 'true'
@@ -1323,6 +1550,11 @@ function updateSwitcherSelection(newIdx) {
 
         const groupRow = newItem.closest('.ys-group-row');
         if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '1';
+        refreshTabRowIconVis(newItem);
+    }
+
+    if (switcherKeyboardNavActive) {
+        refreshAllSwitcherRowsUi();
     }
 }
 
@@ -1412,6 +1644,10 @@ function hideSwitcher() {
     if (switcherKeydownHandler) {
         document.removeEventListener('keydown', switcherKeydownHandler, true);
         switcherKeydownHandler = null;
+    }
+    if (switcherMouseMoveHandler) {
+        document.removeEventListener('mousemove', switcherMouseMoveHandler, true);
+        switcherMouseMoveHandler = null;
     }
 
     const overlay = document.getElementById('ys-switcher-overlay');

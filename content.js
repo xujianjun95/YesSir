@@ -662,6 +662,17 @@ document.addEventListener('dblclick', function(event) {
 // 双击修饰键呼出切换面板
 let lastModPressTime = 0;
 const DOUBLE_PRESS_DELAY = 300; 
+let lastAiPrewarmAt = 0;
+const AI_PREWARM_INTERVAL_MS = 45000;
+
+function trySilentAiPrewarm() {
+    const now = Date.now();
+    if (now - lastAiPrewarmAt < AI_PREWARM_INTERVAL_MS) return;
+    lastAiPrewarmAt = now;
+    chrome.runtime.sendMessage({ action: 'prewarm_ai_current_window' }, () => {
+        void chrome.runtime.lastError;
+    });
+}
 
 document.addEventListener('keydown', function(event) {
     if (event.repeat) return;
@@ -698,6 +709,7 @@ document.addEventListener('keydown', function(event) {
     }
 
     if (event.key === MOD_EVENT_KEY[modifierKey]) {
+        trySilentAiPrewarm();
         const now = Date.now();
         if (now - lastModPressTime < DOUBLE_PRESS_DELAY) {
             // 触发双击
@@ -737,6 +749,7 @@ chrome.runtime.onMessage.addListener((request) => {
 
 function bootstrap() {
     initFloatingWidget();
+    setTimeout(trySilentAiPrewarm, 1200);
 }
 
 if (document.readyState === 'loading') {

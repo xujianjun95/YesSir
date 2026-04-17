@@ -82,6 +82,7 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 });
 
 void restoreGlobalTabHistory();
+void restoreAiSnapshotCache();
 
 // DeepSeek：优先从 chrome.storage.local.deepseekApiKey 读取，勿把密钥提交到仓库。
 async function getDeepSeekApiKey() {
@@ -91,6 +92,10 @@ async function getDeepSeekApiKey() {
 
 const CATEGORY_CACHE_VERSION = 'v3';
 const SITE_NAME_CACHE_VERSION = 'v2';
+const PAGE_LABEL_CACHE_VERSION = 'v1';
+const AI_SNAPSHOT_STORAGE_KEY = 'aiSnapshotV1';
+const AI_SNAPSHOT_MAX_ENTRIES = 600;
+const AI_SNAPSHOT_CLEANUP_KEEP = 450;
 
 function titleCacheKey(title, url = '') {
     const t = encodeURIComponent((title || '').trim().toLowerCase().slice(0, 200));
@@ -101,6 +106,229 @@ function titleCacheKey(title, url = '') {
 function siteNameCacheKey(url = '') {
     const domain = encodeURIComponent(getDomainFromUrl(url).slice(0, 120));
     return `site_name_${SITE_NAME_CACHE_VERSION}_${domain}`;
+}
+
+function pageLabelCacheKey(title = '', url = '') {
+    const t = encodeURIComponent((title || '').trim().toLowerCase().slice(0, 180));
+    const u = String(url || '');
+    let siteKey = '';
+    if (u.startsWith('http')) {
+        siteKey = getTabGroupDomainKey(u);
+    } else {
+        siteKey = u.slice(0, 200);
+    }
+    const d = encodeURIComponent(siteKey.slice(0, 120));
+    let p = '';
+    try {
+        p = encodeURIComponent(new URL(u).pathname.slice(0, 180));
+    } catch (_) {}
+    return `page_label_${PAGE_LABEL_CACHE_VERSION}_${d}_${p}_${t}`;
+}
+
+let aiSnapshotCache = { entries: {} };
+
+async function restoreAiSnapshotCache() {
+    try {
+        const stored = await chrome.storage.local.get(AI_SNAPSHOT_STORAGE_KEY);
+        const raw = stored[AI_SNAPSHOT_STORAGE_KEY];
+        if (raw && raw.entries && typeof raw.entries === 'object') {
+            aiSnapshotCache = { entries: raw.entries };
+        }
+    } catch (error) {
+        console.warn('恢复 AI 快照缓存失败:', error);
+    }
+}
+
+async function persistAiSnapshotCache() {
+    try {
+        const entries = aiSnapshotCache.entries || {};
+        const keys = Object.keys(entries);
+        if (keys.length > AI_SNAPSHOT_MAX_ENTRIES) {
+            const sorted = keys
+                .map((k) => ({ k, ts: Number(entries[k]?.updatedAt || 0) }))
+                .sort((a, b) => b.ts - a.ts);
+            const keep = new Set(sorted.slice(0, AI_SNAPSHOT_CLEANUP_KEEP).map((x) => x.k));
+            const nextEntries = {};
+            keep.forEach((k) => { nextEntries[k] = entries[k]; });
+            aiSnapshotCache.entries = nextEntries;
+        }
+        await chrome.storage.local.set({
+            [AI_SNAPSHOT_STORAGE_KEY]: {
+                entries: aiSnapshotCache.entries,
+                updatedAt: Date.now(),
+            },
+        });
+    } catch (error) {
+        console.warn('持久化 AI 快照缓存失败:', error);
+    }
+}
+
+function buildTabSignature(tab) {
+    return `${String(tab.title || '')}\n${String(tab.url || '')}`;
+}
+
+function buildAiSnapshotFromCache(tabs) {
+    const classification = {};
+    const siteNames = {};
+    const labels = {};
+    const entries = aiSnapshotCache.entries || {};
+    (tabs || []).forEach((tab) => {
+        const id = String(tab.id);
+        const cached = entries[id];
+        if (!cached) return;
+        if (cached.sig !== buildTabSignature(tab)) return;
+        if (cached.category) classification[id] = cached.category;
+        if (cached.siteName) siteNames[id] = cached.siteName;
+        if (cached.pageLabel) labels[id] = cached.pageLabel;
+    });
+    return { classification, siteNames, labels };
+}
+
+async function fetchPageLabelsForTabs(tabList, apiKey) {
+    if (!apiKey || !Array.isArray(tabList) || tabList.length === 0) return {};
+    const tabDescriptions = tabList.map((t) => {
+        const path = (() => {
+            try { return new URL(t.url).pathname; } catch (_) { return ''; }
+        })();
+        return `ID:${t.id} 标题:${t.title || '(无)'} PATH:${path}`;
+    }).join('\n');
+
+    try {
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+                model: 'deepseek-chat',
+                messages: [
+                    {
+                        role: 'system',
+                        content: `你是标签页功能提取助手。给你一组来自同一网站的标签页，请为每个页面生成一个 2-4 字的中文功能标签，描述这个页面是用来做什么的（如：项目列表、代码审查、问题详情、个人主页、设置页面）。
+返回纯 JSON，格式：{"tabId": "标签文字"}，不要任何解释。`,
+                    },
+                    { role: 'user', content: tabDescriptions },
+                ],
+                temperature: 0.2,
+                response_format: { type: 'json_object' },
+            }),
+        });
+        const data = await response.json();
+        const raw = data.choices?.[0]?.message?.content?.trim() || '{}';
+        let parsed = {};
+        try { parsed = JSON.parse(raw); } catch (_) {}
+
+        const labels = {};
+        Object.entries(parsed).forEach(([k, v]) => {
+            const clean = String(v || '').trim().slice(0, 6);
+            if (clean) labels[String(k)] = clean;
+        });
+        return labels;
+    } catch (error) {
+        console.error('批量页面功能标签获取失败:', error);
+        return {};
+    }
+}
+
+async function computeAiSnapshotForTabs(tabs) {
+    const tabList = Array.isArray(tabs) ? tabs : [];
+    const apiKey = await getDeepSeekApiKey();
+    const classification = {};
+    const siteNames = {};
+    const labels = {};
+    const updates = {};
+    const entries = aiSnapshotCache.entries || {};
+
+    await Promise.all(tabList.map(async (tab) => {
+        const id = String(tab.id);
+        const sig = buildTabSignature(tab);
+        const cached = entries[id];
+        const isSigMatch = !!(cached && cached.sig === sig);
+
+        let category = isSigMatch ? cached.category : '';
+        if (!category) {
+            category = await getSmartCategory(tab.title, tab.url, apiKey);
+        }
+        if (category) classification[id] = category;
+
+        let siteName = isSigMatch ? cached.siteName : '';
+        if (siteName === undefined || siteName === null) siteName = '';
+        if (!siteName) {
+            siteName = await getSmartSiteName(tab.title, tab.url, apiKey);
+        }
+        if (siteName) siteNames[id] = siteName;
+
+        updates[id] = {
+            ...(cached || {}),
+            sig,
+            category: category || '',
+            siteName: siteName || '',
+            pageLabel: isSigMatch ? (cached.pageLabel || '') : '',
+            updatedAt: Date.now(),
+        };
+    }));
+
+    const domainGroups = new Map();
+    tabList.forEach((tab) => {
+        const domain = getTabGroupDomainKey(tab.url);
+        if (!domainGroups.has(domain)) domainGroups.set(domain, []);
+        domainGroups.get(domain).push(tab);
+    });
+
+    for (const [, group] of domainGroups.entries()) {
+        const missingForBatch = [];
+        for (const tab of group) {
+            const id = String(tab.id);
+            const cacheKey = pageLabelCacheKey(tab.title, tab.url);
+            const cachedLabel = await chrome.storage.local.get(cacheKey);
+            const fromStorage = cachedLabel[cacheKey] ? String(cachedLabel[cacheKey]) : '';
+            if (fromStorage) {
+                labels[id] = fromStorage;
+                const current = updates[id] || {};
+                updates[id] = {
+                    ...current,
+                    sig: buildTabSignature(tab),
+                    pageLabel: fromStorage,
+                    updatedAt: Date.now(),
+                };
+                continue;
+            }
+            const existing = updates[id] && updates[id].pageLabel ? String(updates[id].pageLabel) : '';
+            if (existing) {
+                labels[id] = existing;
+                continue;
+            }
+            missingForBatch.push(tab);
+        }
+        if (missingForBatch.length > 0) {
+            const fetched = await fetchPageLabelsForTabs(
+                missingForBatch.map((t) => ({ id: t.id, title: t.title || '', url: t.url || '' })),
+                apiKey
+            );
+            for (const tab of missingForBatch) {
+                const id = String(tab.id);
+                const label = fetched[id] ? String(fetched[id]).trim().slice(0, 6) : '';
+                if (!label) continue;
+                labels[id] = label;
+                const cacheKey = pageLabelCacheKey(tab.title, tab.url);
+                await chrome.storage.local.set({ [cacheKey]: label });
+                const current = updates[id] || {};
+                updates[id] = {
+                    ...current,
+                    sig: buildTabSignature(tab),
+                    pageLabel: label,
+                    updatedAt: Date.now(),
+                };
+            }
+        }
+    }
+
+    Object.entries(updates).forEach(([id, entry]) => {
+        aiSnapshotCache.entries[id] = entry;
+    });
+    await persistAiSnapshotCache();
+    return { classification, siteNames, labels };
 }
 
 async function getSmartCategory(title, url, apiKey) {
@@ -526,6 +754,55 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
+    // ── 读取 AI 快照缓存（仅返回已命中结果，不阻塞） ──
+    else if (request.action === 'get_ai_snapshot') {
+        const tabList = Array.isArray(request.tabs) ? request.tabs : [];
+        sendResponse(buildAiSnapshotFromCache(tabList));
+        return true;
+    }
+
+    // ── 对指定 tabs 做 AI 预热并返回结果 ──
+    else if (request.action === 'prewarm_ai_snapshot') {
+        (async () => {
+            const tabList = Array.isArray(request.tabs) ? request.tabs : [];
+            if (tabList.length === 0) {
+                sendResponse({ classification: {}, siteNames: {}, labels: {} });
+                return;
+            }
+            const snapshot = await computeAiSnapshotForTabs(tabList);
+            sendResponse(snapshot);
+        })();
+        return true;
+    }
+
+    // ── 静默预热当前窗口，供面板秒开（无需等待结果） ──
+    else if (request.action === 'prewarm_ai_current_window') {
+        (async () => {
+            const sourceWindowId = sender.tab && Number.isFinite(Number(sender.tab.windowId))
+                ? Number(sender.tab.windowId)
+                : null;
+            const query = sourceWindowId === null ? {} : { windowId: sourceWindowId };
+            chrome.tabs.query(query, async (tabs) => {
+                if (chrome.runtime.lastError) {
+                    sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                    return;
+                }
+                const tabList = (tabs || []).map((t) => ({
+                    id: t.id,
+                    title: t.title || '',
+                    url: t.url || '',
+                }));
+                if (tabList.length === 0) {
+                    sendResponse({ success: true, skipped: true });
+                    return;
+                }
+                await computeAiSnapshotForTabs(tabList);
+                sendResponse({ success: true });
+            });
+        })();
+        return true;
+    }
+
     // ── DeepSeek：按标签页标题智能分类（带缓存） ──
     else if (request.action === 'classify_tabs') {
         (async () => {
@@ -555,6 +832,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }));
 
             sendResponse({ classification: results, siteNames });
+        })();
+        return true;
+    }
+
+    else if (request.action === 'get_tab_page_labels') {
+        (async () => {
+            const apiKey = await getDeepSeekApiKey();
+            if (!apiKey) { sendResponse({ labels: {} }); return; }
+
+            const tabList = Array.isArray(request.tabs) ? request.tabs : [];
+            if (tabList.length === 0) { sendResponse({ labels: {} }); return; }
+            const labels = await fetchPageLabelsForTabs(tabList, apiKey);
+            Object.entries(labels).forEach(([id, label]) => {
+                const tab = tabList.find((t) => String(t.id) === String(id));
+                if (!tab) return;
+                aiSnapshotCache.entries[String(id)] = {
+                    ...(aiSnapshotCache.entries[String(id)] || {}),
+                    sig: buildTabSignature(tab),
+                    pageLabel: label,
+                    updatedAt: Date.now(),
+                };
+            });
+            await persistAiSnapshotCache();
+            sendResponse({ labels });
         })();
         return true;
     }

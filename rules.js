@@ -7,6 +7,19 @@ function getDomainFromUrl(url) {
     }
 }
 
+/** 与 content-switcher 的 getTabDomainKey 一致：取 hostname 末两段作为「站点」分组键，子域合并（如 gemini.google.com 与 www.google.com 同属 google.com）。 */
+function getTabGroupDomainKey(url) {
+    let domain = '本地网页/其他';
+    try {
+        if (url && String(url).startsWith('http')) {
+            const u = new URL(url);
+            const parts = u.hostname.split('.');
+            domain = parts.length >= 2 ? parts.slice(-2).join('.') : u.hostname;
+        }
+    } catch (e) {}
+    return domain;
+}
+
 function normalizeCategory(rawCategory) {
     const text = String(rawCategory || '').trim();
     if (text.includes('📖') || text.includes('信息资讯')) return '📖 信息资讯';
