@@ -7,7 +7,8 @@
       "tabs",
       "storage",
       "sessions",
-      "tabGroups"
+      "tabGroups",
+      "windows"
     ],
     "host_permissions": [
       "https://api.deepseek.com/*"

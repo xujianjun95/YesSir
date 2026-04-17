@@ -151,40 +151,24 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     const header = document.createElement('div');
     Object.assign(header.style, {
-        padding:        '14px 20px 10px',
+        padding:        '16px 20px',
         display:        'flex',
         flexDirection:  'column',
-        gap:            '12px',
+        gap:            '14px',
         borderBottom:   '1px solid rgba(0, 0, 0, 0.05)',
         flexShrink:     '0',
     });
+
     header.innerHTML = `
-      <div style="display:flex; justify-content:space-between; align-items:center;">
+      <div style="display:flex; justify-content:space-between; align-items:center; min-height:28px;">
         <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;">「🫡 Yes Sir」标签页管理</span>
         
-        <div id="ys-top-actions" style="display:flex; gap:8px; position:relative;">
-            <div id="ys-regret-btn" title="重新打开最近关闭的3个标签页" style="
-              display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
-              background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
-              border-radius:8px; cursor:pointer; transition:all 0.2s; box-sizing:border-box;
-              white-space:nowrap; flex-shrink:0;
-            ">
-              <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">💊 后悔药</span>
-            </div>
-            
-            <div id="ys-main-settings-btn" title="设置" style="
-              display:flex; align-items:center; gap:5px; height:28px; padding:0 10px;
-              background:rgba(80, 110, 220, 0.08); border:1px solid rgba(80, 110, 220, 0.15);
-              border-radius:8px; cursor:pointer; transition:all 0.2s; box-sizing:border-box;
-              white-space:nowrap; flex-shrink:0;
-            ">
-              <span style="font-size:11px; font-weight:600; color:rgba(50, 70, 160, 0.9);">⚙️ 设置</span>
-            </div>
-        </div>
-
+        <div id="ys-top-actions" style="display:flex; gap:8px; position:relative; align-items:center;"></div>
       </div>
-      <div id="ys-category-filters" style="display:flex; gap:6px; align-items:center; width:100%; box-sizing:border-box; margin-top:8px;"></div>
-      <div style="position:relative; margin-top:10px;">
+
+      <div id="ys-category-filters" style="display:flex; gap:6px; align-items:center; width:100%; box-sizing:border-box;"></div>
+      
+      <div style="position:relative;">
         <input id="ys-search-input" type="text" placeholder="搜索标题、URL 或域名..." style="
           width:100%; padding:9px 12px 9px 34px; border-radius:10px;
           border:1px solid rgba(255, 255, 255, 0.65); background:rgba(255, 255, 255, 0.25);
@@ -197,6 +181,245 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
           <path d="M11 11L14 14" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
       </div>`;
+
+    const topActions = header.querySelector('#ys-top-actions');
+
+    function createFluidButton(id, emoji, label, colors, titleAttr) {
+        const btn = document.createElement('div');
+        btn.id = id;
+        btn.classList.add('ys-fluid-btn');
+        btn.dataset.selected = 'false';
+        btn.title = titleAttr || label;
+        btn.fluidColors = colors;
+
+        function collapseFluidEl(el) {
+            const c = el.fluidColors;
+            if (!c) return;
+            el.style.maxWidth = '28px';
+            el.style.padding = '0 6px';
+            el.style.background = c.defaultBg;
+            const t = el.querySelector('.ys-btn-text');
+            if (t) t.style.opacity = '0';
+        }
+
+        function applyFluidExpanded() {
+            btn.style.maxWidth = '100px';
+            btn.style.padding = '0 10px';
+            btn.style.background = colors.hoverBg;
+            const t = btn.querySelector('.ys-btn-text');
+            if (t) t.style.opacity = '1';
+        }
+
+        Object.assign(btn.style, {
+            display: 'flex',
+            alignItems: 'center',
+            height: '28px',
+            padding: '0 6px',
+            background: colors.defaultBg,
+            border: `1px solid ${colors.border}`,
+            borderRadius: '8px',
+            cursor: 'pointer',
+            boxSizing: 'border-box',
+            overflow: 'hidden',
+            maxWidth: '28px',
+            transition: 'max-width 0.62s cubic-bezier(0.25, 1, 0.5, 1), background 0.32s ease, padding 0.62s cubic-bezier(0.25, 1, 0.5, 1)',
+            flexShrink: '0',
+        });
+        btn.innerHTML = `
+            <span style="font-size:12px; flex-shrink:0; width:14px; display:flex; justify-content:center;">${emoji}</span>
+            <span class="ys-btn-text" style="font-size:11px; font-weight:600; color:${colors.text}; margin-left:6px; opacity:0; transition:opacity 0.48s ease; white-space:nowrap; pointer-events:none;">${label}</span>
+        `;
+
+        btn.addEventListener('mouseenter', () => {
+            applyFluidExpanded();
+        });
+
+        btn.addEventListener('mouseleave', () => {
+            if (btn.dataset.selected === 'true') return;
+            collapseFluidEl(btn);
+        });
+
+        // 捕获阶段：先切换「钉住展开」状态，再执行业务 click
+        btn.addEventListener('click', () => {
+            const isSelected = btn.dataset.selected === 'true';
+            const next = !isSelected;
+            btn.dataset.selected = next ? 'true' : 'false';
+
+            if (next) {
+                const parent = btn.parentElement;
+                if (parent) {
+                    parent.querySelectorAll('.ys-fluid-btn').forEach((el) => {
+                        if (el !== btn && el.dataset.selected === 'true') {
+                            el.dataset.selected = 'false';
+                            collapseFluidEl(el);
+                        }
+                    });
+                }
+                applyFluidExpanded();
+            }
+            // 取消选中时不立刻收缩：若仍在 hover，由 mouseenter 已保持展开；移出后由 mouseleave 收缩
+        }, true);
+
+        return btn;
+    }
+
+    // 1. AI 聚合 (核心功能：🤖 全息青绿)
+    const aiGroupBtn = createFluidButton('ys-ai-group-btn', '🤖', 'AI 聚合', {
+        defaultBg: 'rgba(0, 180, 200, 0.12)',
+        hoverBg: 'rgba(0, 180, 200, 0.18)',
+        border: 'rgba(0, 180, 200, 0.25)',
+        text: 'rgba(10, 150, 170, 0.95)',
+    }, 'AI 智能聚类：仅在当前窗口内按子主题创建标签组');
+
+    const regretBtn = createFluidButton('ys-regret-btn', '💊', '后悔药', {
+        defaultBg: 'rgba(0, 0, 0, 0.04)',
+        hoverBg: 'rgba(0, 0, 0, 0.08)',
+        border: 'rgba(0, 0, 0, 0.06)',
+        text: 'rgba(80, 90, 110, 0.9)',
+    }, '重新打开最近关闭的3个标签页');
+
+    const settingsBtn = createFluidButton('ys-main-settings-btn', '⚙️', '设置', {
+        defaultBg: 'rgba(0, 0, 0, 0.04)',
+        hoverBg: 'rgba(0, 0, 0, 0.08)',
+        border: 'rgba(0, 0, 0, 0.06)',
+        text: 'rgba(80, 90, 110, 0.9)',
+    }, '设置');
+
+    topActions.appendChild(aiGroupBtn);
+    topActions.appendChild(regretBtn);
+    topActions.appendChild(settingsBtn);
+
+    aiGroupBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let tabsToProcess = switcherTabs.filter((t) => t.url && /^https?:\/\//i.test(t.url));
+        if (switcherCurrentWindowId !== null && switcherCurrentWindowId !== undefined) {
+            const wid = Number(switcherCurrentWindowId);
+            tabsToProcess = tabsToProcess.filter((t) => Number(t.windowId) === wid);
+        }
+        if (tabsToProcess.length === 0) {
+            showYsMessageToast('当前窗口没有可聚合的 http(s) 标签页', 2800);
+            return;
+        }
+
+        const finishProcessing = showProcessingToast(tabsToProcess.length);
+        chrome.runtime.sendMessage({
+            action: 'ai_batch_group',
+            tabs: tabsToProcess,
+            windowId: switcherCurrentWindowId,
+        }, (res) => {
+            finishProcessing();
+
+            if (chrome.runtime.lastError) {
+                showCustomToast('聚合失败：' + chrome.runtime.lastError.message, 4000);
+                return;
+            }
+            if (res && res.success) {
+                showCustomToast(`✅ 整理完毕，已为您创建 ${res.groupCount} 个标签组`, 3200);
+                setTimeout(() => hideSwitcher(), 1500);
+            } else {
+                let hint = '聚合未完成';
+                if (res && res.error === 'no_api_key') hint = '请先在设置中配置 DeepSeek API Key';
+                else if (res && res.message) {
+                    hint = res.message;
+                    if (/failed to fetch|networkerror|load failed/i.test(hint)) {
+                        hint = '网络无法连接 DeepSeek（api.deepseek.com）。请检查网络/代理，或在扩展页重新加载本扩展后再试。';
+                    }
+                } else if (res && res.error === 'parse_failed') hint = 'AI 返回格式异常，请重试';
+                else if (res && res.error === 'no_http_tabs') hint = '没有可聚合的页面';
+                showCustomToast('⚠️ ' + hint, 5500);
+            }
+        });
+    });
+
+    regretBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chrome.runtime.sendMessage({ action: 'restore_last_3_tabs' }, (res) => {
+            if (chrome.runtime.lastError) return;
+            if (res && res.success) {
+                hideSwitcher();
+            } else {
+                regretBtn.style.borderColor = 'rgba(255, 100, 100, 0.3)';
+                setTimeout(() => {
+                    regretBtn.style.borderColor = 'rgba(0, 0, 0, 0.06)';
+                }, 500);
+            }
+        });
+    });
+
+    // 设置按钮点击事件
+    settingsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let menu = document.getElementById('ys-settings-dropdown');
+        if (menu) { menu.remove(); return; }
+
+        menu = document.createElement('div');
+        menu.id = 'ys-settings-dropdown';
+        Object.assign(menu.style, {
+            position: 'absolute', top: '36px', right: '0', background: 'rgba(255, 255, 255, 0.85)',
+            backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.8)', boxShadow: '0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.5)',
+            borderRadius: '10px', padding: '6px', display: 'flex', flexDirection: 'column', gap: '2px', zIndex: '100', minWidth: '150px'
+        });
+
+        // 统一的菜单项工厂函数
+        const createItem = (icon, text, onClick, isToggle = false) => {
+            const item = document.createElement('div');
+            Object.assign(item.style, {
+                padding: '8px 12px', borderRadius: '6px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', transition: 'background 0.15s',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden'
+            });
+            item.innerHTML = `<span style="margin-right:8px;font-size:13px;flex-shrink:0;">${icon}</span><span style="font-size:12px;font-weight:600;color:rgba(50,60,80,0.9);white-space:nowrap;">${text}</span>`;
+
+            item.addEventListener('mouseenter', () => item.style.background = 'rgba(80, 110, 220, 0.08)');
+            item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+            item.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (!isToggle) menu.remove();
+                onClick(item);
+            });
+            return item;
+        };
+
+        // 先获取浮窗状态，确保渲染顺序
+        chrome.storage.local.get({ showFloatingWidget: true }, (res) => {
+            // 1. 修饰键设置
+            menu.appendChild(createItem('⌨️', '修饰键设置', showModifierSettingsModal));
+
+            // 2. API Key 设置
+            menu.appendChild(createItem('🔑', 'API Key 设置', showApiKeyModal));
+
+            // 3. 统计浮窗开关 (放到最下面)
+            const isEnabled = res.showFloatingWidget !== false;
+            const floatToggle = createItem(
+                isEnabled ? '🟢' : '⚪',
+                `统计浮窗：${isEnabled ? '开启' : '关闭'}`,
+                (itemEl) => {
+                    chrome.storage.local.get({ showFloatingWidget: true }, (r) => {
+                        const nextState = r.showFloatingWidget === false;
+                        chrome.storage.local.set({ showFloatingWidget: nextState }, () => {
+                            itemEl.querySelector('span:first-child').innerText = nextState ? '🟢' : '⚪';
+                            itemEl.querySelector('span:last-child').innerText = `统计浮窗：${nextState ? '开启' : '关闭'}`;
+                        });
+                    });
+                },
+                true
+            );
+            menu.appendChild(floatToggle);
+        });
+
+        document.getElementById('ys-top-actions').appendChild(menu);
+
+        // 点击外部关闭菜单
+        const closeMenu = (ev) => {
+            if (!menu.contains(ev.target) && ev.target.closest('#ys-main-settings-btn') === null) {
+                menu.remove();
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 0);
+    });
 
     const listContainer = document.createElement('div');
     listContainer.id = 'ys-switcher-list';
@@ -492,6 +715,92 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     card.appendChild(header);
     card.appendChild(listContainer);
+
+    const footer = document.createElement('div');
+    Object.assign(footer.style, {
+        padding: '12px 20px',
+        background: 'rgba(0, 0, 0, 0.02)',
+        borderTop: '1px solid rgba(0, 0, 0, 0.05)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexShrink: '0',
+        gap: '12px',
+        minHeight: '44px',
+        boxSizing: 'border-box',
+    });
+
+    chrome.runtime.sendMessage({ action: 'get_last_context' }, (res) => {
+        if (chrome.runtime.lastError) return;
+        footer.replaceChildren();
+        if (res && res.lastTab) {
+            const lt = res.lastTab;
+            const left = document.createElement('div');
+            Object.assign(left.style, {
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                minWidth: '0',
+                flex: '1',
+            });
+            const lab = document.createElement('span');
+            lab.textContent = '上一个标签页：';
+            Object.assign(lab.style, {
+                fontSize: '11px',
+                color: 'rgba(100,110,130,0.6)',
+                flexShrink: '0',
+                whiteSpace: 'nowrap',
+            });
+            left.appendChild(lab);
+
+            if (lt.favIconUrl) {
+                const img = document.createElement('img');
+                img.src = lt.favIconUrl;
+                img.width = 14;
+                img.height = 14;
+                Object.assign(img.style, { borderRadius: '2px', flexShrink: '0' });
+                img.onerror = () => { img.style.display = 'none'; };
+                left.appendChild(img);
+            }
+
+            const titleEl = document.createElement('span');
+            titleEl.textContent = lt.title || '(无标题)';
+            Object.assign(titleEl.style, {
+                fontSize: '12px',
+                color: 'rgba(60,70,90,0.85)',
+                fontWeight: '500',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: '0',
+            });
+            left.appendChild(titleEl);
+
+            const hint = document.createElement('div');
+            const modRaw = MOD_LABELS[modifierKey] || '';
+            const modParts = String(modRaw).split(/\s+/);
+            const modLabel = modParts.length > 1 ? modParts[modParts.length - 1] : modRaw;
+            hint.textContent = `${modLabel} + E 快速切回`;
+            Object.assign(hint.style, {
+                fontSize: '11px',
+                color: 'rgba(80,110,220,0.8)',
+                fontWeight: '600',
+                paddingLeft: '8px',
+                whiteSpace: 'nowrap',
+                flexShrink: '0',
+            });
+
+            footer.appendChild(left);
+            footer.appendChild(hint);
+        } else {
+            const empty = document.createElement('div');
+            empty.textContent = '随便切换个网页，这里就会记录你的上一个标签页啦 👇';
+            Object.assign(empty.style, { fontSize: '11px', color: 'rgba(100,110,130,0.5)' });
+            footer.appendChild(empty);
+        }
+    });
+
+    card.appendChild(footer);
     overlay.appendChild(card);
     document.body.appendChild(overlay);
 
@@ -521,170 +830,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             searchInput.style.background = 'rgba(255, 255, 255, 0.25)';
             searchInput.style.borderColor = 'rgba(255, 255, 255, 0.65)';
             searchInput.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02)';
-        });
-    }
-
-    const topActionsEl = header.querySelector('#ys-top-actions');
-    const regretBtnAnchor = document.getElementById('ys-regret-btn');
-    if (topActionsEl && regretBtnAnchor) {
-        const aiGroupBtn = document.createElement('div');
-        aiGroupBtn.id = 'ys-ai-group-btn';
-        aiGroupBtn.title = 'AI 智能聚类：仅在当前窗口内按子主题创建标签组';
-        Object.assign(aiGroupBtn.style, {
-            display: 'flex',
-            alignItems: 'center',
-            gap: '5px',
-            height: '28px',
-            padding: '0 10px',
-            background: 'rgba(50, 200, 150, 0.08)',
-            border: '1px solid rgba(50, 200, 150, 0.22)',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            transition: 'all 0.2s',
-            boxSizing: 'border-box',
-            whiteSpace: 'nowrap',
-            flexShrink: '0',
-        });
-        aiGroupBtn.innerHTML = '<span style="font-size:11px;font-weight:600;color:rgba(30,130,100,0.9);">✨ AI 聚合</span>';
-        topActionsEl.insertBefore(aiGroupBtn, regretBtnAnchor);
-        aiGroupBtn.addEventListener('mouseenter', () => {
-            aiGroupBtn.style.background = 'rgba(50, 200, 150, 0.14)';
-        });
-        aiGroupBtn.addEventListener('mouseleave', () => {
-            aiGroupBtn.style.background = 'rgba(50, 200, 150, 0.08)';
-        });
-        aiGroupBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            let tabsToProcess = switcherTabs.filter((t) => t.url && /^https?:\/\//i.test(t.url));
-            if (switcherCurrentWindowId !== null && switcherCurrentWindowId !== undefined) {
-                const wid = Number(switcherCurrentWindowId);
-                tabsToProcess = tabsToProcess.filter((t) => Number(t.windowId) === wid);
-            }
-            if (tabsToProcess.length === 0) {
-                showYsMessageToast('当前窗口没有可聚合的 http(s) 标签页', 2800);
-                return;
-            }
-
-            const finishProcessing = showProcessingToast(tabsToProcess.length);
-            chrome.runtime.sendMessage({
-                action: 'ai_batch_group',
-                tabs: tabsToProcess,
-                windowId: switcherCurrentWindowId,
-            }, (res) => {
-                finishProcessing();
-
-                if (chrome.runtime.lastError) {
-                    showCustomToast('聚合失败：' + chrome.runtime.lastError.message, 4000);
-                    return;
-                }
-                if (res && res.success) {
-                    showCustomToast(`✅ 整理完毕，已为您创建 ${res.groupCount} 个标签组`, 3200);
-                    setTimeout(() => hideSwitcher(), 1500);
-                } else {
-                    let hint = '聚合未完成';
-                    if (res && res.error === 'no_api_key') hint = '请先在设置中配置 DeepSeek API Key';
-                    else if (res && res.message) {
-                        hint = res.message;
-                        if (/failed to fetch|networkerror|load failed/i.test(hint)) {
-                            hint = '网络无法连接 DeepSeek（api.deepseek.com）。请检查网络/代理，或在扩展页重新加载本扩展后再试。';
-                        }
-                    } else if (res && res.error === 'parse_failed') hint = 'AI 返回格式异常，请重试';
-                    else if (res && res.error === 'no_http_tabs') hint = '没有可聚合的页面';
-                    showCustomToast('⚠️ ' + hint, 5500);
-                }
-            });
-        });
-    }
-
-    const regretBtn = document.getElementById('ys-regret-btn');
-    if (regretBtn) {
-        regretBtn.addEventListener('mouseenter', () => {
-            regretBtn.style.background = 'rgba(80, 110, 220, 0.15)';
-        });
-        regretBtn.addEventListener('mouseleave', () => {
-            regretBtn.style.background = 'rgba(80, 110, 220, 0.08)';
-        });
-        regretBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            chrome.runtime.sendMessage({ action: 'restore_last_3_tabs' }, (res) => {
-                if (chrome.runtime.lastError) return;
-                if (res && res.success) {
-                    hideSwitcher();
-                } else {
-                    regretBtn.style.borderColor = 'rgba(255, 100, 100, 0.3)';
-                    setTimeout(() => {
-                        regretBtn.style.borderColor = 'rgba(80, 110, 220, 0.15)';
-                    }, 500);
-                }
-            });
-        });
-    }
-
-    // 设置按钮下拉菜单逻辑
-    const settingsBtn = document.getElementById('ys-main-settings-btn');
-    if (settingsBtn) {
-        settingsBtn.addEventListener('mouseenter', () => settingsBtn.style.background = 'rgba(80, 110, 220, 0.15)');
-        settingsBtn.addEventListener('mouseleave', () => settingsBtn.style.background = 'rgba(80, 110, 220, 0.08)');
-        settingsBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            let menu = document.getElementById('ys-settings-dropdown');
-            if (menu) {
-                menu.remove();
-                return;
-            }
-            menu = document.createElement('div');
-            menu.id = 'ys-settings-dropdown';
-            Object.assign(menu.style, {
-                position: 'absolute',
-                top: '36px',
-                right: '0',
-                background: 'rgba(255, 255, 255, 0.85)',
-                backdropFilter: 'saturate(180%) blur(20px)',
-                WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-                border: '1px solid rgba(255, 255, 255, 0.8)',
-                boxShadow: '0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.5)',
-                borderRadius: '10px',
-                padding: '6px',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '2px',
-                zIndex: '100',
-                minWidth: '130px'
-            });
-
-            const createItem = (icon, text, onClick) => {
-                const item = document.createElement('div');
-                item.innerHTML = `<span style="margin-right:8px;font-size:13px;">${icon}</span><span style="font-size:12px;font-weight:600;color:rgba(50,60,80,0.9);">${text}</span>`;
-                Object.assign(item.style, {
-                    padding: '8px 12px',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    transition: 'background 0.15s'
-                });
-                item.addEventListener('mouseenter', () => item.style.background = 'rgba(80, 110, 220, 0.08)');
-                item.addEventListener('mouseleave', () => item.style.background = 'transparent');
-                item.addEventListener('click', (ev) => {
-                    ev.stopPropagation();
-                    menu.remove();
-                    onClick();
-                });
-                return item;
-            };
-
-            menu.appendChild(createItem('⌨️', '修饰键设置', showModifierSettingsModal));
-            menu.appendChild(createItem('🔑', 'API Key 设置', showApiKeyModal));
-
-            document.getElementById('ys-top-actions').appendChild(menu);
-
-            const closeMenu = (ev) => {
-                if (!menu.contains(ev.target) && ev.target.closest('#ys-main-settings-btn') === null) {
-                    menu.remove();
-                    document.removeEventListener('click', closeMenu);
-                }
-            };
-            setTimeout(() => document.addEventListener('click', closeMenu), 0);
         });
     }
 

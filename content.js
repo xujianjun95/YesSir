@@ -285,7 +285,22 @@ function showApiKeyModal() {
 
 // ─── Floating Widget ──────────────────────────────────────────────────────────
 
+let _ysFloatWidgetStorageHooked = false;
+
 function initFloatingWidget() {
+    if (!_ysFloatWidgetStorageHooked) {
+        _ysFloatWidgetStorageHooked = true;
+        chrome.storage.onChanged.addListener((changes) => {
+            if (changes.showFloatingWidget) {
+                const show = changes.showFloatingWidget.newValue !== false;
+                const btn = document.getElementById('geek-float-btn');
+                const panel = document.getElementById('geek-float-panel');
+                if (btn) btn.style.display = show ? 'flex' : 'none';
+                if (!show && panel) panel.style.display = 'none';
+            }
+        });
+    }
+
     if (document.getElementById('geek-float-btn')) return;
 
     let snapEdge  = 'right';
@@ -377,15 +392,22 @@ function initFloatingWidget() {
 
     applyPosition(false);
 
-    chrome.storage.local.get(['widgetPosY', 'widgetSnapEdge'], (res) => {
-        if (res.widgetPosY !== undefined) {
-            posY = Math.max(8, Math.min(window.innerHeight - 46, res.widgetPosY));
+    chrome.storage.local.get(
+        { showFloatingWidget: true, widgetPosY: null, widgetSnapEdge: null },
+        (res) => {
+            const isShow = res.showFloatingWidget !== false;
+            btn.style.display = isShow ? 'flex' : 'none';
+            if (!isShow) panel.style.display = 'none';
+
+            if (res.widgetPosY != null) {
+                posY = Math.max(8, Math.min(window.innerHeight - 46, res.widgetPosY));
+            }
+            if (res.widgetSnapEdge != null) {
+                snapEdge = res.widgetSnapEdge;
+            }
+            applyPosition(false);
         }
-        if (res.widgetSnapEdge !== undefined) {
-            snapEdge = res.widgetSnapEdge;
-        }
-        applyPosition(false);
-    });
+    );
 
     let isDragging = false, moved = false, dragStartClientY = 0, dragStartPosY = 0;
 
@@ -643,9 +665,35 @@ const DOUBLE_PRESS_DELAY = 300;
 
 document.addEventListener('keydown', function(event) {
     if (event.repeat) return;
+    const SWITCH_TOAST_MS = 2800;
 
-    if (event.key === 'Escape' && switcherVisible) {
-        hideSwitcher();
+    // 修饰键 + E：捕获阶段优先拦截，避免被搜索框等吃掉（事件吞噬）
+    if (isModHeld(event) && event.code === 'KeyE') {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
+            hideSwitcher();
+        }
+        chrome.runtime.sendMessage({ action: 'switch_to_last_tab' }, (res) => {
+            if (chrome.runtime.lastError) {
+                showYsMessageToast('切换失败：' + chrome.runtime.lastError.message, SWITCH_TOAST_MS);
+                return;
+            }
+            if (res && res.success) {
+                // 成功提示已改为在目标标签页弹出（background -> show_message_toast）
+            } else if (res && res.reason === 'no_last') {
+                showYsMessageToast('暂无上一个标签页可切换', SWITCH_TOAST_MS);
+            } else if (res && res.reason === 'gone') {
+                showYsMessageToast('上一个标签页已关闭或不存在', SWITCH_TOAST_MS);
+            } else {
+                showYsMessageToast('😅 上一个标签页似乎已关闭或无记录', SWITCH_TOAST_MS);
+            }
+        });
+        return;
+    }
+
+    if (event.key === 'Escape' && typeof switcherVisible !== 'undefined' && switcherVisible) {
+        if (typeof hideSwitcher === 'function') hideSwitcher();
         return;
     }
 
@@ -654,27 +702,33 @@ document.addEventListener('keydown', function(event) {
         if (now - lastModPressTime < DOUBLE_PRESS_DELAY) {
             // 触发双击
             event.preventDefault();
-            
-            if (!switcherVisible) {
+
+            if (typeof switcherVisible === 'undefined' || !switcherVisible) {
                 chrome.runtime.sendMessage({ action: 'get_tabs' }, (res) => {
                     if (!res || !res.tabs || res.tabs.length < 2) return;
                     showSwitcher(res.tabs, false, res.currentWindowId);
-                    initSwitcherHighlight();
+                    if (typeof initSwitcherHighlight === 'function') initSwitcherHighlight();
                 });
             } else {
-                hideSwitcher();
+                if (typeof hideSwitcher === 'function') hideSwitcher();
             }
             lastModPressTime = 0;
         } else {
             lastModPressTime = now;
         }
     }
-});
+}, true);
 
 // 来自 background 的消息
 chrome.runtime.onMessage.addListener((request) => {
-    if (request.action === "show_toast") {
+    if (request.action === 'show_toast') {
         showToast(request.count);
+    } else if (request.action === 'show_message_toast') {
+        showYsMessageToast(request.message || '🫡 Yes Sir', Number(request.durationMs) || 2800);
+    } else if (request.action === 'force_hide_switcher') {
+        if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
+            hideSwitcher();
+        }
     }
 });
 

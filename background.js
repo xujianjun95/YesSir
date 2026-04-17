@@ -1,5 +1,36 @@
 importScripts('rules.js');
 
+// ─── 全局标签页轨迹（Mod+E 切回「上一个看过的」标签页，可跨窗口） ───
+const globalTabHistory = { current: null, last: null };
+
+function updateGlobalTab(tabId) {
+    if (globalTabHistory.current && globalTabHistory.current.tabId === tabId) return;
+
+    globalTabHistory.last = globalTabHistory.current;
+
+    chrome.tabs.get(tabId, (tab) => {
+        if (chrome.runtime.lastError || !tab) return;
+        globalTabHistory.current = {
+            tabId: tab.id,
+            windowId: tab.windowId,
+            title: tab.title || '(无标题)',
+            favIconUrl: tab.favIconUrl || '',
+        };
+    });
+}
+
+chrome.tabs.onActivated.addListener((activeInfo) => {
+    updateGlobalTab(activeInfo.tabId);
+});
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+    if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+    chrome.tabs.query({ active: true, windowId }, (tabs) => {
+        if (chrome.runtime.lastError || !tabs || tabs.length === 0) return;
+        updateGlobalTab(tabs[0].id);
+    });
+});
+
 // DeepSeek：优先从 chrome.storage.local.deepseekApiKey 读取，勿把密钥提交到仓库。
 async function getDeepSeekApiKey() {
     const { deepseekApiKey } = await chrome.storage.local.get('deepseekApiKey');
@@ -498,6 +529,57 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             });
         })();
         return true;
+    }
+
+    // ── 切回全局「上一个看过的」标签页（先聚焦窗口再激活标签，需 windows 权限） ──
+    else if (request.action === 'switch_to_last_tab') {
+        const last = globalTabHistory.last;
+        if (!last || !last.tabId) {
+            sendResponse({ success: false, reason: 'no_last' });
+            return;
+        }
+        chrome.tabs.get(last.tabId, (tab) => {
+            if (chrome.runtime.lastError || !tab) {
+                globalTabHistory.last = null;
+                sendResponse({ success: false, reason: 'gone', error: 'Tab closed' });
+                return;
+            }
+            const winId = tab.windowId;
+            const tid = tab.id;
+            chrome.windows.update(winId, { focused: true }, () => {
+                if (chrome.runtime.lastError) {
+                    sendResponse({
+                        success: false,
+                        reason: 'window',
+                        message: chrome.runtime.lastError.message,
+                    });
+                    return;
+                }
+                chrome.tabs.update(tid, { active: true }, () => {
+                    if (chrome.runtime.lastError) {
+                        sendResponse({
+                            success: false,
+                            reason: 'tab',
+                            message: chrome.runtime.lastError.message,
+                        });
+                        return;
+                    }
+                    chrome.tabs.sendMessage(tid, { action: 'force_hide_switcher' }).catch(() => {});
+                    chrome.tabs.sendMessage(tid, {
+                        action: 'show_message_toast',
+                        message: '🫡 Yes Sir，已切回上一个标签页',
+                        durationMs: 2800,
+                    }).catch(() => {});
+                    sendResponse({ success: true });
+                });
+            });
+        });
+        return true;
+    }
+
+    else if (request.action === 'get_last_context') {
+        sendResponse({ lastTab: globalTabHistory.last });
+        return;
     }
 
 });
