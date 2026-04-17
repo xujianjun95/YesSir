@@ -437,6 +437,84 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const CARD_OPEN_TRANSITION = 'transform 0.18s cubic-bezier(0.34,1.3,0.64,1)';
     const CARD_HEIGHT_EASE = 'cubic-bezier(0.25, 0.8, 0.25, 1)';
     let cardHeightAnimToken = 0;
+    let aiSearchToken = 0;          // 用于取消过时的 AI 搜索回调
+    let aiSearchDebounceTimer = null; // 防止用户连续输入时发出多余请求
+    let aiEmptyStateEmojiCleanup = null;
+    const escapeHtml = (value) => String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    const stopAiEmptyStateEmojiLoop = () => {
+        if (typeof aiEmptyStateEmojiCleanup === 'function') {
+            aiEmptyStateEmojiCleanup();
+            aiEmptyStateEmojiCleanup = null;
+        }
+    };
+    const mountSlidingEmojiLoop = (host, emojis, intervalMs = 2000) => {
+        if (!host || !Array.isArray(emojis) || emojis.length === 0) return () => {};
+        const SLIDE_PX = 14;
+        const OUT_MS = 200;
+        const IN_MS = 260;
+        let idx = 0;
+
+        const emojiSpan = document.createElement('span');
+        Object.assign(emojiSpan.style, {
+            display: 'inline-block',
+            fontSize: '20px',
+            lineHeight: '1',
+            transform: 'translateX(0)',
+            opacity: '1',
+            transition: `transform ${OUT_MS}ms cubic-bezier(0.4, 0, 0.2, 1), opacity ${OUT_MS}ms ease`,
+            willChange: 'transform, opacity',
+        });
+        emojiSpan.textContent = emojis[0];
+        host.appendChild(emojiSpan);
+
+        const swapEmoji = () => {
+            if (!emojiSpan.isConnected) return;
+            idx = (idx + 1) % emojis.length;
+            const next = emojis[idx];
+
+            emojiSpan.style.transition = `transform ${OUT_MS}ms cubic-bezier(0.4, 0, 0.2, 1), opacity ${OUT_MS}ms ease`;
+            emojiSpan.style.transform = `translateX(-${SLIDE_PX}px)`;
+            emojiSpan.style.opacity = '0';
+
+            setTimeout(() => {
+                if (!emojiSpan.isConnected) return;
+                emojiSpan.textContent = next;
+                emojiSpan.style.transition = 'none';
+                emojiSpan.style.transform = `translateX(${SLIDE_PX}px)`;
+                emojiSpan.style.opacity = '0';
+                requestAnimationFrame(() => {
+                    requestAnimationFrame(() => {
+                        if (!emojiSpan.isConnected) return;
+                        emojiSpan.style.transition = `transform ${IN_MS}ms cubic-bezier(0.22, 1.1, 0.36, 1), opacity ${IN_MS * 0.85}ms ease`;
+                        emojiSpan.style.transform = 'translateX(0)';
+                        emojiSpan.style.opacity = '1';
+                    });
+                });
+            }, OUT_MS);
+        };
+
+        const intervalId = setInterval(() => {
+            if (!emojiSpan.isConnected) {
+                clearInterval(intervalId);
+                return;
+            }
+            swapEmoji();
+        }, intervalMs);
+
+        return () => clearInterval(intervalId);
+    };
+    const invalidateAiSearch = () => {
+        aiSearchToken += 1;
+        if (aiSearchDebounceTimer) {
+            clearTimeout(aiSearchDebounceTimer);
+            aiSearchDebounceTimer = null;
+        }
+    };
     const EMPTY_COUNTS = {
         '📖 信息资讯': 0,
         '🛠️ 效率办公': 0,
@@ -459,23 +537,44 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         const shouldAnimate = !!opts.animate;
         const explicitRestoreScrollTop = Number.isFinite(opts.scrollTop) ? opts.scrollTop : null;
         const prevScrollTop = listContainer.scrollTop;
+        // AI 搜索模式：由上一轮 AI 请求返回的关键词数组；存在时用多词 OR 匹配取代单一关键词匹配
+        const aiKeywords = Array.isArray(opts.aiKeywords)
+            ? opts.aiKeywords.map((kw) => String(kw).trim().toLowerCase()).filter(Boolean).slice(0, 5)
+            : null;
+        if (!aiKeywords) invalidateAiSearch();
 
         function rebuildListDOM() {
+        stopAiEmptyStateEmojiLoop();
         listContainer.innerHTML = '';
 
         const keyword = filterText.trim().toLowerCase();
-        let filteredTabs = keyword
-            ? tabs.filter((t) => {
-                const title = (t.title || '').toLowerCase();
-                const url = (t.url || '').toLowerCase();
+
+        // ── 过滤逻辑 ──────────────────────────────────────────────────────────
+        let filteredTabs;
+        if (aiKeywords) {
+            // AI 模式：只要命中任意一个关键词即视为匹配
+            filteredTabs = tabs.filter((t) => {
+                const title  = (t.title  || '').toLowerCase();
+                const url    = (t.url    || '').toLowerCase();
+                const domain = getTabDomainKey(t).toLowerCase();
+                const siteName = (domainToSiteNameMap[domain] || '').toLowerCase();
+                const searchStr = `${title} ${url} ${domain} ${siteName}`;
+                return aiKeywords.some((kw) => searchStr.includes(kw));
+            });
+        } else if (keyword) {
+            filteredTabs = tabs.filter((t) => {
+                const title  = (t.title  || '').toLowerCase();
+                const url    = (t.url    || '').toLowerCase();
                 const domain = getTabDomainKey(t).toLowerCase();
                 const siteName = (domainToSiteNameMap[domain] || '').toLowerCase();
                 return title.includes(keyword)
                     || url.includes(keyword)
                     || domain.includes(keyword)
                     || siteName.includes(keyword);
-            })
-            : tabs.slice();
+            });
+        } else {
+            filteredTabs = tabs.slice();
+        }
 
         if (activeCategoryFilter) {
             filteredTabs = filteredTabs.filter((t) => {
@@ -483,11 +582,108 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 return cat === activeCategoryFilter;
             });
         }
+
+        // ── 零结果处理 ────────────────────────────────────────────────────────
         if (filteredTabs.length === 0) {
             switcherTabs = [];
             switcherSelIdx = 0;
-            listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">未找到匹配的标签页</div>`;
+
+            // 本地无结果 + 有关键词 + 无分类筛选 + 非 AI 结果模式 → 触发 AI 搜索
+            if (keyword && !activeCategoryFilter && !aiKeywords) {
+                const myToken = ++aiSearchToken;
+                const loadingWrap = document.createElement('div');
+                Object.assign(loadingWrap.style, {
+                    padding: '24px 20px',
+                    textAlign: 'center',
+                    color: 'rgba(100,110,130,0.6)',
+                    fontSize: '12px',
+                    lineHeight: '1.8',
+                });
+                const emojiSlot = document.createElement('div');
+                Object.assign(emojiSlot.style, {
+                    fontSize: '20px',
+                    marginBottom: '8px',
+                    minHeight: '20px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    overflow: 'hidden',
+                });
+                const text = document.createElement('div');
+                text.textContent = '💡 未找到精确匹配结果，已自动切换至 AI 模糊搜索...';
+                loadingWrap.appendChild(emojiSlot);
+                loadingWrap.appendChild(text);
+                listContainer.appendChild(loadingWrap);
+                aiEmptyStateEmojiCleanup = mountSlidingEmojiLoop(
+                    emojiSlot,
+                    ['✨', '🔍', '🧠', '🪄', '⚙️', '🚀', '🧩', '📡', '💫', '🌟'],
+                    1000
+                );
+
+                clearTimeout(aiSearchDebounceTimer);
+                aiSearchDebounceTimer = setTimeout(() => {
+                    if (myToken !== aiSearchToken) return;
+                    chrome.runtime.sendMessage({ action: 'ai_search_tabs', query: filterText }, (res) => {
+                        if (myToken !== aiSearchToken) return; // 用户已继续输入，丢弃
+                        if (chrome.runtime.lastError || !res || !res.keywords || res.keywords.length === 0) {
+                            listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">未找到匹配的标签页</div>`;
+                            return;
+                        }
+                        renderList(filterText, { restoreScroll: false, preferActive: false, animate: false, aiKeywords: res.keywords });
+                    });
+                }, 350);
+            } else {
+                if (aiKeywords) {
+                    const noResultWrap = document.createElement('div');
+                    Object.assign(noResultWrap.style, {
+                        padding: '22px 20px',
+                        textAlign: 'center',
+                        color: 'rgba(100,110,130,0.6)',
+                        fontSize: '12px',
+                        lineHeight: '1.8',
+                    });
+                    const emoji = document.createElement('div');
+                    emoji.textContent = '🤷‍♂️';
+                    Object.assign(emoji.style, {
+                        fontSize: '20px',
+                        marginBottom: '8px',
+                    });
+                    const text = document.createElement('div');
+                    text.innerHTML = `「🫡 Yes Sir」翻遍了所有角落，似乎没有关于「<b>${escapeHtml(filterText.trim())}</b>」的记录`;
+                    noResultWrap.appendChild(emoji);
+                    noResultWrap.appendChild(text);
+                    listContainer.appendChild(noResultWrap);
+                } else {
+                    listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">未找到匹配的标签页</div>`;
+                }
+            }
             return;
+        }
+
+        // ── AI 搜索结果标记条 ─────────────────────────────────────────────────
+        if (aiKeywords) {
+            const banner = document.createElement('div');
+            Object.assign(banner.style, {
+                padding: '8px 6px 4px',
+                fontSize: '11px',
+                color: 'rgba(80, 120, 200, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '5px',
+                flexShrink: '0',
+            });
+            const label = document.createElement('span');
+            label.textContent = '✨ AI 搜索';
+            const dot = document.createElement('span');
+            dot.textContent = '·';
+            dot.style.opacity = '0.5';
+            const terms = document.createElement('span');
+            terms.style.fontWeight = '600';
+            terms.textContent = aiKeywords.join(' / ');
+            banner.appendChild(label);
+            banner.appendChild(dot);
+            banner.appendChild(terms);
+            listContainer.appendChild(banner);
         }
 
         const groupedTabs = groupTabsByDomain(filteredTabs);
@@ -808,6 +1004,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     if (searchInput) {
         searchInput.value = preservedKeyword;
         searchInput.addEventListener('input', (e) => {
+            invalidateAiSearch();
             switcherSelIdx = 0;
             renderList(e.target.value, { restoreScroll: false, preferActive: false, animate: true });
         });

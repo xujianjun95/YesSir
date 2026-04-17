@@ -582,4 +582,50 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return;
     }
 
+    // ── AI 自然语言搜索：将用户输入转为匹配关键词 ──
+    else if (request.action === 'ai_search_tabs') {
+        (async () => {
+            const apiKey = await getDeepSeekApiKey();
+            if (!apiKey) { sendResponse({ keywords: [] }); return; }
+            const query = String(request.query || '').trim();
+            if (!query) { sendResponse({ keywords: [] }); return; }
+            try {
+                const response = await fetch('https://api.deepseek.com/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+                    body: JSON.stringify({
+                        model: 'deepseek-chat',
+                        messages: [
+                            {
+                                role: 'system',
+                                content: '你是搜索词提取专家。用户用自然语言描述想找的网页，请提取最适合匹配网页标题/URL 的关键词。只返回 JSON 字符串数组，如 ["webpack","性能","config"]，2~5 个词，优先英文技术词，中文补充，不要 Markdown 也不要解释。',
+                            },
+                            { role: 'user', content: query },
+                        ],
+                        temperature: 0.2,
+                        max_tokens: 80,
+                    }),
+                });
+                const data = await response.json();
+                const raw = String(data.choices?.[0]?.message?.content || '[]')
+                    .trim()
+                    .replace(/^```[a-z]*\s*/i, '')
+                    .replace(/\s*```$/i, '')
+                    .trim();
+                let keywords = [];
+                try {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed)) {
+                        keywords = parsed.map(k => String(k).trim().toLowerCase()).filter(Boolean).slice(0, 5);
+                    }
+                } catch (_) {}
+                sendResponse({ keywords });
+            } catch (err) {
+                console.error('AI 搜索失败:', err);
+                sendResponse({ keywords: [] });
+            }
+        })();
+        return true;
+    }
+
 });
