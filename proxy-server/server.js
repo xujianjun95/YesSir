@@ -141,7 +141,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(429, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: 'rate_limit_exceeded',
-            message: `很抱歉，今日 AI 相关功能的额度已用完（${DAILY_LIMIT} 次/天），您可在设置>API key 设置中填入自己的 API Key 继续使用 AI 相关功能。`,
+            message: `很抱歉，您今日 AI 相关功能额度已用尽（${DAILY_LIMIT} 次/天），次日会自动恢复，您可在设置>API key 设置中填入自己的 API Key 来彻底解锁 AI 相关功能。`,
             remaining: 0,
         }));
         return;

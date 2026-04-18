@@ -20,6 +20,8 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             cd /opt/yessir-proxy
-            git pull origin main  # ⚠️ 这里也要同步改为你的分支名（main 或 master）
-            npm install --production
-            pm2 restart yessir-proxy
+            git fetch origin
+            git reset --hard origin/main
+            cd proxy-server           # 👈 进入子目录
+            npm install --production  # 👈 安装依赖
+            pm2 restart yessir-proxy  # 👈 重启服务
