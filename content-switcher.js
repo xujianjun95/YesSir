@@ -1474,8 +1474,10 @@ function buildTabItem(tab, globalIdx, container) {
             Object.assign(labelEl.style, {
                 fontSize:       '10px',
                 fontWeight:     '500',
-                color:          'rgba(100, 115, 145, 0.5)',
-                background:     'rgba(0, 0, 0, 0.04)',
+                // 柔和靛青底 + 深蓝灰字：与面板主色呼应，比纯灰更易读、仍偏克制
+                color:          'rgba(42, 52, 88, 0.88)',
+                background:     'rgba(78, 102, 195, 0.11)',
+                border:         '1px solid rgba(78, 102, 195, 0.14)',
                 borderRadius:   '4px',
                 padding:        '1px 5px',
                 flexShrink:     '0',

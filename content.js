@@ -2,23 +2,49 @@
 
 const isMac = (navigator.userAgentData && navigator.userAgentData.platform === 'macOS')
     || /Mac|iPhone|iPod|iPad/.test(navigator.userAgent);
-let modifierKey = isMac ? 'meta' : 'alt';
 
 const MOD_EVENT_KEY = { meta: 'Meta', alt: 'Alt', ctrl: 'Control', shift: 'Shift' };
-const MOD_LABELS    = {
-    meta:  isMac ? '⌘ Command' : '⊞ Meta',
-    alt:   isMac ? '⌥ Option'  : 'Alt',
-    ctrl:  '⌃ Control',
-    shift: '⇧ Shift',
-};
+/** Mac：带符号；Windows/Linux：仅文字（无 ⌘⌥ 等） */
+const MOD_LABELS = isMac
+    ? {
+        meta: '⌘ Command',
+        alt: '⌥ Option',
+        ctrl: '⌃ Control',
+        shift: '⇧ Shift',
+    }
+    : {
+        ctrl: 'Ctrl',
+        alt: 'Alt',
+        shift: 'Shift',
+    };
+
+function modifierKeysForPlatform() {
+    return isMac ? ['meta', 'alt', 'ctrl', 'shift'] : ['ctrl', 'alt', 'shift'];
+}
+
+function defaultModifierKeyForPlatform() {
+    return isMac ? 'meta' : 'ctrl';
+}
+
+function normalizeStoredModifierKey(stored) {
+    const allowed = new Set(modifierKeysForPlatform());
+    if (stored && allowed.has(stored)) return stored;
+    return defaultModifierKeyForPlatform();
+}
+
+let modifierKey = defaultModifierKeyForPlatform();
 
 function isModHeld(e) {
     return e[modifierKey + 'Key'];
 }
 
-// 启动时从 storage 读取用户配置的修饰键
+// 启动时从 storage 读取用户配置的修饰键（跨平台迁移：Win 上不应保留 meta）
 chrome.storage.local.get({ modifierKey: null }, (res) => {
-    if (res.modifierKey) modifierKey = res.modifierKey;
+    const next = normalizeStoredModifierKey(res.modifierKey);
+    modifierKey = next;
+    if (res.modifierKey !== next) {
+        chrome.storage.local.set({ modifierKey: next });
+    }
 });
 
 
@@ -175,7 +201,7 @@ function openYsModal(title, renderContent) {
 function showModifierSettingsModal() {
     openYsModal('⌨️ 修饰键设置', (container) => {
         const render = () => {
-            const keys = ['meta', 'alt', 'ctrl', 'shift'];
+            const keys = modifierKeysForPlatform();
             let html = `
                 <div style="font-size:12px;color:rgba(100,110,130,0.85);margin-bottom:12px;line-height:1.5;">
                     按住修饰键双击空白处关闭当前标签页 & 双击修饰键呼出标签页管理看板。
@@ -509,7 +535,7 @@ function initFloatingWidget() {
 
     function renderSettingsView() {
         panelView = 'settings';
-        const keys = ['meta', 'alt', 'ctrl', 'shift'];
+        const keys = modifierKeysForPlatform();
 
         panel.innerHTML = `
           <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px;">

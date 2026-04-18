@@ -141,7 +141,7 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(429, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: 'rate_limit_exceeded',
-            message: `今日免费额度已用完（${DAILY_LIMIT} 次/天），请在插件设置里填入自己的 DeepSeek API Key 继续无限使用。`,
+            message: `很抱歉，今日 AI 相关功能的额度已用完（${DAILY_LIMIT} 次/天），您可在设置>API key 设置中填入自己的 API Key 继续使用 AI 相关功能。`,
             remaining: 0,
         }));
         return;
