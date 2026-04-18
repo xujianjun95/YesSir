@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
-    "name": "YesSir:AI跨窗口标签管理与自动分组|双击关闭|iOS26风格",
-    "version": "1.5",
+    "name": "AI自动分组 | 跨窗口标签页管理 | 快速切换 | 双击关闭 | 智能搜索 | 毛玻璃风格 - YesSir",
+    "version": "1.4",
     "description": "支持你在按住 Command(Mac)/Alt(Win) 的时候双击网页空白处来关闭当前标签页，或滚动鼠标滚轮来切换标签页",
     "permissions": [
       "tabs",
