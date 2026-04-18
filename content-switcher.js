@@ -9,12 +9,11 @@ let switcherKeydownHandler = null;
 let switcherMouseMoveHandler = null;
 /** 使用方向键导航后，忽略鼠标 hover 对行高亮/favicon/关闭钮的影响，仅随键盘选中行变化 */
 let switcherKeyboardNavActive = false;
+/** 当前面板会话：暴露给委托事件用来「原地删行」，避免关一个标签就整块重建面板 */
+let currentSwitcherSession = null;
 /** tabId -> AI 分类文案 */
-let tabCategoryMap = {};
 /** domain -> AI 提取的网站名称 */
 let domainToSiteNameMap = {};
-/** 当前选中的顶部分类筛选，null 表示不过滤 */
-let activeCategoryFilter = null;
 /** tabId -> AI 生成的页面功能标签 */
 let tabPageLabelMap = {};
 
@@ -36,6 +35,39 @@ function getTabDomainKey(tab) {
         }
     } catch (e) {}
     return domain;
+}
+
+/**
+ * Unicode 附加符折叠：把 ć→c、å→a、é→e、ñ→n 等带变音符的拉丁字母拍平成基础字母。
+ * 原理：NFD 先把 "ć" 拆成 "c" + U+0301（组合锐音符），再用正则删掉所有组合符号区间 U+0300–U+036F。
+ * 用途：让 AI 输出的 "jokic" 也能匹到标题里的 "Jokić"；同理 håland/haland、dončić/doncic、pokémon/pokemon。
+ */
+function foldDiacritics(s) {
+    return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/**
+ * AI 搜索用的"带词边界"子串命中判断。
+ * - 含中日韩等非 ASCII 字符 → 走普通 includes（中文字之间没有 \b，再强边界会误杀）。
+ * - 纯 ASCII 关键词 → 要求命中处前后两侧都不是 [a-z0-9]，这样才能过滤掉 base64 尾巴里偶然撞到的短词。
+ * 注：调用方需提前对 haystack / kw 统一做过 foldDiacritics + toLowerCase，这里不再重复处理。
+ */
+function matchesAiKeywordInString(haystack, kw) {
+    if (!kw) return false;
+    if (/[^\x00-\x7f]/.test(kw)) return haystack.indexOf(kw) >= 0;
+    const len = kw.length;
+    let from = 0;
+    for (;;) {
+        const idx = haystack.indexOf(kw, from);
+        if (idx < 0) return false;
+        const left = idx === 0 ? '' : haystack[idx - 1];
+        const rightPos = idx + len;
+        const right = rightPos >= haystack.length ? '' : haystack[rightPos];
+        const leftOk = !left || !/[a-z0-9]/i.test(left);
+        const rightOk = !right || !/[a-z0-9]/i.test(right);
+        if (leftOk && rightOk) return true;
+        from = idx + 1;
+    }
 }
 
 const TAB_ROW_ICON_VISIBLE_OPACITY = '0.7';
@@ -118,40 +150,6 @@ function groupTabsByDomain(tabs) {
     return groups;
 }
 
-function normalizeCategoryByDomain(classification, tabs) {
-    const byDomain = {};
-    const tabById = new Map(tabs.map((t) => [String(t.id), t]));
-    const LOCAL_DOMAIN_KEY = '本地网页/其他';
-
-    Object.entries(classification || {}).forEach(([tabId, cat]) => {
-        const tab = tabById.get(String(tabId));
-        if (!tab) return;
-        const domain = getTabDomainKey(tab);
-        if (domain === LOCAL_DOMAIN_KEY) return;
-        if (!byDomain[domain]) byDomain[domain] = {};
-        byDomain[domain][cat] = (byDomain[domain][cat] || 0) + 1;
-    });
-
-    const winnerByDomain = {};
-    Object.entries(byDomain).forEach(([domain, stats]) => {
-        winnerByDomain[domain] = Object.entries(stats).sort((a, b) => b[1] - a[1])[0]?.[0] || '📁 其他分类';
-    });
-
-    const normalized = {};
-    Object.keys(classification || {}).forEach((tabId) => {
-        const tab = tabById.get(String(tabId));
-        if (!tab) return;
-        const domain = getTabDomainKey(tab);
-        if (domain === LOCAL_DOMAIN_KEY) {
-            normalized[tabId] = '📁 其他分类';
-            return;
-        }
-        normalized[tabId] = winnerByDomain[domain] || '📁 其他分类';
-    });
-
-    return normalized;
-}
-
 function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     let savedScrollTop = 0;
     const oldList = document.getElementById('ys-switcher-list');
@@ -162,14 +160,14 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     }
 
     hideSwitcher();
+    // 接管成本地可变数组：后续关闭单个标签时可直接 splice + 重绘，无需整块重建面板
+    tabs = tabs.slice();
     switcherCurrentWindowId = currentWindowId;
     switcherTabs = tabs.slice();
     switcherSelIdx = 0;
     switcherKeyboardNavActive = false;
     switcherVisible = true;
     if (!isRefresh) {
-        activeCategoryFilter = null;
-        tabCategoryMap = {};
         tabPageLabelMap = {};
     }
 
@@ -239,8 +237,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         <div id="ys-top-actions" style="display:flex; gap:8px; position:relative; align-items:center;"></div>
       </div>
 
-      <div id="ys-category-filters" style="display:flex; gap:6px; align-items:center; width:100%; box-sizing:border-box;"></div>
-      
       <div style="position:relative;">
         <input id="ys-search-input" type="text" placeholder="搜索标题、URL 或域名..." style="
           width:100%; padding:9px 12px 9px 34px; border-radius:10px;
@@ -517,6 +513,104 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         gap:        '0',
     });
 
+    // ─── 事件委托：所有 tab 行的 hover/click/关闭，统一在 listContainer 上处理 ───
+    // mouseenter/mouseleave 不冒泡，用 mouseover/mouseout + relatedTarget 模拟
+    let currentHoverItem = null;
+
+    const rowOfEventTarget = (target) => {
+        if (!target || !target.closest) return null;
+        const item = target.closest('[id^="ys-tab-item-"]');
+        return (item && listContainer.contains(item)) ? item : null;
+    };
+
+    const setRowHoverOn = (item) => {
+        const closeBtn = item.querySelector('.ys-close-btn');
+        if (closeBtn) {
+            const showClose = !switcherKeyboardNavActive || item.dataset.selected === 'true';
+            closeBtn.style.opacity = showClose ? '1' : '0';
+            closeBtn.style.pointerEvents = showClose ? 'auto' : 'none';
+        }
+        refreshTabRowIconVis(item);
+        if (!switcherKeyboardNavActive && item.dataset.selected !== 'true') {
+            const idx = Number(item.dataset.globalIdx);
+            if (Number.isFinite(idx)) updateSwitcherSelection(idx);
+        }
+    };
+
+    const setRowHoverOff = (item) => {
+        const closeBtn = item.querySelector('.ys-close-btn');
+        if (closeBtn) {
+            closeBtn.style.opacity = '0';
+            closeBtn.style.pointerEvents = 'none';
+        }
+        refreshTabRowIconVis(item);
+        if (item.dataset.selected !== 'true') {
+            item.style.background = getUnselectedItemBackground(item);
+        }
+    };
+
+    listContainer.addEventListener('mouseover', (e) => {
+        const item = rowOfEventTarget(e.target);
+        if (!item || item === currentHoverItem) return;
+        if (currentHoverItem) setRowHoverOff(currentHoverItem);
+        currentHoverItem = item;
+        setRowHoverOn(item);
+    });
+
+    listContainer.addEventListener('mouseout', (e) => {
+        const item = rowOfEventTarget(e.target);
+        if (!item || item !== currentHoverItem) return;
+        const next = e.relatedTarget;
+        if (next && item.contains(next)) return;
+        setRowHoverOff(item);
+        currentHoverItem = null;
+    });
+
+    listContainer.addEventListener('click', (e) => {
+        const item = rowOfEventTarget(e.target);
+        if (!item) return;
+        const tabId = Number(item.dataset.tabId);
+        if (!Number.isFinite(tabId)) return;
+
+        const closeTarget = e.target.closest && e.target.closest('.ys-close-btn');
+        if (closeTarget && item.contains(closeTarget)) {
+            e.stopPropagation();
+            // 先「乐观地」把当前行在面板里移除：立即视觉反馈，无闪烁、滚动位置不变
+            const session = currentSwitcherSession;
+            if (session) session.removeTabById(tabId);
+            chrome.runtime.sendMessage({ action: 'close_tab_by_id', tabId }, (res) => {
+                if (chrome.runtime.lastError) return;
+                // 真实关闭失败则回滚：重新拉一次真实 tabs 重建面板（极少见场景）
+                if (!res || !res.success) {
+                    chrome.runtime.sendMessage({ action: 'get_tabs' }, (res2) => {
+                        if (chrome.runtime.lastError) return;
+                        if (res2 && res2.tabs && res2.tabs.length > 0) {
+                            showSwitcher(res2.tabs, true, res2.currentWindowId);
+                            initSwitcherHighlight();
+                        } else {
+                            hideSwitcher();
+                        }
+                    });
+                }
+            });
+            return;
+        }
+
+        e.stopPropagation();
+        const winIdRaw = item.dataset.windowId;
+        if (winIdRaw) {
+            const windowId = Number(winIdRaw);
+            if (Number.isFinite(windowId)) {
+                chrome.runtime.sendMessage({ action: 'switch_tab_global', tabId, windowId });
+            } else {
+                chrome.runtime.sendMessage({ action: 'switch_tab', tabId });
+            }
+        } else {
+            chrome.runtime.sendMessage({ action: 'switch_tab', tabId });
+        }
+        hideSwitcher();
+    });
+
     const CARD_OPEN_TRANSITION = 'transform 0.18s cubic-bezier(0.34,1.3,0.64,1)';
     const CARD_HEIGHT_EASE = 'cubic-bezier(0.25, 0.8, 0.25, 1)';
     let cardHeightAnimToken = 0;
@@ -598,15 +692,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             aiSearchDebounceTimer = null;
         }
     };
-    const EMPTY_COUNTS = {
-        '📖 信息资讯': 0,
-        '🛠️ 效率办公': 0,
-        '💬 社交互动': 0,
-        '🎡 生活娱乐': 0,
-        '📁 其他分类': 0,
-    };
-    let categoryCounts = { ...EMPTY_COUNTS };
-
     const getDefaultSelectedIdx = (items) => {
         const activeInCurrent = items.findIndex(t => t.active && switcherCurrentWindowId !== null && t.windowId === switcherCurrentWindowId);
         if (activeInCurrent >= 0) return activeInCurrent;
@@ -635,14 +720,21 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         // ── 过滤逻辑 ──────────────────────────────────────────────────────────
         let filteredTabs;
         if (aiKeywords) {
-            // AI 模式：只要命中任意一个关键词即视为匹配
+            // AI 模式：整条 URL 都参与匹配，尽量不漏；但英文关键词要求「词边界」命中，
+            // 避免被 Google/电商 URL 尾巴里的 base64 乱码凑巧撞上。
+            // 同时对 haystack 与 keyword 一起做 Unicode 附加符折叠：这样 AI 无论输出
+            // "jokic" 还是 "jokić"，标题里是 "Jokić" 还是 "Jokic" 都能命中；覆盖约基奇、
+            // 东契奇、哈兰德、pokémon 这类非英语系专有名词。
+            const normalizedKws = aiKeywords
+                .map((kw) => foldDiacritics(String(kw).toLowerCase()))
+                .filter(Boolean);
             filteredTabs = tabs.filter((t) => {
                 const title  = (t.title  || '').toLowerCase();
                 const url    = (t.url    || '').toLowerCase();
                 const domain = getTabDomainKey(t).toLowerCase();
                 const siteName = (domainToSiteNameMap[domain] || '').toLowerCase();
-                const searchStr = `${title} ${url} ${domain} ${siteName}`;
-                return aiKeywords.some((kw) => searchStr.includes(kw));
+                const searchStr = foldDiacritics(`${title} ${url} ${domain} ${siteName}`);
+                return normalizedKws.some((kw) => matchesAiKeywordInString(searchStr, kw));
             });
         } else if (keyword) {
             filteredTabs = tabs.filter((t) => {
@@ -659,20 +751,13 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             filteredTabs = tabs.slice();
         }
 
-        if (activeCategoryFilter) {
-            filteredTabs = filteredTabs.filter((t) => {
-                const cat = tabCategoryMap[t.id] ?? tabCategoryMap[String(t.id)];
-                return cat === activeCategoryFilter;
-            });
-        }
-
         // ── 零结果处理 ────────────────────────────────────────────────────────
         if (filteredTabs.length === 0) {
             switcherTabs = [];
             switcherSelIdx = 0;
 
-            // 本地无结果 + 有关键词 + 无分类筛选 + 非 AI 结果模式 → 触发 AI 搜索
-            if (keyword && !activeCategoryFilter && !aiKeywords) {
+            // 本地无结果 + 有关键词 + 非 AI 结果模式 → 触发 AI 搜索
+            if (keyword && !aiKeywords) {
                 const myToken = ++aiSearchToken;
                 const loadingWrap = document.createElement('div');
                 Object.assign(loadingWrap.style, {
@@ -714,7 +799,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                         }
                         renderList(filterText, { restoreScroll: false, preferActive: false, animate: false, aiKeywords: res.keywords });
                     });
-                }, 350);
+                }, 180);
             } else {
                 if (aiKeywords) {
                     const noResultWrap = document.createElement('div');
@@ -938,77 +1023,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }
     }
 
-    const CATEGORY_FILTERS = [
-        { label: '信息资讯', emoji: '📖' },
-        { label: '效率办公', emoji: '🛠️' },
-        { label: '社交互动', emoji: '💬' },
-        { label: '生活娱乐', emoji: '🎡' },
-        { label: '其他分类', emoji: '📁' },
-    ];
-
-    function initCategoryButtons(counts = categoryCounts) {
-        const filterContainer = document.getElementById('ys-category-filters');
-        if (!filterContainer) return;
-
-        filterContainer.innerHTML = '';
-        CATEGORY_FILTERS.forEach((cat) => {
-            const fullText = `${cat.emoji} ${cat.label}`;
-            const count = counts[fullText] || 0;
-            const isActive = activeCategoryFilter === fullText;
-            const btn = document.createElement('div');
-            btn.className = 'ys-cat-btn';
-            btn.title = fullText;
-            Object.assign(btn.style, {
-                height: '28px',
-                padding: '0 8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '5px',
-                flex: '1',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                background: isActive ? 'rgba(80, 110, 220, 0.16)' : 'rgba(0, 0, 0, 0.04)',
-                border: `1px solid ${isActive ? 'rgba(80, 110, 220, 0.32)' : 'rgba(0, 0, 0, 0.05)'}`,
-                color: isActive ? 'rgba(50, 70, 160, 0.95)' : 'rgba(50, 60, 80, 0.8)',
-                fontSize: '12px',
-                whiteSpace: 'nowrap',
-                boxSizing: 'border-box',
-                userSelect: 'none',
-                lineHeight: '1',
-                transition: 'background 0.15s, border-color 0.15s, color 0.15s',
-            });
-
-            btn.innerHTML = `
-              <span style="flex-shrink:0;">${cat.emoji}</span>
-              <span style="font-weight:600;">${cat.label} · ${count}</span>`;
-
-            btn.addEventListener('mouseenter', () => {
-                if (activeCategoryFilter !== fullText) {
-                    btn.style.background = 'rgba(80, 110, 220, 0.08)';
-                    btn.style.borderColor = 'rgba(80, 110, 220, 0.2)';
-                }
-            });
-
-            btn.addEventListener('mouseleave', () => {
-                if (activeCategoryFilter !== fullText) {
-                    btn.style.background = 'rgba(0, 0, 0, 0.04)';
-                    btn.style.borderColor = 'rgba(0, 0, 0, 0.05)';
-                }
-            });
-
-            btn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                activeCategoryFilter = activeCategoryFilter === fullText ? null : fullText;
-                const si = document.getElementById('ys-search-input');
-                renderList(si ? si.value : '', { restoreScroll: false, preferActive: true, animate: true });
-                initCategoryButtons(counts);
-            });
-
-            filterContainer.appendChild(btn);
-        });
-    }
-
     card.appendChild(header);
     card.appendChild(listContainer);
 
@@ -1130,8 +1144,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         });
     }
 
-    initCategoryButtons();
-
     switcherKeydownHandler = (e) => {
         if (!switcherVisible) return;
         if (e.key === 'ArrowDown') {
@@ -1183,6 +1195,33 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     };
     document.addEventListener('mousemove', switcherMouseMoveHandler, true);
 
+    // 暴露给「事件委托」里 × 关闭按钮用：原地删行 + 就地重绘，避免整块重建面板导致的闪烁
+    currentSwitcherSession = {
+        removeTabById(tabId) {
+            const idx = tabs.findIndex((t) => t.id === tabId);
+            if (idx < 0) return;
+            tabs.splice(idx, 1);
+
+            if (tabs.length === 0) {
+                hideSwitcher();
+                return;
+            }
+
+            // 被关闭行位于当前选中行之前 → 选中索引跟随前移 1；否则保持不变
+            const closedDisplayIdx = idx; // tabs 顺序即 display 顺序（renderList 只在其上做分组）
+            if (closedDisplayIdx < switcherSelIdx) {
+                switcherSelIdx = Math.max(0, switcherSelIdx - 1);
+            }
+
+            const si = document.getElementById('ys-search-input');
+            renderList(si ? si.value : '', {
+                restoreScroll: true,
+                preferActive: false,
+                animate: false,
+            });
+        },
+    };
+
     renderList(preservedKeyword, {
         restoreScroll: isRefresh,
         preferActive: !preservedKeyword,
@@ -1202,24 +1241,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const applyAiSnapshotToView = (res) => {
         if (!res) return;
         let shouldRerender = false;
-
-        if (res.classification) {
-            const normalizedClassification = normalizeCategoryByDomain(res.classification, tabs);
-            categoryCounts = { ...EMPTY_COUNTS };
-            Object.entries(normalizedClassification).forEach(([tabId, cat]) => {
-                if (tabCategoryMap[tabId] !== cat) {
-                    tabCategoryMap[tabId] = cat;
-                    shouldRerender = true;
-                }
-                if (Object.prototype.hasOwnProperty.call(categoryCounts, cat)) {
-                    categoryCounts[cat] += 1;
-                } else {
-                    categoryCounts['📁 其他分类'] += 1;
-                }
-            });
-            initCategoryButtons(categoryCounts);
-            if (activeCategoryFilter) shouldRerender = true;
-        }
 
         if (res.siteNames) {
             tabs.forEach((tab) => {
@@ -1280,6 +1301,10 @@ function buildTabItem(tab, globalIdx, container) {
     });
     item.dataset.selected = 'false';
     item.dataset.activeInSourceWindow = 'false';
+    // 事件委托所需的行标识（由 listContainer 上的统一监听读取）
+    item.dataset.tabId = String(tab.id);
+    item.dataset.globalIdx = String(globalIdx);
+    item.dataset.windowId = typeof tab.windowId === 'number' ? String(tab.windowId) : '';
 
     const leftArea = document.createElement('div');
     Object.assign(leftArea.style, {
@@ -1404,8 +1429,13 @@ function buildTabItem(tab, globalIdx, container) {
         tailCluster.appendChild(activeBadge);
     }
 
-    // 页面功能标签（AI；单标签分组也会请求）
-    const pageLabel = tabPageLabelMap[tab.id] ?? tabPageLabelMap[String(tab.id)];
+    // 页面功能标签（AI；单标签分组也会请求）。严格只渲染「恰好 4 字」的结果，
+    // 避免旧缓存里残留的 2/3 字标签在换了新 prompt 之后继续显示。
+    const rawPageLabel = tabPageLabelMap[tab.id] ?? tabPageLabelMap[String(tab.id)];
+    const pageLabel = typeof rawPageLabel === 'string'
+        && Array.from(rawPageLabel.trim()).length === 4
+        ? rawPageLabel.trim()
+        : '';
     if (pageLabel) {
         const labelEl = document.createElement('span');
         labelEl.className = 'ys-page-label';
@@ -1444,62 +1474,7 @@ function buildTabItem(tab, globalIdx, container) {
     item.appendChild(actionArea);
     container.appendChild(item);
 
-    item.addEventListener('mouseenter', () => {
-        if (!switcherKeyboardNavActive) {
-            closeBtn.style.opacity = '1';
-            closeBtn.style.pointerEvents = 'auto';
-        } else if (item.dataset.selected === 'true') {
-            closeBtn.style.opacity = '1';
-            closeBtn.style.pointerEvents = 'auto';
-        } else {
-            closeBtn.style.opacity = '0';
-            closeBtn.style.pointerEvents = 'none';
-        }
-        refreshTabRowIconVis(item);
-        if (!switcherKeyboardNavActive && item.dataset.selected !== 'true') {
-            updateSwitcherSelection(globalIdx);
-        }
-    });
-    item.addEventListener('mouseleave', () => {
-        closeBtn.style.opacity = '0';
-        closeBtn.style.pointerEvents = 'none';
-        refreshTabRowIconVis(item);
-        if (item.dataset.selected !== 'true') {
-            item.style.background = getUnselectedItemBackground(item);
-        }
-    });
-
-    closeBtn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        chrome.runtime.sendMessage({ action: 'close_tab_by_id', tabId: tab.id }, (res) => {
-            if (chrome.runtime.lastError) return;
-            if (!res || !res.success) return;
-            chrome.runtime.sendMessage({ action: 'get_tabs' }, (res2) => {
-                if (chrome.runtime.lastError) return;
-                if (res2 && res2.tabs && res2.tabs.length > 0) {
-                    showSwitcher(res2.tabs, true, res2.currentWindowId);
-                    initSwitcherHighlight();
-                } else {
-                    hideSwitcher();
-                }
-            });
-        });
-    });
-
-    item.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (typeof tab.windowId === 'number') {
-            chrome.runtime.sendMessage({
-                action: 'switch_tab_global',
-                tabId: tab.id,
-                windowId: tab.windowId,
-            });
-        } else {
-            chrome.runtime.sendMessage({ action: 'switch_tab', tabId: tab.id });
-        }
-        hideSwitcher();
-    });
-
+    // hover / click / 关闭 均由 listContainer 上的事件委托统一处理，行内不再绑定监听
     refreshTabRowIconVis(item);
 }
 
@@ -1593,7 +1568,6 @@ function scrollSelectedToTopIfNotLast() {
     const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (!list || !item) return false;
     if (switcherTabs.length === 0) return false;
-    if (activeCategoryFilter) return false;
     if (switcherSelIdx >= switcherTabs.length - 1) return false;
 
     // 如果当前页已经处于列表尾部的最后几行，就保持原来的相对位置，
@@ -1641,6 +1615,7 @@ function hideSwitcher() {
     switcherVisible = false;
     switcherTabs    = [];
     switcherCurrentWindowId = null;
+    currentSwitcherSession = null;
     if (switcherKeydownHandler) {
         document.removeEventListener('keydown', switcherKeydownHandler, true);
         switcherKeydownHandler = null;

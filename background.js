@@ -92,10 +92,87 @@ async function getDeepSeekApiKey() {
 
 const CATEGORY_CACHE_VERSION = 'v3';
 const SITE_NAME_CACHE_VERSION = 'v2';
-const PAGE_LABEL_CACHE_VERSION = 'v1';
+const PAGE_LABEL_CACHE_VERSION = 'v2';
+
+/** 面板右侧功能标签统一为「恰好 4 字」。用 Array.from 而非 .length，兼容代理对。 */
+function isFourCharLabel(raw) {
+    const s = String(raw || '').trim();
+    return s.length > 0 && Array.from(s).length === 4;
+}
 const AI_SNAPSHOT_STORAGE_KEY = 'aiSnapshotV1';
 const AI_SNAPSHOT_MAX_ENTRIES = 600;
 const AI_SNAPSHOT_CLEANUP_KEEP = 450;
+
+// ── AI 自然语言搜索：进程内 LRU 缓存，避免同一查询反复打 LLM ──
+const AI_SEARCH_KEYWORD_CACHE_MAX = 50;
+/** @type {Map<string, string[]>} Map 保留插入顺序，天然可做 LRU */
+const aiSearchKeywordCache = new Map();
+
+function writeAiSearchKeywordCache(key, keywords) {
+    if (!key || !Array.isArray(keywords) || keywords.length === 0) return;
+    if (aiSearchKeywordCache.has(key)) aiSearchKeywordCache.delete(key);
+    aiSearchKeywordCache.set(key, keywords.slice());
+    while (aiSearchKeywordCache.size > AI_SEARCH_KEYWORD_CACHE_MAX) {
+        const oldest = aiSearchKeywordCache.keys().next().value;
+        if (oldest === undefined) break;
+        aiSearchKeywordCache.delete(oldest);
+    }
+}
+
+/**
+ * 判断关键词是否"过短的纯 ASCII"：例如 hd / 4k / ui / ai / js。
+ * 这类词容易在 URL 的 base64 追踪串里误伤，解析阶段直接丢弃。
+ * 中文/混合词不受此规则限制（中文 2 字通常已有足够区分度）。
+ */
+function isTooShortAsciiKeyword(s) {
+    return /^[a-z0-9-]+$/i.test(s) && Array.from(s).length < 3;
+}
+
+/** 一批常见的停用词 / 过于泛化的缩写，LLM 偶尔会吐；在解析阶段兜底丢弃。 */
+const AI_SEARCH_STOPWORDS = new Set([
+    'hd', '4k', '8k', 'ui', 'ux', 'ai', 'js', 'ts', 'css', 'go', 'rs',
+    'the', 'and', 'for', 'with', 'from', 'about', 'how', 'what', 'why',
+    '的', '了', '是', '在', '和', '与', '我', '你',
+]);
+
+/**
+ * 解析 LLM 输出的关键词文本。为了生成速度，默认走纯逗号分隔路径；
+ * 若 LLM 偶发回落到 JSON 数组或带 Markdown fence，也能兼容。
+ */
+function parseAiSearchKeywords(raw) {
+    let s = String(raw || '').trim();
+    if (!s) return [];
+    s = s
+        .replace(/^```[a-zA-Z0-9]*\s*/i, '')
+        .replace(/\s*```\s*$/i, '')
+        .trim();
+
+    let arr = [];
+    if (s.startsWith('[')) {
+        try {
+            const parsed = JSON.parse(s);
+            if (Array.isArray(parsed)) arr = parsed.map((x) => String(x));
+        } catch (_) {}
+    }
+    if (arr.length === 0) {
+        arr = s.split(/[,，、\n；;]+/);
+    }
+    const seen = new Set();
+    const out = [];
+    for (const item of arr) {
+        const cleaned = String(item)
+            .trim()
+            .replace(/^["'「『]+|["'」』]+$/g, '')
+            .toLowerCase();
+        if (!cleaned || seen.has(cleaned)) continue;
+        if (isTooShortAsciiKeyword(cleaned)) continue;
+        if (AI_SEARCH_STOPWORDS.has(cleaned)) continue;
+        seen.add(cleaned);
+        out.push(cleaned);
+        if (out.length >= 5) break;
+    }
+    return out;
+}
 
 function titleCacheKey(title, url = '') {
     const t = encodeURIComponent((title || '').trim().toLowerCase().slice(0, 200));
@@ -163,8 +240,21 @@ async function persistAiSnapshotCache() {
     }
 }
 
+// 签名用于判定"这个标签页自上次 AI 处理以来有没有实质变化"。
+// 刻意不把 title 计入：现代网页的 title 会被未读计数 / 保存状态 / 广告轮播
+// 等噪声频繁改写（"(3) WhatsApp"、"• Edited"…），若把 title 入签名会让
+// 缓存大规模失效，每次重新聚合都得重跑 LLM。URL 才是真正代表"这是哪一页"
+// 的稳定键；URL 变了（含 SPA 路由切换）就让它重跑，是合理的失效条件。
+// hash 片段（#xxx）通常只是页内锚点，这里一并忽略以进一步提高命中率。
 function buildTabSignature(tab) {
-    return `${String(tab.title || '')}\n${String(tab.url || '')}`;
+    const raw = String(tab.url || '');
+    try {
+        const u = new URL(raw);
+        u.hash = '';
+        return u.toString();
+    } catch (_) {
+        return raw;
+    }
 }
 
 function buildAiSnapshotFromCache(tabs) {
@@ -205,8 +295,16 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
                 messages: [
                     {
                         role: 'system',
-                        content: `你是标签页功能提取助手。给你一组来自同一网站的标签页，请为每个页面生成一个 2-4 字的中文功能标签，描述这个页面是用来做什么的（如：项目列表、代码审查、问题详情、个人主页、设置页面）。
-返回纯 JSON，格式：{"tabId": "标签文字"}，不要任何解释。`,
+                        content: `你是标签页功能提取助手。给你一组来自同一网站的标签页，为每个页面生成一个中文功能标签，描述这个页面是用来做什么的。
+
+【硬性要求】
+- 标签必须**恰好 4 个中文汉字**，不多一字、不少一字。
+- 禁止使用英文、数字、标点、空格、emoji、符号。
+- 优先选择常见的双 2+2 组合或四字词，例如：项目列表、代码审查、问题详情、个人主页、设置中心、新建标签、应用商店、会话详情、文件目录、通知消息、资源下载。
+- 当语义不足 4 字时，用通用后缀补齐（如"页面"、"中心"、"列表"、"详情"、"操作"）；当超过 4 字时，抽取最核心的 4 字主名词。
+- 同一网站的多个页面，标签应尽量有区分度，但仍各自 4 字。
+
+返回纯 JSON，格式：{"tabId": "四字标签"}，不要任何解释。`,
                     },
                     { role: 'user', content: tabDescriptions },
                 ],
@@ -221,8 +319,9 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
 
         const labels = {};
         Object.entries(parsed).forEach(([k, v]) => {
-            const clean = String(v || '').trim().slice(0, 6);
-            if (clean) labels[String(k)] = clean;
+            const clean = String(v || '').trim();
+            // 严格只接受恰好 4 字的输出；不合规则直接丢弃，渲染端就不会显示这条 badge
+            if (isFourCharLabel(clean)) labels[String(k)] = clean;
         });
         return labels;
     } catch (error) {
@@ -259,12 +358,13 @@ async function computeAiSnapshotForTabs(tabs) {
         }
         if (siteName) siteNames[id] = siteName;
 
+        const cachedLabel = isSigMatch && isFourCharLabel(cached.pageLabel) ? cached.pageLabel : '';
         updates[id] = {
             ...(cached || {}),
             sig,
             category: category || '',
             siteName: siteName || '',
-            pageLabel: isSigMatch ? (cached.pageLabel || '') : '',
+            pageLabel: cachedLabel,
             updatedAt: Date.now(),
         };
     }));
@@ -283,7 +383,7 @@ async function computeAiSnapshotForTabs(tabs) {
             const cacheKey = pageLabelCacheKey(tab.title, tab.url);
             const cachedLabel = await chrome.storage.local.get(cacheKey);
             const fromStorage = cachedLabel[cacheKey] ? String(cachedLabel[cacheKey]) : '';
-            if (fromStorage) {
+            if (isFourCharLabel(fromStorage)) {
                 labels[id] = fromStorage;
                 const current = updates[id] || {};
                 updates[id] = {
@@ -295,7 +395,7 @@ async function computeAiSnapshotForTabs(tabs) {
                 continue;
             }
             const existing = updates[id] && updates[id].pageLabel ? String(updates[id].pageLabel) : '';
-            if (existing) {
+            if (isFourCharLabel(existing)) {
                 labels[id] = existing;
                 continue;
             }
@@ -308,8 +408,8 @@ async function computeAiSnapshotForTabs(tabs) {
             );
             for (const tab of missingForBatch) {
                 const id = String(tab.id);
-                const label = fetched[id] ? String(fetched[id]).trim().slice(0, 6) : '';
-                if (!label) continue;
+                const label = fetched[id] ? String(fetched[id]).trim() : '';
+                if (!isFourCharLabel(label)) continue;
                 labels[id] = label;
                 const cacheKey = pageLabelCacheKey(tab.title, tab.url);
                 await chrome.storage.local.set({ [cacheKey]: label });
@@ -444,6 +544,57 @@ function parseDeepSeekJsonContent(raw) {
 }
 
 /**
+ * 批量聚类输出的 category 编码表。让 LLM 只写单字母（省 token → 省时间），后端再映射回完整值。
+ * 生成侧省约 5~7 token/行，37 条 × 0.03s/token ≈ 快 6~8 秒。
+ */
+const BATCH_CATEGORY_CODE_MAP = {
+    A: '📖 信息资讯',
+    B: '🛠️ 效率办公',
+    C: '💬 社交互动',
+    D: '🎡 生活娱乐',
+    E: '📁 其他分类',
+};
+const BATCH_CATEGORY_DEFAULT = '📁 其他分类';
+
+function decodeBatchCategory(raw) {
+    const s = String(raw || '').trim();
+    if (!s) return BATCH_CATEGORY_DEFAULT;
+    // 主路径：单字母代号
+    const upper = s.toUpperCase();
+    if (BATCH_CATEGORY_CODE_MAP[upper]) return BATCH_CATEGORY_CODE_MAP[upper];
+    // 兜底：LLM 偶发退回旧格式，直接返回完整字符串（避免正常聚类信息被丢）
+    return s;
+}
+
+/**
+ * 解析批量聚类的 CSV 输出：每行 `id|category|topic`。
+ * 比 JSON 输出快 ~30%+（少写大量引号/括号/字段名），且容错更强。
+ */
+function parseBatchCsvContent(raw) {
+    let s = String(raw || '').trim();
+    if (s.startsWith('```')) {
+        s = s.replace(/^```[a-zA-Z0-9]*\s*/i, '').replace(/\s*```\s*$/i, '');
+    }
+    const out = [];
+    const seen = new Set();
+    for (const line of s.split(/\r?\n/)) {
+        const t = line.trim();
+        if (!t) continue;
+        const parts = t.split('|').map((p) => p.trim());
+        if (parts.length < 3) continue;
+        const id = Number(parts[0]);
+        if (!Number.isFinite(id) || seen.has(id)) continue;
+        const category = parts[1];
+        // topic 允许自带空格，若被多个 | 误切，则把后续段合并回去
+        const topic = parts.slice(2).join(' | ').trim();
+        if (!topic) continue;
+        seen.add(id);
+        out.push({ id, category, topic });
+    }
+    return out;
+}
+
+/**
  * @param {number|null|undefined} activeTabId 发起请求的标签页；含该标签的组展开，其余组折叠（视觉降噪）。
  */
 function shouldCollapseTabGroup(tabIds, activeTabId) {
@@ -474,71 +625,135 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
 
     const tabIdSet = new Set(httpTabs.map((t) => t.id));
     const metaById = new Map(httpTabs.map((t) => [t.id, { windowId: t.windowId }]));
-    const tabData = httpTabs.map((t) => ({
-        id: t.id,
-        title: t.title || '',
-        url: t.url || '',
-    }));
 
-    const systemPrompt = `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
+    // —— 缓存分流：签名匹配且已写过 topic 的跳过 LLM，其余走 LLM ——
+    const entries = aiSnapshotCache.entries || {};
+    const results = []; // 最终参与分组的 { id, category, topic }
+    const toQuery = []; // 未命中缓存、需要送 LLM 的原始 tab
+    for (const t of httpTabs) {
+        const idStr = String(t.id);
+        const sig = buildTabSignature(t);
+        const cached = entries[idStr];
+        if (cached && cached.sig === sig && cached.topic) {
+            results.push({
+                id: t.id,
+                category: cached.category || '📁 其他分类',
+                topic: cached.topic,
+            });
+        } else {
+            toQuery.push(t);
+        }
+    }
 
-用户将提供 JSON 数组，每项含 id、title、url。你必须为每个 id 返回一条结果，且 id 与输入一致。
+    // 把缓存命中的 topic 透给 LLM，鼓励跨请求复用完全一致的字符串
+    const existingTopics = Array.from(new Set(results.map((x) => x.topic).filter(Boolean)));
 
-每条结果字段：
-1. "id": 原始标签 ID（数字）。
-2. "category": 五类之一（必须完全一致）：📖 信息资讯、🛠️ 效率办公、💬 社交互动、🎡 生活娱乐、📁 其他分类。
-3. "topic": 4～6 个汉字左右的子主题场景，并带一个 Emoji 前缀（如 "📈 投资调研"、"💻 研发工具"、"🛒 购物消费"）。
+    try {
+        if (toQuery.length > 0) {
+            const tabLines = toQuery.map((t) => {
+                const title = String(t.title || '').replace(/[|\n\r]/g, ' ').slice(0, 120);
+                const url = String(t.url || '').slice(0, 200);
+                return `${t.id}|${title}|${url}`;
+            }).join('\n');
+
+            const existingSection = existingTopics.length > 0
+                ? `\n\n【已有 topic（新标签若语义相同请复用完全一致的字符串）】\n${existingTopics.map((s) => `- ${s}`).join('\n')}`
+                : '';
+
+            const systemPrompt = `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
+
+用户会以「每行一条标签页」的格式提供输入，格式为：id|title|url（title 中原有的 "|" 已被替换为空格，因此分隔符只出现 2 个）。你必须为每个 id 返回一行结果。
+
+【输出格式 — 严格遵守】
+- 每行一条，格式：<id>|<cat>|<topic>
+- <cat> 只能是单个大写字母 A / B / C / D / E，对应五大类（禁止输出完整名称或 emoji）：
+  A = 📖 信息资讯（新闻/资讯/百科/财经行情）
+  B = 🛠️ 效率办公（文档/代码/AI 工具/云服务/开发者平台）
+  C = 💬 社交互动（社区/聊天/问答/评论/朋友圈）
+  D = 🎡 生活娱乐（视频/音乐/游戏/直播/外卖/旅游/购物）
+  E = 📁 其他分类（个人站点/工具/404 等兜底）
+- <topic>：4～6 个汉字左右的子主题场景，并带一个 Emoji 前缀，例如 "💻 研发工具"、"📈 投资调研"、"🛒 购物消费"。
+- 不要表头、不要解释、不要 Markdown 代码块、不要空行；每个输入 id 都必须有对应输出行。
+
+【正确示例】
+891723|B|💻 研发工具
+891724|A|📈 投资调研
+891725|D|🎬 影视追剧
 
 【强制聚合规则】
 - 首要目标是合并同类项：尽最大努力发现网页之间的共性，把尽可能多的页面归入**相同**的 topic 字符串。
-- 模型的默认倾向是发散描述；你必须主动做**收敛归纳**（Convergence），禁止「一页一个冷门 topic」。
-- 绝不允许「一页一类」。例如：关于「华夏银行分红」「紫金矿业财报」「东方财富」的页面，必须统一归入相同 topic，如 "📈 投资调研"；关于 Cursor、GitHub、Claude 的页面，应统一归入如 "💻 研发工具"。
-- 同一批标签里，**不同 topic 的种数最好控制在 3～5 个以内**；能共用同一个 topic 就不要拆。
+- 模型默认倾向于发散描述；你必须主动做收敛归纳（Convergence），禁止「一页一个冷门 topic」。
+- 绝不允许「一页一类」。例如：关于「华夏银行分红」「紫金矿业财报」「东方财富」的页面必须统一归入 "📈 投资调研"；关于 Cursor、GitHub、Claude 的页面应统一归入 "💻 研发工具"。
+- 同一批标签里，不同 topic 的种数尽量控制在 3～5 个以内；能共用同一个 topic 就不要拆。${existingSection}`;
 
-只输出一个 JSON 对象，格式严格为：{"results":[{"id":数字,"category":"...","topic":"..."},...]}，不要 Markdown、不要解释。`;
+            const response = await fetch('https://api.deepseek.com/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model: 'deepseek-chat',
+                    messages: [
+                        { role: 'system', content: systemPrompt },
+                        { role: 'user', content: tabLines },
+                    ],
+                    temperature: 0.3,
+                }),
+            });
 
-    try {
-        const response = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                model: 'deepseek-chat',
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: JSON.stringify(tabData) },
-                ],
-                temperature: 0.3,
-                response_format: { type: 'json_object' },
-            }),
-        });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const msg = data?.error?.message || response.statusText || '请求失败';
+                return { groupCount: 0, error: 'api_error', message: msg };
+            }
 
-        const data = await response.json();
-        if (!response.ok) {
-            const msg = data?.error?.message || response.statusText || '请求失败';
-            return { groupCount: 0, error: 'api_error', message: msg };
+            const raw = data.choices?.[0]?.message?.content?.trim() || '';
+            const llmResults = parseBatchCsvContent(raw);
+            if (llmResults.length === 0) {
+                console.error('批量聚类 CSV 解析失败，原始内容:', raw);
+                // 全为缓存命中时即便 LLM 解析为空也可以继续;否则视为失败
+                if (results.length === 0) return { groupCount: 0, error: 'parse_failed' };
+            }
+
+            const nowTs = Date.now();
+            const queryIdSet = new Set(toQuery.map((t) => t.id));
+            const sigById = new Map(toQuery.map((t) => [t.id, buildTabSignature(t)]));
+            const cacheUpdates = {};
+            for (const r of llmResults) {
+                if (!queryIdSet.has(r.id)) continue;
+                // LLM 只写 A/B/C/D/E，这里还原为完整 "📖 信息资讯" 等字符串
+                const fullCategory = decodeBatchCategory(r.category);
+                results.push({
+                    id: r.id,
+                    category: fullCategory,
+                    topic: r.topic,
+                });
+                const idStr = String(r.id);
+                cacheUpdates[idStr] = {
+                    ...(entries[idStr] || {}),
+                    sig: sigById.get(r.id) || '',
+                    category: fullCategory || (entries[idStr]?.category || ''),
+                    topic: r.topic,
+                    updatedAt: nowTs,
+                };
+            }
+            if (Object.keys(cacheUpdates).length > 0) {
+                Object.assign(aiSnapshotCache.entries, cacheUpdates);
+                // 不 await：持久化失败不影响本次分组；后续调用可继续读内存缓存
+                persistAiSnapshotCache();
+            }
         }
 
-        const raw = data.choices?.[0]?.message?.content?.trim() || '';
-        let parsed;
-        try {
-            parsed = parseDeepSeekJsonContent(raw);
-        } catch (e) {
-            console.error('批量聚类 JSON 解析失败:', e, raw);
-            return { groupCount: 0, error: 'parse_failed' };
-        }
-
-        const results = Array.isArray(parsed.results) ? parsed.results : [];
         /** topic -> Map<windowId, number[]> */
         const topicWindowTabs = new Map();
-
         for (const item of results) {
             const id = Number(item.id);
             if (!Number.isFinite(id) || !tabIdSet.has(id)) continue;
             const topic = String(item.topic || '').trim() || '📁 未分组';
-            const wId = metaById.get(id).windowId;
+            const meta = metaById.get(id);
+            if (!meta) continue;
+            const wId = meta.windowId;
             if (!topicWindowTabs.has(topic)) topicWindowTabs.set(topic, new Map());
             const wm = topicWindowTabs.get(topic);
             if (!wm.has(wId)) wm.set(wId, []);
@@ -845,6 +1060,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (tabList.length === 0) { sendResponse({ labels: {} }); return; }
             const labels = await fetchPageLabelsForTabs(tabList, apiKey);
             Object.entries(labels).forEach(([id, label]) => {
+                if (!isFourCharLabel(label)) return;
                 const tab = tabList.find((t) => String(t.id) === String(id));
                 if (!tab) return;
                 aiSnapshotCache.entries[String(id)] = {
@@ -949,6 +1165,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (!apiKey) { sendResponse({ keywords: [] }); return; }
             const query = String(request.query || '').trim();
             if (!query) { sendResponse({ keywords: [] }); return; }
+
+            const cacheKey = query.toLowerCase();
+            const cachedHit = aiSearchKeywordCache.get(cacheKey);
+            if (cachedHit) {
+                // LRU：命中时搬到尾部
+                aiSearchKeywordCache.delete(cacheKey);
+                aiSearchKeywordCache.set(cacheKey, cachedHit);
+                sendResponse({ keywords: cachedHit.slice(), cached: true });
+                return;
+            }
+
             try {
                 const response = await fetch('https://api.deepseek.com/chat/completions', {
                     method: 'POST',
@@ -958,27 +1185,34 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         messages: [
                             {
                                 role: 'system',
-                                content: '你是搜索词提取专家。用户用自然语言描述想找的网页，请提取最适合匹配网页标题/URL 的关键词。只返回 JSON 字符串数组，如 ["webpack","性能","config"]，2~5 个词，优先英文技术词，中文补充，不要 Markdown 也不要解释。',
+                                content: `你从用户一句话描述里提取 2~4 个最适合匹配网页**标题/URL**的关键词。用户可能用中文描述，但目标网页可能是中文也可能是英文，所以关键词要覆盖双语写法。
+
+【输出原则】
+- **专有名词同时给中英双写**：人名、球队、品牌、产品、作品、公司、技术词等，都要把「原文 + 常见英文对应」都列出。
+  · 例：穆雷 → 穆雷, murray
+  · 例：丁真 → 丁真
+  · 例：马刺队 → 马刺, spurs
+  · 例：掘金队 → 掘金, nuggets
+  · 例：哈利波特 → 哈利波特, harry potter
+  · 例：苹果财报 → 苹果, apple, 财报
+- **概念/通用词**：若有常见的英文对应，也一起给出（如 壁纸/wallpaper、股票/stock、简历/resume）；纯中国语境的词（如"值得买""懂车帝"）不用硬翻。
+- 每个关键词：英文至少 3 个字符；中文至少 2 个字符。
+- 不要输出过短或泛化的缩写：hd、4k、8k、ui、ux、ai、js、ts、css、the、for、and 等。
+- 不要编造用户没提的形容词/同义词（如"高清""免费""下载"），除非用户显式说了。
+- 关键词必须具体、有辨识度。
+
+用英文逗号分隔直接输出，例如「穆雷, murray」或「壁纸, wallpaper」。禁止解释、引号、括号、Markdown、JSON。`,
                             },
                             { role: 'user', content: query },
                         ],
                         temperature: 0.2,
-                        max_tokens: 80,
+                        max_tokens: 48,
                     }),
                 });
                 const data = await response.json();
-                const raw = String(data.choices?.[0]?.message?.content || '[]')
-                    .trim()
-                    .replace(/^```[a-z]*\s*/i, '')
-                    .replace(/\s*```$/i, '')
-                    .trim();
-                let keywords = [];
-                try {
-                    const parsed = JSON.parse(raw);
-                    if (Array.isArray(parsed)) {
-                        keywords = parsed.map(k => String(k).trim().toLowerCase()).filter(Boolean).slice(0, 5);
-                    }
-                } catch (_) {}
+                const raw = String(data.choices?.[0]?.message?.content || '').trim();
+                const keywords = parseAiSearchKeywords(raw);
+                writeAiSearchKeywordCache(cacheKey, keywords);
                 sendResponse({ keywords });
             } catch (err) {
                 console.error('AI 搜索失败:', err);
