@@ -717,7 +717,7 @@ document.addEventListener('keydown', function(event) {
 
             if (typeof switcherVisible === 'undefined' || !switcherVisible) {
                 chrome.runtime.sendMessage({ action: 'get_tabs' }, (res) => {
-                    if (!res || !res.tabs || res.tabs.length < 2) return;
+                    if (!res || !res.tabs || res.tabs.length === 0) return;
                     showSwitcher(res.tabs, false, res.currentWindowId);
                     if (typeof initSwitcherHighlight === 'function') initSwitcherHighlight();
                 });
