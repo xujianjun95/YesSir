@@ -84,10 +84,70 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 void restoreGlobalTabHistory();
 void restoreAiSnapshotCache();
 
-// DeepSeek：优先从 chrome.storage.local.deepseekApiKey 读取，勿把密钥提交到仓库。
+// ─── 设备 UUID（中转限流用，首次生成后持久化） ───
+const DEVICE_UUID_KEY = 'ysDeviceUUID';
+let _deviceUUID = null;
+async function getDeviceUUID() {
+    if (_deviceUUID) return _deviceUUID;
+    const stored = await chrome.storage.local.get(DEVICE_UUID_KEY);
+    if (stored[DEVICE_UUID_KEY]) {
+        _deviceUUID = stored[DEVICE_UUID_KEY];
+        return _deviceUUID;
+    }
+    // 生成 UUID v4
+    const arr = new Uint8Array(16);
+    crypto.getRandomValues(arr);
+    arr[6] = (arr[6] & 0x0f) | 0x40;
+    arr[8] = (arr[8] & 0x3f) | 0x80;
+    const hex = Array.from(arr).map((b) => b.toString(16).padStart(2, '0')).join('');
+    _deviceUUID = `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+    await chrome.storage.local.set({ [DEVICE_UUID_KEY]: _deviceUUID });
+    return _deviceUUID;
+}
+
+// ─── DeepSeek 调用入口（双轨：有用户 Key 走直连，否则走中转）───
+//
+//  直连：插件直接携带用户自己的 Key 访问 api.deepseek.com（无限制，速度快）
+//  中转：请求发到 api.pmtools.com.cn/yessir/ai，服务器持有 Key 并做限流
+//        新用户无需申请 Key 即可体验，每天 10 次免费额度（可在设置里填 Key 解除）
+const PROXY_BASE_URL = 'https://api.pmtools.com.cn/yessir/ai';
+
 async function getDeepSeekApiKey() {
     const { deepseekApiKey } = await chrome.storage.local.get('deepseekApiKey');
     return (deepseekApiKey && String(deepseekApiKey).trim()) || '';
+}
+
+/**
+ * 统一的 DeepSeek 请求函数。
+ * @param {object} payload  - 直接传给 /chat/completions 的 body（无需含 Authorization）
+ * @param {string} [apiKey] - 可选，若已知可直接传入避免重复读 storage
+ * @returns {Promise<Response>}
+ */
+async function callDeepSeekApi(payload, apiKey) {
+    const key = apiKey !== undefined ? apiKey : await getDeepSeekApiKey();
+
+    if (key) {
+        // 直连模式：用户自己的 Key
+        return fetch('https://api.deepseek.com/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${key}`,
+            },
+            body: JSON.stringify(payload),
+        });
+    }
+
+    // 中转模式：走服务器代理
+    const uuid = await getDeviceUUID();
+    return fetch(PROXY_BASE_URL, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-Device-UUID': uuid,
+        },
+        body: JSON.stringify(payload),
+    });
 }
 
 const CATEGORY_CACHE_VERSION = 'v3';
@@ -275,7 +335,7 @@ function buildAiSnapshotFromCache(tabs) {
 }
 
 async function fetchPageLabelsForTabs(tabList, apiKey) {
-    if (!apiKey || !Array.isArray(tabList) || tabList.length === 0) return {};
+    if (!Array.isArray(tabList) || tabList.length === 0) return {};
     const tabDescriptions = tabList.map((t) => {
         const path = (() => {
             try { return new URL(t.url).pathname; } catch (_) { return ''; }
@@ -284,13 +344,7 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
     }).join('\n');
 
     try {
-        const response = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
+        const response = await callDeepSeekApi({
                 model: 'deepseek-chat',
                 messages: [
                     {
@@ -310,8 +364,7 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
                 ],
                 temperature: 0.2,
                 response_format: { type: 'json_object' },
-            }),
-        });
+            }, apiKey);
         const data = await response.json();
         const raw = data.choices?.[0]?.message?.content?.trim() || '{}';
         let parsed = {};
@@ -434,7 +487,6 @@ async function computeAiSnapshotForTabs(tabs) {
 async function getSmartCategory(title, url, apiKey) {
     const keywordCategory = inferCategoryByKeyword(title, url);
     if (keywordCategory) return keywordCategory;
-    if (!apiKey) return '📁 其他分类';
 
     const cacheKey = titleCacheKey(title, url);
     const cached = await chrome.storage.local.get(cacheKey);
@@ -442,13 +494,7 @@ async function getSmartCategory(title, url, apiKey) {
 
     try {
         const domain = getDomainFromUrl(url);
-        const response = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
+        const response = await callDeepSeekApi({
                 model: 'deepseek-chat',
                 messages: [
                     {
@@ -469,8 +515,7 @@ URL：${url || '(无URL)'}
                     },
                 ],
                 temperature: 0.3,
-            }),
-        });
+            }, apiKey);
 
         const data = await response.json();
         const rawCategory = data.choices?.[0]?.message?.content?.trim() || '📁 其他分类';
@@ -492,19 +537,11 @@ async function getSmartSiteName(title, url, apiKey) {
     const cached = await chrome.storage.local.get(cacheKey);
     if (cached[cacheKey]) return normalizeSiteName(cached[cacheKey], url);
 
-    if (!apiKey) return null;
-
     try {
         const domain = getDomainFromUrl(url);
         if (!domain) return null;
 
-        const response = await fetch('https://api.deepseek.com/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
+        const response = await callDeepSeekApi({
                 model: 'deepseek-chat',
                 messages: [
                     {
@@ -517,8 +554,7 @@ async function getSmartSiteName(title, url, apiKey) {
                     },
                 ],
                 temperature: 0.2,
-            }),
-        });
+            }, apiKey);
 
         const data = await response.json();
         const rawName = data.choices?.[0]?.message?.content?.trim() || '';
@@ -610,7 +646,6 @@ function shouldCollapseTabGroup(tabIds, activeTabId) {
  * @param {number|null|undefined} activeTabId 发起聚合操作时的标签 id；其所在组展开，其余折叠。
  */
 async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTabId) {
-    if (!apiKey) return { groupCount: 0, error: 'no_api_key' };
     if (!Array.isArray(tabs) || tabs.length === 0) return { groupCount: 0, error: 'no_tabs' };
 
     let httpTabs = tabs.filter((t) => t.url && /^https?:\/\//i.test(String(t.url)));
@@ -686,24 +721,21 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
 - 绝不允许「一页一类」。例如：关于「华夏银行分红」「紫金矿业财报」「东方财富」的页面必须统一归入 "📈 投资调研"；关于 Cursor、GitHub、Claude 的页面应统一归入 "💻 研发工具"。
 - 同一批标签里，不同 topic 的种数尽量控制在 3～5 个以内；能共用同一个 topic 就不要拆。${existingSection}`;
 
-            const response = await fetch('https://api.deepseek.com/chat/completions', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${apiKey}`,
-                },
-                body: JSON.stringify({
+            const response = await callDeepSeekApi({
                     model: 'deepseek-chat',
                     messages: [
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: tabLines },
                     ],
                     temperature: 0.3,
-                }),
-            });
+                }, apiKey);
 
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
+                // 中转服务额度耗尽（429）时，给出明确引导而非通用错误
+                if (response.status === 429) {
+                    return { groupCount: 0, error: 'rate_limit', message: data?.message || '今日免费额度已用完，请在设置里填入自己的 DeepSeek API Key 继续使用。' };
+                }
                 const msg = data?.error?.message || response.statusText || '请求失败';
                 return { groupCount: 0, error: 'api_error', message: msg };
             }
@@ -767,7 +799,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
         console.error('批量聚类失败:', error);
         let message = String(error && error.message ? error.message : error);
         if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
-            message = '网络无法连接 DeepSeek（api.deepseek.com）。请检查本机网络、代理或防火墙；若曾修改过扩展权限，请在 chrome://extensions 重新加载 Yes Sir。';
+            message = '网络连接失败。请检查本机网络；若使用代理服务，请确认中转服务可访问。';
         }
         return { groupCount: 0, error: 'exception', message };
     }
@@ -1054,7 +1086,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     else if (request.action === 'get_tab_page_labels') {
         (async () => {
             const apiKey = await getDeepSeekApiKey();
-            if (!apiKey) { sendResponse({ labels: {} }); return; }
 
             const tabList = Array.isArray(request.tabs) ? request.tabs : [];
             if (tabList.length === 0) { sendResponse({ labels: {} }); return; }
@@ -1162,7 +1193,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     else if (request.action === 'ai_search_tabs') {
         (async () => {
             const apiKey = await getDeepSeekApiKey();
-            if (!apiKey) { sendResponse({ keywords: [] }); return; }
             const query = String(request.query || '').trim();
             if (!query) { sendResponse({ keywords: [] }); return; }
 
@@ -1177,10 +1207,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             }
 
             try {
-                const response = await fetch('https://api.deepseek.com/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-                    body: JSON.stringify({
+                const response = await callDeepSeekApi({
                         model: 'deepseek-chat',
                         messages: [
                             {
@@ -1207,16 +1234,33 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         ],
                         temperature: 0.2,
                         max_tokens: 48,
-                    }),
-                });
-                const data = await response.json();
+                    }, apiKey);
+                const data = await response.json().catch(() => ({}));
+                if (!response.ok) {
+                    if (response.status === 429) {
+                        sendResponse({
+                            keywords: [],
+                            error: 'rate_limit',
+                            message: data?.message || '今日免费额度已用完，请在设置里填入自己的 DeepSeek API Key 继续使用。',
+                        });
+                        return;
+                    }
+                    const msg = typeof data?.message === 'string' ? data.message
+                        : (typeof data?.error === 'string' ? data.error : response.statusText || '请求失败');
+                    sendResponse({ keywords: [], error: 'api_error', message: msg });
+                    return;
+                }
                 const raw = String(data.choices?.[0]?.message?.content || '').trim();
                 const keywords = parseAiSearchKeywords(raw);
                 writeAiSearchKeywordCache(cacheKey, keywords);
                 sendResponse({ keywords });
             } catch (err) {
                 console.error('AI 搜索失败:', err);
-                sendResponse({ keywords: [] });
+                let message = String(err && err.message ? err.message : err);
+                if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
+                    message = '网络无法连接 AI 服务。未配置 Key 时需访问中转 api.pmtools.com.cn；请检查网络、在 chrome://extensions 重新加载本扩展（以应用中转域名权限），或直接在设置中填入 DeepSeek API Key。';
+                }
+                sendResponse({ keywords: [], error: 'exception', message });
             }
         })();
         return true;

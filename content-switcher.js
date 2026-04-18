@@ -794,7 +794,13 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     chrome.runtime.sendMessage({ action: 'ai_search_tabs', query: filterText }, (res) => {
                         if (myToken !== aiSearchToken) return; // 用户已继续输入，丢弃
                         if (chrome.runtime.lastError || !res || !res.keywords || res.keywords.length === 0) {
-                            listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">未找到匹配的标签页</div>`;
+                            const extra = (res && res.message)
+                                ? `<div style="margin-top:10px;font-size:11px;color:rgba(180,100,60,0.92);line-height:1.55;text-align:left;max-width:280px;margin-left:auto;margin-right:auto;">${escapeHtml(res.message)}</div>`
+                                : '';
+                            const base = chrome.runtime.lastError
+                                ? '无法连接扩展后台，请重试或重新加载扩展。'
+                                : '未找到匹配的标签页';
+                            listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">${base}${extra}</div>`;
                             return;
                         }
                         renderList(filterText, { restoreScroll: false, preferActive: false, animate: false, aiKeywords: res.keywords });
@@ -1396,39 +1402,6 @@ function buildTabItem(tab, globalIdx, container) {
         cursor:          'pointer',
     });
 
-    const tailCluster = document.createElement('div');
-    Object.assign(tailCluster.style, {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '4px',
-        flexShrink: '0',
-    });
-
-    if (tab.active) {
-        title.style.fontWeight = '600';
-        title.dataset.isActive = 'true';
-        const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
-        item.dataset.activeInSourceWindow = isSourceWindowActive ? 'true' : 'false';
-
-        const activeBadge = document.createElement('div');
-        Object.assign(activeBadge.style, {
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: '20px',
-            height: '20px',
-            padding: '0',
-            borderRadius: '6px',
-            background: 'rgba(80, 110, 220, 0.12)',
-            border: '1px solid rgba(80, 110, 220, 0.25)',
-            color: 'rgba(50, 70, 160, 0.95)',
-            flexShrink: '0',
-            boxSizing: 'border-box',
-        });
-        activeBadge.innerHTML = `<span style="font-size:10px;opacity:0.85;">📍</span>`;
-        tailCluster.appendChild(activeBadge);
-    }
-
     // 页面功能标签（AI；单标签分组也会请求）。严格只渲染「恰好 4 字」的结果，
     // 避免旧缓存里残留的 2/3 字标签在换了新 prompt 之后继续显示。
     const rawPageLabel = tabPageLabelMap[tab.id] ?? tabPageLabelMap[String(tab.id)];
@@ -1436,27 +1409,92 @@ function buildTabItem(tab, globalIdx, container) {
         && Array.from(rawPageLabel.trim()).length === 4
         ? rawPageLabel.trim()
         : '';
-    if (pageLabel) {
-        const labelEl = document.createElement('span');
-        labelEl.className = 'ys-page-label';
-        labelEl.textContent = pageLabel;
-        Object.assign(labelEl.style, {
-            fontSize:       '10px',
-            fontWeight:     '500',
-            color:          'rgba(100, 115, 145, 0.5)',
-            background:     'rgba(0, 0, 0, 0.04)',
-            borderRadius:   '4px',
-            padding:        '1px 5px',
-            flexShrink:     '0',
-            whiteSpace:     'nowrap',
-            lineHeight:     '1.6',
+
+    const showTail = tab.active || !!pageLabel;
+    let tailCluster = null;
+    if (showTail) {
+        tailCluster = document.createElement('div');
+        Object.assign(tailCluster.style, {
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px',
+            flexShrink: '0',
         });
-        tailCluster.appendChild(labelEl);
+
+        // 固定两列：📍 始终在左列，类别在右列；无标签时右列仍占位，避免仅有 📍 时整段贴右导致列不对齐
+        const pinSlot = document.createElement('div');
+        Object.assign(pinSlot.style, {
+            width: '24px',
+            minWidth: '24px',
+            flexShrink: '0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+        });
+
+        const labelSlot = document.createElement('div');
+        Object.assign(labelSlot.style, {
+            width: '60px',
+            minWidth: '60px',
+            flexShrink: '0',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'flex-end',
+        });
+
+        if (tab.active) {
+            title.style.fontWeight = '600';
+            title.dataset.isActive = 'true';
+            const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
+            item.dataset.activeInSourceWindow = isSourceWindowActive ? 'true' : 'false';
+
+            const activeBadge = document.createElement('div');
+            Object.assign(activeBadge.style, {
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '20px',
+                height: '20px',
+                padding: '0',
+                borderRadius: '6px',
+                background: 'rgba(80, 110, 220, 0.12)',
+                border: '1px solid rgba(80, 110, 220, 0.25)',
+                color: 'rgba(50, 70, 160, 0.95)',
+                flexShrink: '0',
+                boxSizing: 'border-box',
+            });
+            activeBadge.innerHTML = `<span style="font-size:10px;opacity:0.85;">📍</span>`;
+            pinSlot.appendChild(activeBadge);
+        }
+
+        if (pageLabel) {
+            const labelEl = document.createElement('span');
+            labelEl.className = 'ys-page-label';
+            labelEl.textContent = pageLabel;
+            Object.assign(labelEl.style, {
+                fontSize:       '10px',
+                fontWeight:     '500',
+                color:          'rgba(100, 115, 145, 0.5)',
+                background:     'rgba(0, 0, 0, 0.04)',
+                borderRadius:   '4px',
+                padding:        '1px 5px',
+                flexShrink:     '0',
+                whiteSpace:     'nowrap',
+                lineHeight:     '1.6',
+                maxWidth:       '100%',
+                overflow:       'hidden',
+                textOverflow:   'ellipsis',
+            });
+            labelSlot.appendChild(labelEl);
+        }
+
+        tailCluster.appendChild(pinSlot);
+        tailCluster.appendChild(labelSlot);
     }
 
     leftArea.appendChild(iconSlot);
     leftArea.appendChild(title);
-    if (tailCluster.childNodes.length > 0) {
+    if (tailCluster) {
         leftArea.appendChild(tailCluster);
     }
 

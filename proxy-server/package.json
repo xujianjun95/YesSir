@@ -1,0 +1,13 @@
+{
+  "name": "yessir-proxy",
+  "version": "1.0.0",
+  "description": "YesSir 插件的 DeepSeek API 中转服务",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "DEEPSEEK_API_KEY=your_key_here node server.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
