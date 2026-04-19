@@ -9,7 +9,7 @@
  * 环境变量（在服务器上配置，不要写进代码）：
  *  DEEPSEEK_API_KEY=sk-xxxx          你的 DeepSeek API Key
  *  PORT=3001                          监听端口（Nginx 反代过来）
- *  DAILY_LIMIT_AGGREGATE=10           AI 聚合：每设备每天最多次数（默认 10）
+ *  DAILY_LIMIT_AGGREGATE=1            AI 聚合：每设备每天最多次数（默认 1，可用环境变量调大）
  *  DAILY_LIMIT_SEARCH=10             AI 搜索：每设备每天最多次数（默认 10）
  *  DAILY_LIMIT_PAGE_LABEL_TABS=100    页面标签：每设备每天最多计数的标签页数（默认 100）
  */
@@ -20,7 +20,7 @@ const { URL } = require('url');
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const PORT = parseInt(process.env.PORT || '3001', 10);
-const LIMIT_AGGREGATE = parseInt(process.env.DAILY_LIMIT_AGGREGATE || '10', 10);
+const LIMIT_AGGREGATE = parseInt(process.env.DAILY_LIMIT_AGGREGATE || '1', 10);
 const LIMIT_SEARCH = parseInt(process.env.DAILY_LIMIT_SEARCH || '10', 10);
 const LIMIT_PAGE_LABEL_TABS = parseInt(process.env.DAILY_LIMIT_PAGE_LABEL_TABS || '100', 10);
 

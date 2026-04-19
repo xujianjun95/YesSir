@@ -747,7 +747,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
                         groupCount: 0,
                         error: 'rate_limit',
                         message: data?.message
-                            || '很抱歉，您今日 AI 相关功能额度已用尽（10 次/天），次日会自动恢复，您可在设置>API key 设置中填入自己的 API Key 来彻底解锁 AI 相关功能。',
+                            || '很抱歉，您今日 AI 相关功能额度已用尽（1 次/天），次日会自动恢复，您可在设置>API key 设置中填入自己的 API Key 来彻底解锁 AI 相关功能。',
                     };
                 }
                 const msg = data?.error?.message || response.statusText || '请求失败';
