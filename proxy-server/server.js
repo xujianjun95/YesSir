@@ -194,7 +194,7 @@ const server = http.createServer(async (req, res) => {
         delete parsed._yessir_quota;
     }
 
-    const headerFeature = String(req.headers['x-yesir-feature'] || '').trim().slice(0, 32);
+    const headerFeature = String(req.headers['x-yessir-feature'] || '').trim().slice(0, 32);
     const bodyFeature = q && q.feature != null ? String(q.feature).trim().slice(0, 32) : '';
     if (headerFeature && bodyFeature && headerFeature.toLowerCase() !== bodyFeature.toLowerCase()) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -203,7 +203,7 @@ const server = http.createServer(async (req, res) => {
     }
     const feature = (bodyFeature || headerFeature || 'general').trim().slice(0, 32) || 'general';
 
-    const headerUnits = parseInt(req.headers['x-yesir-units'] || '1', 10) || 1;
+    const headerUnits = parseInt(req.headers['x-yessir-units'] || '1', 10) || 1;
     const bodyUnits = q && q.units != null ? Math.max(1, parseInt(q.units, 10) || 1) : null;
     const units = bodyUnits != null ? bodyUnits : headerUnits;
 
@@ -244,3 +244,11 @@ server.listen(PORT, () => {
         `[YesSir Proxy] 限额：聚合 ${LIMIT_AGGREGATE}/天 · 搜索 ${LIMIT_SEARCH}/天 · 页面标签 ${LIMIT_PAGE_LABEL_TABS} tab/天 · general 不占额`,
     );
 });
+
+// 清理非当日 UUID 记录，避免 usageMap 随用户量无限增长
+setInterval(() => {
+    const today = getTodayStr();
+    for (const [uuid, entry] of usageMap.entries()) {
+        if (entry.date !== today) usageMap.delete(uuid);
+    }
+}, 12 * 60 * 60 * 1000);
