@@ -4,6 +4,7 @@
  * 功能：
  *  - 代替用户持有 DeepSeek API Key，新用户无需自己申请即可体验 AI 功能
  *  - 按设备 UUID + 功能分桶限流（聚合 / 搜索 / 页面标签）；分类、站点名等走 general 不占三档额度
+ *  - 限流维度同时认请求头 X-YesSir-Feature 与 JSON body._yessir_quota（防止网关丢弃自定义头导致误计为 general）
  *  - 透明转发请求到 DeepSeek，不修改任何 prompt / 响应内容
  *
  * 环境变量（在服务器上配置，不要写进代码）：
@@ -169,8 +170,42 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    const feature = (req.headers['x-yesir-feature'] || 'general').trim().slice(0, 32);
-    const units = parseInt(req.headers['x-yesir-units'] || '1', 10) || 1;
+    let bodyStr;
+    let parsed;
+    try {
+        bodyStr = await readBody(req);
+        parsed = JSON.parse(bodyStr);
+    } catch (_) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_body' }));
+        return;
+    }
+
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_body' }));
+        return;
+    }
+
+    const q = parsed._yessir_quota && typeof parsed._yessir_quota === 'object'
+        ? parsed._yessir_quota
+        : null;
+    if (parsed && typeof parsed === 'object' && '_yessir_quota' in parsed) {
+        delete parsed._yessir_quota;
+    }
+
+    const headerFeature = String(req.headers['x-yesir-feature'] || '').trim().slice(0, 32);
+    const bodyFeature = q && q.feature != null ? String(q.feature).trim().slice(0, 32) : '';
+    if (headerFeature && bodyFeature && headerFeature.toLowerCase() !== bodyFeature.toLowerCase()) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'feature_mismatch', message: 'X-YesSir-Feature 与 body._yessir_quota 不一致' }));
+        return;
+    }
+    const feature = (bodyFeature || headerFeature || 'general').trim().slice(0, 32) || 'general';
+
+    const headerUnits = parseInt(req.headers['x-yesir-units'] || '1', 10) || 1;
+    const bodyUnits = q && q.units != null ? Math.max(1, parseInt(q.units, 10) || 1) : null;
+    const units = bodyUnits != null ? bodyUnits : headerUnits;
 
     const { allowed, remaining, limit, silent } = checkQuota(uuid, feature, units);
     res.setHeader('X-RateLimit-Remaining', String(remaining));
@@ -190,18 +225,10 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
-    let body;
-    try {
-        body = await readBody(req);
-        JSON.parse(body);
-    } catch (_) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'invalid_body' }));
-        return;
-    }
+    bodyStr = JSON.stringify(parsed);
 
     try {
-        const { statusCode, body: dsBody } = await forwardToDeepSeek(body);
+        const { statusCode, body: dsBody } = await forwardToDeepSeek(bodyStr);
         res.writeHead(statusCode, { 'Content-Type': 'application/json' });
         res.end(dsBody);
     } catch (err) {

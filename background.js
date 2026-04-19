@@ -141,8 +141,9 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
         });
     }
 
-    // 中转模式：走服务器代理
+    // 中转模式：走服务器代理（body 内带 _yessir_quota，避免部分网关丢弃自定义头导致误计为 general）
     const uuid = await getDeviceUUID();
+    const bodyObj = { ...payload, _yessir_quota: { feature, units } };
     return fetch(PROXY_BASE_URL, {
         method: 'POST',
         headers: {
@@ -151,7 +152,7 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
             'X-YesSir-Feature': feature,
             'X-YesSir-Units': String(units),
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(bodyObj),
     });
 }
 
