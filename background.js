@@ -121,10 +121,13 @@ async function getDeepSeekApiKey() {
  * 统一的 DeepSeek 请求函数。
  * @param {object} payload  - 直接传给 /chat/completions 的 body（无需含 Authorization）
  * @param {string} [apiKey] - 可选，若已知可直接传入避免重复读 storage
+ * @param {{ feature?: string, units?: number }} [quotaOpts] - 中转限流：aggregate / search / page_labels / general（默认 general 不占三档额度）
  * @returns {Promise<Response>}
  */
-async function callDeepSeekApi(payload, apiKey) {
+async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
     const key = apiKey !== undefined ? apiKey : await getDeepSeekApiKey();
+    const feature = quotaOpts.feature != null ? String(quotaOpts.feature) : 'general';
+    const units = quotaOpts.units != null ? Math.max(1, Number(quotaOpts.units) || 1) : 1;
 
     if (key) {
         // 直连模式：用户自己的 Key
@@ -145,6 +148,8 @@ async function callDeepSeekApi(payload, apiKey) {
         headers: {
             'Content-Type': 'application/json',
             'X-Device-UUID': uuid,
+            'X-YesSir-Feature': feature,
+            'X-YesSir-Units': String(units),
         },
         body: JSON.stringify(payload),
     });
@@ -364,7 +369,11 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
                 ],
                 temperature: 0.2,
                 response_format: { type: 'json_object' },
-            }, apiKey);
+            }, apiKey, { feature: 'page_labels', units: tabList.length });
+        if (!response.ok) {
+            if (response.status === 429) return {};
+            return {};
+        }
         const data = await response.json();
         const raw = data.choices?.[0]?.message?.content?.trim() || '{}';
         let parsed = {};
@@ -515,7 +524,7 @@ URL：${url || '(无URL)'}
                     },
                 ],
                 temperature: 0.3,
-            }, apiKey);
+            }, apiKey, { feature: 'general' });
 
         const data = await response.json();
         const rawCategory = data.choices?.[0]?.message?.content?.trim() || '📁 其他分类';
@@ -554,7 +563,7 @@ async function getSmartSiteName(title, url, apiKey) {
                     },
                 ],
                 temperature: 0.2,
-            }, apiKey);
+            }, apiKey, { feature: 'general' });
 
         const data = await response.json();
         const rawName = data.choices?.[0]?.message?.content?.trim() || '';
@@ -728,13 +737,18 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
                         { role: 'user', content: tabLines },
                     ],
                     temperature: 0.3,
-                }, apiKey);
+                }, apiKey, { feature: 'aggregate' });
 
             const data = await response.json().catch(() => ({}));
             if (!response.ok) {
                 // 中转服务额度耗尽（429）时，给出明确引导而非通用错误
                 if (response.status === 429) {
-                    return { groupCount: 0, error: 'rate_limit', message: data?.message || '今日免费额度已用完，请在设置里填入自己的 DeepSeek API Key 继续使用。' };
+                    return {
+                        groupCount: 0,
+                        error: 'rate_limit',
+                        message: data?.message
+                            || '很抱歉，您今日 AI 相关功能额度已用尽（10 次/天），次日会自动恢复，您可在设置>API key 设置中填入自己的 API Key 来彻底解锁 AI 相关功能。',
+                    };
                 }
                 const msg = data?.error?.message || response.statusText || '请求失败';
                 return { groupCount: 0, error: 'api_error', message: msg };
@@ -855,6 +869,12 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId)
 }
 
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+
+    // 供 content script 在睡眠唤醒后轻量唤醒 SW，降低首条业务消息失败率
+    if (request.action === 'ping') {
+        sendResponse({ ok: true });
+        return false;
+    }
 
     // ── 统一记录函数：记录一次“使用” (关闭或切换) ──
     function recordUsage(callback) {
@@ -1234,14 +1254,15 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         ],
                         temperature: 0.2,
                         max_tokens: 48,
-                    }, apiKey);
+                    }, apiKey, { feature: 'search' });
                 const data = await response.json().catch(() => ({}));
                 if (!response.ok) {
                     if (response.status === 429) {
                         sendResponse({
                             keywords: [],
                             error: 'rate_limit',
-                            message: data?.message || '今日免费额度已用完，请在设置里填入自己的 DeepSeek API Key 继续使用。',
+                            message: data?.message
+                                || '很抱歉，您今日 AI 相关功能额度已用尽（10 次/天），次日会自动恢复，您可在设置>API key 设置中填入自己的 API Key 来彻底解锁 AI 相关功能。',
                         });
                         return;
                     }

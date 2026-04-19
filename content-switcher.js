@@ -1,6 +1,22 @@
 // 与 content.js 同页共享全局；manifest 中须先于本文件加载 content.js（修饰键/API 弹窗等）。
 // ─── Tab Switcher Overlay (Kanban View) ───────────────────────────────────────
 
+/** MV3 background 休眠/唤醒后 sendMessage 可能失败；走 content.js 的重试封装 */
+function ysSendToBg(payload, opts, cb) {
+    if (typeof opts === 'function') {
+        cb = opts;
+        opts = {};
+    }
+    if (typeof window.__ysRuntimeSendMessageRetry === 'function') {
+        window.__ysRuntimeSendMessageRetry(payload, opts || {}, cb);
+    } else {
+        chrome.runtime.sendMessage(payload, (res) => {
+            const err = chrome.runtime.lastError;
+            cb(res, err ? err.message : null);
+        });
+    }
+}
+
 let switcherVisible  = false;
 let switcherTabs     = [];
 let switcherSelIdx   = 0;
@@ -381,15 +397,15 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }
 
         const finishProcessing = showProcessingToast(tabsToProcess.length);
-        chrome.runtime.sendMessage({
+        ysSendToBg({
             action: 'ai_batch_group',
             tabs: tabsToProcess,
             windowId: switcherCurrentWindowId,
-        }, (res) => {
+        }, { maxRetries: 2 }, (res, err) => {
             finishProcessing();
 
-            if (chrome.runtime.lastError) {
-                showCustomToast('聚合失败：' + chrome.runtime.lastError.message, 4000);
+            if (err) {
+                showCustomToast('聚合失败：' + err, 4000);
                 return;
             }
             if (res && res.success) {
@@ -398,7 +414,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             } else {
                 let hint = '聚合未完成';
                 if (res && res.error === 'no_api_key') hint = '请先在设置中配置 DeepSeek API Key';
-                else if (res && res.message) {
+                else if (res && res.error === 'rate_limit' && res.message) {
+                    showCustomToast(res.message, 5200);
+                    return;
+                } else if (res && res.message) {
                     hint = res.message;
                     if (/failed to fetch|networkerror|load failed/i.test(hint)) {
                         hint = '网络无法连接 DeepSeek（api.deepseek.com）。请检查网络/代理，或在扩展页重新加载本扩展后再试。';
@@ -412,8 +431,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     regretBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        chrome.runtime.sendMessage({ action: 'restore_last_3_tabs' }, (res) => {
-            if (chrome.runtime.lastError) return;
+        ysSendToBg({ action: 'restore_last_3_tabs' }, {}, (res, err) => {
+            if (err) return;
             if (res && res.success) {
                 hideSwitcher();
             } else {
@@ -578,12 +597,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             // 先「乐观地」把当前行在面板里移除：立即视觉反馈，无闪烁、滚动位置不变
             const session = currentSwitcherSession;
             if (session) session.removeTabById(tabId);
-            chrome.runtime.sendMessage({ action: 'close_tab_by_id', tabId }, (res) => {
-                if (chrome.runtime.lastError) return;
+            ysSendToBg({ action: 'close_tab_by_id', tabId }, {}, (res, err) => {
+                if (err) return;
                 // 真实关闭失败则回滚：重新拉一次真实 tabs 重建面板（极少见场景）
                 if (!res || !res.success) {
-                    chrome.runtime.sendMessage({ action: 'get_tabs' }, (res2) => {
-                        if (chrome.runtime.lastError) return;
+                    ysSendToBg({ action: 'get_tabs' }, {}, (res2, err2) => {
+                        if (err2) return;
                         if (res2 && res2.tabs && res2.tabs.length > 0) {
                             showSwitcher(res2.tabs, true, res2.currentWindowId);
                             initSwitcherHighlight();
@@ -791,13 +810,13 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 clearTimeout(aiSearchDebounceTimer);
                 aiSearchDebounceTimer = setTimeout(() => {
                     if (myToken !== aiSearchToken) return;
-                    chrome.runtime.sendMessage({ action: 'ai_search_tabs', query: filterText }, (res) => {
+                    ysSendToBg({ action: 'ai_search_tabs', query: filterText }, {}, (res, err) => {
                         if (myToken !== aiSearchToken) return; // 用户已继续输入，丢弃
-                        if (chrome.runtime.lastError || !res || !res.keywords || res.keywords.length === 0) {
+                        if (err || !res || !res.keywords || res.keywords.length === 0) {
                             const extra = (res && res.message)
                                 ? `<div style="margin-top:10px;font-size:11px;color:rgba(180,100,60,0.92);line-height:1.55;text-align:left;max-width:280px;margin-left:auto;margin-right:auto;">${escapeHtml(res.message)}</div>`
                                 : '';
-                            const base = chrome.runtime.lastError
+                            const base = err
                                 ? '无法连接扩展后台，请重试或重新加载扩展。'
                                 : '未找到匹配的标签页';
                             listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">${base}${extra}</div>`;
@@ -1046,8 +1065,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         boxSizing: 'border-box',
     });
 
-    chrome.runtime.sendMessage({ action: 'get_last_context' }, (res) => {
-        if (chrome.runtime.lastError) return;
+    ysSendToBg({ action: 'get_last_context' }, {}, (res, err) => {
+        if (err) return;
         footer.replaceChildren();
         if (res && res.lastTab) {
             const lt = res.lastTab;
@@ -1276,12 +1295,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     };
 
     // 先读缓存快照，优先秒开；再异步补齐缺失项。
-    chrome.runtime.sendMessage({ action: 'get_ai_snapshot', tabs: tabsForAi }, (res) => {
-        if (chrome.runtime.lastError) return;
+    ysSendToBg({ action: 'get_ai_snapshot', tabs: tabsForAi }, {}, (res, err) => {
+        if (err) return;
         applyAiSnapshotToView(res);
     });
-    chrome.runtime.sendMessage({ action: 'prewarm_ai_snapshot', tabs: tabsForAi }, (res) => {
-        if (chrome.runtime.lastError) return;
+    ysSendToBg({ action: 'prewarm_ai_snapshot', tabs: tabsForAi }, {}, (res, err) => {
+        if (err) return;
         applyAiSnapshotToView(res);
     });
 }

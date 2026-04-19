@@ -137,6 +137,60 @@ function showYsMessageToast(message, durationMs = 3200) {
     }, durationMs);
 }
 
+// ─── Extension runtime（MV3）──────────────────────────────────────────────────
+// background 为 service worker，闲置/睡眠后会被终止；唤醒后首条 sendMessage 偶发失败，
+// 且原逻辑未读 lastError 时会「完全无反应」。以下：重试 + 可见时 ping 预热 SW。
+
+/**
+ * @param {object} payload
+ * @param {{ maxRetries?: number }|function} [opts]
+ * @param {function(any, string|null): void} [cb]  (result, errorMessage)
+ */
+function ysRuntimeSendMessageRetry(payload, opts, cb) {
+    if (typeof opts === 'function') {
+        cb = opts;
+        opts = {};
+    }
+    const max = opts && opts.maxRetries != null ? opts.maxRetries : 4;
+    let attempt = 0;
+    function run() {
+        chrome.runtime.sendMessage(payload, (res) => {
+            const err = chrome.runtime.lastError;
+            if (err && attempt < max - 1) {
+                attempt++;
+                const delay = [50, 120, 280, 400][attempt - 1] || 500;
+                setTimeout(run, delay);
+                return;
+            }
+            if (err) {
+                if (cb) cb(null, err.message || 'Extension not responding');
+                return;
+            }
+            if (cb) cb(res, null);
+        });
+    }
+    run();
+}
+window.__ysRuntimeSendMessageRetry = ysRuntimeSendMessageRetry;
+
+(function setupExtensionWakePing() {
+    let lastPing = 0;
+    const ping = () => {
+        const now = Date.now();
+        if (now - lastPing < 1800) return;
+        lastPing = now;
+        chrome.runtime.sendMessage({ action: 'ping' }, () => {
+            void chrome.runtime.lastError;
+        });
+    };
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') ping();
+    });
+    window.addEventListener('pageshow', (e) => {
+        if (e.persisted) ping();
+    });
+})();
+
 
 // ─── Settings Modals ──────────────────────────────────────────────────────────
 
@@ -344,6 +398,7 @@ function initFloatingWidget() {
 
     const btn = document.createElement('div');
     btn.id = 'geek-float-btn';
+    const floatChromeBorder = '1px solid rgba(110, 150, 235, 0.48)';
     Object.assign(btn.style, glass({
         position:       'fixed',
         width:          '38px',
@@ -357,6 +412,7 @@ function initFloatingWidget() {
         userSelect:     'none',
         transition:     'box-shadow 0.2s, opacity 0.2s',
         opacity:        '0.72',
+        border:         floatChromeBorder,
     }));
 
     btn.innerHTML = `
@@ -392,6 +448,7 @@ function initFloatingWidget() {
         transition:     'opacity 0.18s ease, transform 0.18s cubic-bezier(0.34,1.4,0.64,1)',
         fontFamily:     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         pointerEvents:  'auto',
+        border:         '1px solid rgba(110, 150, 235, 0.4)',
     }));
 
     document.body.appendChild(btn);
@@ -497,8 +554,8 @@ function initFloatingWidget() {
 
     function renderChartView() {
         panel.innerHTML = `<div style="font-size:11px;color:rgba(100,100,120,0.7);text-align:center;padding:12px 0;">加载中…</div>`;
-        chrome.runtime.sendMessage({ action: "get_daily_stats" }, (response) => {
-            const dailyStats = (response && response.dailyStats) ? response.dailyStats : {};
+        ysRuntimeSendMessageRetry({ action: 'get_daily_stats' }, {}, (response, err) => {
+            const dailyStats = (!err && response && response.dailyStats) ? response.dailyStats : {};
             buildChartContent(dailyStats);
             repositionPanel();
         });
@@ -516,11 +573,18 @@ function initFloatingWidget() {
         const total5     = days.reduce((s, d) => s + d.count, 0);
         const todayCount = days[4].count;
 
+        const modRaw = MOD_LABELS[modifierKey] || '';
+        const modParts = String(modRaw).split(/\s+/);
+        const modShort = modParts.length > 1 ? modParts[modParts.length - 1] : modRaw;
+
         panel.innerHTML = `
           <div style="display:flex;justify-content:center;align-items:center;margin-bottom:4px;">
             <span style="font-size:12px;font-weight:600;color:rgba(60,70,110,0.85);letter-spacing:0.01em;">「🫡 Yes Sir」近 5 天使用统计</span>
           </div>
-          <div style="display:flex;justify-content:center;width:100%;">
+          <div style="text-align:center;font-size:10px;color:rgba(100,110,130,0.78);line-height:1.45;margin-bottom:8px;padding:0 4px;word-break:keep-all;">
+            双击 ${modShort} 呼出面板
+          </div>
+          <div style="display:flex;justify-content:center;align-items:center;width:100%;">
             ${buildSVGChart(days)}
           </div>
           <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:4px;">
@@ -599,7 +663,7 @@ function initFloatingWidget() {
 
     function buildSVGChart(days) {
         if (!Array.isArray(days) || days.length === 0) return '';
-        const W = 182, H = 92, padL = 22, padR = 6, padT = 10, padB = 22;
+        const W = 182, H = 92, padL = 14, padR = 14, padT = 10, padB = 22;
         const cW = W - padL - padR, cH = H - padT - padB;
         const counts = days.map(d => d.count);
         const maxVal = Math.max(...counts, 1);
@@ -651,7 +715,7 @@ function initFloatingWidget() {
                     <text x="${padL - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="rgba(140,150,170,0.6)">${Math.round(t * maxVal)}</text>`;
         }).join('');
 
-        return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;display:block">
+        return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;display:block;margin:0 auto;max-width:100%;">
           <defs>
             <linearGradient id="gkAreaGrad" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stop-color="rgba(90,120,230,0.28)"/>
@@ -672,6 +736,12 @@ function initFloatingWidget() {
           ${labels}${dots}${xLabels}
         </svg>`;
     }
+
+    chrome.storage.onChanged.addListener((changes) => {
+        if (!changes.modifierKey) return;
+        if (!panelOpen || panelView !== 'chart') return;
+        renderChartView();
+    });
 }
 
 
@@ -695,9 +765,7 @@ function trySilentAiPrewarm() {
     const now = Date.now();
     if (now - lastAiPrewarmAt < AI_PREWARM_INTERVAL_MS) return;
     lastAiPrewarmAt = now;
-    chrome.runtime.sendMessage({ action: 'prewarm_ai_current_window' }, () => {
-        void chrome.runtime.lastError;
-    });
+    ysRuntimeSendMessageRetry({ action: 'prewarm_ai_current_window' }, { maxRetries: 2 }, () => {});
 }
 
 document.addEventListener('keydown', function(event) {
@@ -711,9 +779,9 @@ document.addEventListener('keydown', function(event) {
         if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
             hideSwitcher();
         }
-        chrome.runtime.sendMessage({ action: 'switch_to_last_tab' }, (res) => {
-            if (chrome.runtime.lastError) {
-                showYsMessageToast('切换失败：' + chrome.runtime.lastError.message, SWITCH_TOAST_MS);
+        ysRuntimeSendMessageRetry({ action: 'switch_to_last_tab' }, { maxRetries: 3 }, (res, err) => {
+            if (err) {
+                showYsMessageToast('切换失败：' + err, SWITCH_TOAST_MS);
                 return;
             }
             if (res && res.success) {
@@ -742,7 +810,14 @@ document.addEventListener('keydown', function(event) {
             event.preventDefault();
 
             if (typeof switcherVisible === 'undefined' || !switcherVisible) {
-                chrome.runtime.sendMessage({ action: 'get_tabs' }, (res) => {
+                ysRuntimeSendMessageRetry({ action: 'get_tabs' }, {}, (res, err) => {
+                    if (err) {
+                        showYsMessageToast(
+                            '扩展暂时未响应，请轻点页面后再试或刷新本页（睡眠唤醒后较常见）。',
+                            4200,
+                        );
+                        return;
+                    }
                     if (!res || !res.tabs || res.tabs.length === 0) return;
                     showSwitcher(res.tabs, false, res.currentWindowId);
                     if (typeof initSwitcherHighlight === 'function') initSwitcherHighlight();
