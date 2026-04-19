@@ -112,6 +112,19 @@ async function getDeviceUUID() {
 //        新用户无需申请 Key 即可体验，每天 10 次免费额度（可在设置里填 Key 解除）
 const PROXY_BASE_URL = 'https://api.pmtools.com.cn/yessir/ai';
 
+/** 中转 API 按 Accept-Language 返回中英文错误文案（与 chrome.i18n 界面语言一致） */
+function getAcceptLanguageForProxy() {
+    try {
+        if (typeof chrome !== 'undefined' && chrome.i18n && typeof chrome.i18n.getUILanguage === 'function') {
+            return chrome.i18n.getUILanguage().replace(/_/g, '-');
+        }
+    } catch (_) { /* ignore */ }
+    if (typeof navigator !== 'undefined' && navigator.language) {
+        return navigator.language;
+    }
+    return 'zh-CN';
+}
+
 async function getDeepSeekApiKey() {
     const { deepseekApiKey } = await chrome.storage.local.get('deepseekApiKey');
     return (deepseekApiKey && String(deepseekApiKey).trim()) || '';
@@ -148,6 +161,7 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
+            'Accept-Language': getAcceptLanguageForProxy(),
             'X-Device-UUID': uuid,
             'X-YesSir-Feature': feature,
             'X-YesSir-Units': String(units),
@@ -748,7 +762,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
                         groupCount: 0,
                         error: 'rate_limit',
                         message: data?.message
-                            || '很抱歉，您今日 AI 相关功能额度已用尽（1 次/天），次日会自动恢复，您可在设置>API key 设置中填入自己的 API Key 来彻底解锁 AI 相关功能。',
+                            || '很抱歉，您今日 AI 相关功能额度已用尽（10 次/天），次日会自动恢复，您可在设置>API key 设置中填入自己的 API Key 来彻底解锁 AI 相关功能。',
                     };
                 }
                 const msg = data?.error?.message || response.statusText || '请求失败';

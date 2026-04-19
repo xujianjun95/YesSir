@@ -6,11 +6,12 @@
  *  - 按设备 UUID + 功能分桶限流（聚合 / 搜索 / 页面标签）；分类、站点名等走 general 不占三档额度
  *  - 限流维度同时认请求头 X-YesSir-Feature 与 JSON body._yessir_quota（防止网关丢弃自定义头导致误计为 general）
  *  - 透明转发请求到 DeepSeek，不修改任何 prompt / 响应内容
+ *  - 429 / 部分 400 文案随 Accept-Language（首语言为 en 时用英文，否则中文）
  *
  * 环境变量（在服务器上配置，不要写进代码）：
  *  DEEPSEEK_API_KEY=sk-xxxx          你的 DeepSeek API Key
  *  PORT=3001                          监听端口（Nginx 反代过来）
- *  DAILY_LIMIT_AGGREGATE=1            AI 聚合：每设备每天最多次数（默认 1，可用环境变量调大）
+ *  DAILY_LIMIT_AGGREGATE=10           AI 聚合：每设备每天最多次数（默认 10）
  *  DAILY_LIMIT_SEARCH=10             AI 搜索：每设备每天最多次数（默认 10）
  *  DAILY_LIMIT_PAGE_LABEL_TABS=100    页面标签：每设备每天最多计数的标签页数（默认 100）
  */
@@ -21,7 +22,7 @@ const { URL } = require('url');
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const PORT = parseInt(process.env.PORT || '3001', 10);
-const LIMIT_AGGREGATE = parseInt(process.env.DAILY_LIMIT_AGGREGATE || '1', 10);
+const LIMIT_AGGREGATE = parseInt(process.env.DAILY_LIMIT_AGGREGATE || '10', 10);
 const LIMIT_SEARCH = parseInt(process.env.DAILY_LIMIT_SEARCH || '10', 10);
 const LIMIT_PAGE_LABEL_TABS = parseInt(process.env.DAILY_LIMIT_PAGE_LABEL_TABS || '100', 10);
 
@@ -92,8 +93,19 @@ function checkQuota(uuid, feature, units) {
     return { allowed: true, remaining: -1 };
 }
 
-function quotaExceededMessage(limit) {
+/** @param {'en'|'zh'} lang */
+function quotaExceededMessage(limit, lang = 'zh') {
+    if (lang === 'en') {
+        return `Sorry, your daily quota for AI features has been exhausted (${limit} times/day). It will reset tomorrow. You can unlock unlimited AI access by entering your own API Key in Settings > API Key.`;
+    }
     return `很抱歉，您今日 AI 相关功能额度已用尽（${limit} 次/天），次日会自动恢复，您可在设置>API key 设置中填入自己的 API Key 来彻底解锁 AI 相关功能。`;
+}
+
+/** 取 Accept-Language 首选项：en* → en，否则 zh */
+function getRequestLang(req) {
+    const raw = String(req.headers['accept-language'] || 'zh-CN').toLowerCase();
+    const first = raw.split(',')[0].trim().split(';')[0].trim();
+    return first.startsWith('en') ? 'en' : 'zh';
 }
 
 function readBody(req) {
@@ -140,7 +152,7 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader(
         'Access-Control-Allow-Headers',
-        'Content-Type, X-Device-UUID, X-YesSir-Feature, X-YesSir-Units',
+        'Content-Type, Accept-Language, X-Device-UUID, X-YesSir-Feature, X-YesSir-Units',
     );
 
     if (req.method === 'OPTIONS') {
@@ -163,10 +175,17 @@ const server = http.createServer(async (req, res) => {
         return;
     }
 
+    const lang = getRequestLang(req);
+
     const uuid = (req.headers['x-device-uuid'] || '').trim().slice(0, 64);
     if (!uuid) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'missing_uuid', message: '缺少 X-Device-UUID 请求头' }));
+        res.end(JSON.stringify({
+            error: 'missing_uuid',
+            message: lang === 'en'
+                ? 'Missing X-Device-UUID request header'
+                : '缺少 X-Device-UUID 请求头',
+        }));
         return;
     }
 
@@ -198,7 +217,12 @@ const server = http.createServer(async (req, res) => {
     const bodyFeature = q && q.feature != null ? String(q.feature).trim().slice(0, 32) : '';
     if (headerFeature && bodyFeature && headerFeature.toLowerCase() !== bodyFeature.toLowerCase()) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'feature_mismatch', message: 'X-YesSir-Feature 与 body._yessir_quota 不一致' }));
+        res.end(JSON.stringify({
+            error: 'feature_mismatch',
+            message: lang === 'en'
+                ? 'Mismatch between X-YesSir-Feature header and body._yessir_quota'
+                : 'X-YesSir-Feature 与 body._yessir_quota 不一致',
+        }));
         return;
     }
     const feature = (bodyFeature || headerFeature || 'general').trim().slice(0, 32) || 'general';
@@ -212,7 +236,7 @@ const server = http.createServer(async (req, res) => {
 
     if (!allowed) {
         const lim = limit != null ? limit : LIMIT_AGGREGATE;
-        const msg = silent ? '' : quotaExceededMessage(lim);
+        const msg = silent ? '' : quotaExceededMessage(lim, lang);
         res.writeHead(429, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({
             error: 'rate_limit_exceeded',
