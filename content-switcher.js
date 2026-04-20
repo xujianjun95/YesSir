@@ -87,6 +87,8 @@ function matchesAiKeywordInString(haystack, kw) {
 }
 
 const TAB_ROW_ICON_VISIBLE_OPACITY = '0.7';
+const SWITCHER_DEFAULT_PLACEHOLDER = '搜索标题、URL 或域名...';
+const SWITCHER_WEB_SEARCH_PLACEHOLDER = '您可直接输入搜索内容，「🫡 Yes Sir」会在新标签页内展示搜索结果';
 
 /** 键盘/鼠标共用的「选中行」背景（与当前页蓝底区分） */
 const TAB_ROW_SELECTED_BG = 'rgba(130, 140, 160, 0.14)';
@@ -187,6 +189,8 @@ function groupTabsByDomain(tabs) {
 }
 
 function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
+    let isWebSearchMode = false;
+    let isTabAnimating = false;
     let savedScrollTop = 0;
     const oldList = document.getElementById('ys-switcher-list');
     const oldSearch = document.getElementById('ys-search-input');
@@ -273,18 +277,43 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         <div id="ys-top-actions" style="display:flex; gap:8px; position:relative; align-items:center;"></div>
       </div>
 
-      <div style="position:relative;">
-        <input id="ys-search-input" type="text" placeholder="搜索标题、URL 或域名..." style="
-          width:100%; padding:9px 12px 9px 34px; border-radius:10px;
-          border:1px solid rgba(255, 255, 255, 0.65); background:rgba(255, 255, 255, 0.25);
-          font-size:13px; color:rgba(40, 50, 70, 0.9); outline:none;
-          box-shadow:inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02); transition:all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
-          box-sizing:border-box;
-        ">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);">
+      <div id="ys-search-bar-wrapper" style="
+        position:relative; width:100%; border-radius:10px;
+        border:1px solid rgba(255, 255, 255, 0.65); background:rgba(255, 255, 255, 0.25);
+        box-shadow:inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02);
+        transition:all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+        box-sizing:border-box; overflow:hidden;
+      ">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:2;">
           <circle cx="7" cy="7" r="5" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5"/>
           <path d="M11 11L14 14" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
+        <input id="ys-search-input" type="text" placeholder="${SWITCHER_DEFAULT_PLACEHOLDER}" style="
+          width:100%; padding:9px 12px 9px 34px;
+          border:none; background:transparent;
+          font-size:13px; color:rgba(40, 50, 70, 0.9); outline:none;
+          box-sizing:border-box; position:relative; z-index:1;
+          transition:transform 0.12s ease-in, opacity 0.12s ease-in;
+        ">
+        <div id="ys-web-search-hint" style="
+          position:absolute; left:182px; top:50%; transform:translateY(-50%);
+          z-index:0; color:rgba(80,110,220,0.72); font-size:13px;
+          pointer-events:none; white-space:nowrap;
+          transition:opacity 0.2s ease; opacity:1;
+        ">(按 Tab 切换网页搜索)</div>
+        <button id="ys-web-search-enter-btn" type="button" title="点击或按回车执行网页搜索" style="
+          position:absolute; right:6px; top:50%; transform:translateY(-50%);
+          transform:translateY(-50%) scale(0.5) translateX(10px);
+          opacity:0; pointer-events:none;
+          display:flex; align-items:center; justify-content:center; gap:4px;
+          border:none; border-radius:7px; padding:4px 8px;
+          background:rgba(80,110,220,0.08); color:rgba(80,110,220,0.78);
+          font-size:11px; font-weight:600; line-height:1;
+          cursor:pointer; white-space:nowrap;
+          box-shadow:inset 0 0 0 1px rgba(80,110,220,0.14);
+          transition:all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+          z-index:3;
+        "><span style="font-size:12px;">↵</span><span>Enter</span></button>
       </div>`;
 
     const topActions = header.querySelector('#ys-top-actions');
@@ -1176,37 +1205,179 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     document.body.appendChild(overlay);
 
     const searchInput = document.getElementById('ys-search-input');
+    const webSearchEnterBtn = document.getElementById('ys-web-search-enter-btn');
+    const searchBarWrapper = document.getElementById('ys-search-bar-wrapper');
+    const webSearchHint = document.getElementById('ys-web-search-hint');
+    const applyListModeUi = () => {
+        const listContainerEl = document.getElementById('ys-switcher-list');
+        if (!listContainerEl) return;
+        listContainerEl.style.transition = 'opacity 0.3s ease, filter 0.3s ease';
+        if (isWebSearchMode) {
+            listContainerEl.style.opacity = '0.3';
+            listContainerEl.style.filter = 'blur(2px)';
+            listContainerEl.style.pointerEvents = 'none';
+            return;
+        }
+        listContainerEl.style.opacity = '1';
+        listContainerEl.style.filter = 'none';
+        listContainerEl.style.pointerEvents = 'auto';
+    };
+    const submitWebSearch = () => {
+        const keyword = searchInput ? String(searchInput.value || '').trim() : '';
+        if (!keyword) return;
+        ysSendToBg({ action: 'search_web', keyword }, {}, (res, err) => {
+            if (err || !res || !res.success) {
+                const errMsg = (res && res.error) ? String(res.error) : (err || '网页搜索失败');
+                showCustomToast(`⚠️ ${errMsg}`, 2600);
+                return;
+            }
+            hideSwitcher();
+        });
+    };
+    const applySearchModeUi = () => {
+        if (!searchInput) return;
+        if (isWebSearchMode) {
+            searchInput.placeholder = SWITCHER_WEB_SEARCH_PLACEHOLDER;
+            searchInput.style.paddingRight = '88px';
+            if (webSearchEnterBtn) {
+                webSearchEnterBtn.style.opacity = '1';
+                webSearchEnterBtn.style.transform = 'translateY(-50%) scale(1) translateX(0)';
+                webSearchEnterBtn.style.pointerEvents = 'auto';
+            }
+            if (webSearchHint) {
+                webSearchHint.style.display = 'none';
+                webSearchHint.style.opacity = '0';
+            }
+        } else {
+            searchInput.placeholder = SWITCHER_DEFAULT_PLACEHOLDER;
+            searchInput.style.paddingRight = '12px';
+            if (webSearchEnterBtn) {
+                webSearchEnterBtn.style.opacity = '0';
+                webSearchEnterBtn.style.transform = 'translateY(-50%) scale(0.5) translateX(10px)';
+                webSearchEnterBtn.style.pointerEvents = 'none';
+            }
+            if (webSearchHint) {
+                webSearchHint.style.display = 'block';
+                webSearchHint.style.opacity = String(searchInput.value || '').trim() ? '0' : '1';
+            }
+        }
+        applyListModeUi();
+    };
+
+    if (webSearchEnterBtn) {
+        webSearchEnterBtn.addEventListener('mouseenter', () => {
+            webSearchEnterBtn.style.background = 'rgba(80,110,220,0.15)';
+            webSearchEnterBtn.style.color = 'rgba(70,100,210,0.96)';
+        });
+        webSearchEnterBtn.addEventListener('mouseleave', () => {
+            webSearchEnterBtn.style.background = 'rgba(80,110,220,0.08)';
+            webSearchEnterBtn.style.color = 'rgba(80,110,220,0.78)';
+        });
+        webSearchEnterBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!isWebSearchMode) return;
+            submitWebSearch();
+        });
+    }
+
     if (searchInput) {
         searchInput.value = preservedKeyword;
+        applySearchModeUi();
         searchInput.addEventListener('input', (e) => {
+            if (webSearchHint && !isWebSearchMode) {
+                webSearchHint.style.opacity = String(e.target.value || '').trim() ? '0' : '1';
+            }
+            if (isWebSearchMode) return;
             invalidateAiSearch();
             switcherSelIdx = 0;
             renderList(e.target.value, { restoreScroll: false, preferActive: false, animate: true });
         });
         searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                if (isTabAnimating) return;
+                isTabAnimating = true;
+
+                if (!searchBarWrapper) {
+                    isWebSearchMode = !isWebSearchMode;
+                    applySearchModeUi();
+                    if (!isWebSearchMode) {
+                        invalidateAiSearch();
+                        switcherSelIdx = 0;
+                        renderList(searchInput.value, { restoreScroll: false, preferActive: false, animate: true });
+                    }
+                    isTabAnimating = false;
+                    return;
+                }
+
+                searchInput.style.transition = 'transform 0.12s ease-in, opacity 0.12s ease-in';
+                searchInput.style.transform = 'translateX(-15px)';
+                searchInput.style.opacity = '0';
+                if (webSearchHint) webSearchHint.style.opacity = '0';
+
+                setTimeout(() => {
+                    if (!switcherVisible || !searchInput.isConnected) {
+                        isTabAnimating = false;
+                        return;
+                    }
+                    isWebSearchMode = !isWebSearchMode;
+                    applySearchModeUi();
+                    if (!isWebSearchMode) {
+                        invalidateAiSearch();
+                        switcherSelIdx = 0;
+                        renderList(searchInput.value, { restoreScroll: false, preferActive: false, animate: true });
+                    }
+
+                    searchInput.style.transition = 'none';
+                    searchInput.style.transform = 'translateX(15px)';
+                    void searchInput.offsetHeight;
+
+                    searchInput.style.transition = 'transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.15s ease-out';
+                    searchInput.style.transform = 'translateX(0)';
+                    searchInput.style.opacity = '1';
+
+                    setTimeout(() => {
+                        isTabAnimating = false;
+                    }, 150);
+                }, 120);
+                return;
+            }
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
+                if (isWebSearchMode) return;
             }
             if (e.key === 'Enter') {
                 e.preventDefault();
+                if (isWebSearchMode) {
+                    submitWebSearch();
+                    return;
+                }
                 const activeItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
                 if (activeItem) activeItem.click();
             }
         });
         searchInput.addEventListener('focus', () => {
-            searchInput.style.background = 'rgba(255, 255, 255, 0.45)';
-            searchInput.style.borderColor = 'rgba(80, 110, 220, 0.4)';
-            searchInput.style.boxShadow = '0 0 0 3px rgba(80, 110, 220, 0.12), inset 0 1px 2px rgba(0,0,0,0.01)';
+            if (!searchBarWrapper) return;
+            searchBarWrapper.style.background = 'rgba(255, 255, 255, 0.45)';
+            searchBarWrapper.style.borderColor = 'rgba(80, 110, 220, 0.4)';
+            searchBarWrapper.style.boxShadow = '0 0 0 3px rgba(80, 110, 220, 0.12), inset 0 1px 2px rgba(0,0,0,0.01)';
         });
         searchInput.addEventListener('blur', () => {
-            searchInput.style.background = 'rgba(255, 255, 255, 0.25)';
-            searchInput.style.borderColor = 'rgba(255, 255, 255, 0.65)';
-            searchInput.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02)';
+            if (!searchBarWrapper) return;
+            searchBarWrapper.style.background = 'rgba(255, 255, 255, 0.25)';
+            searchBarWrapper.style.borderColor = 'rgba(255, 255, 255, 0.65)';
+            searchBarWrapper.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02)';
         });
     }
 
     switcherKeydownHandler = (e) => {
         if (!switcherVisible) return;
+        const focusedEl = document.activeElement;
+        const inputFocused = !!focusedEl && focusedEl.id === 'ys-search-input';
+        if (isWebSearchMode && inputFocused) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return;
+        }
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             switcherKeyboardNavActive = true;

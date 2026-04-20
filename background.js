@@ -1319,6 +1319,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
+    // ── 使用浏览器默认搜索引擎在新标签页执行搜索 ──
+    else if (request.action === 'search_web') {
+        const keyword = String(request.keyword || '').trim();
+        if (!keyword) {
+            sendResponse({ success: false, error: '请输入搜索关键词' });
+            return false;
+        }
+        chrome.search.query({ text: keyword, disposition: 'NEW_TAB' }, () => {
+            const err = chrome.runtime.lastError;
+            if (err) {
+                sendResponse({ success: false, error: err.message || '搜索失败' });
+                return;
+            }
+            sendResponse({ success: true });
+        });
+        return true;
+    }
+
     // ── AI 自然语言搜索：将用户输入转为匹配关键词 ──
     else if (request.action === 'ai_search_tabs') {
         (async () => {

@@ -10,7 +10,8 @@
       "sessions",
       "tabGroups",
       "windows",
-      "favicon"
+      "favicon",
+      "search"
     ],
     "host_permissions": [
       "https://api.deepseek.com/*",
