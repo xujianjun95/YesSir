@@ -768,6 +768,103 @@ function trySilentAiPrewarm() {
     ysRuntimeSendMessageRetry({ action: 'prewarm_ai_current_window' }, { maxRetries: 2 }, () => {});
 }
 
+/** ✨ 呼出面板累计 10 次后弹出一次好评/反馈引导（关闭后永久不再打扰） */
+function checkAndShowFeedbackFlyout() {
+    if (window.top !== window.self) return;
+    const FLYOUT_ID = 'ys-feedback-flyout';
+    if (document.getElementById(FLYOUT_ID)) return;
+
+    const STORAGE_KEY_COUNT = 'ysCallCountForFeedback';
+    const STORAGE_KEY_DISMISSED = 'ysFeedbackDismissed';
+    const TRIGGER_COUNT = 10;
+
+    chrome.storage.local.get([STORAGE_KEY_COUNT, STORAGE_KEY_DISMISSED], (res) => {
+        if (res && res[STORAGE_KEY_DISMISSED]) return;
+        const nextCount = (Number(res && res[STORAGE_KEY_COUNT]) || 0) + 1;
+        chrome.storage.local.set({ [STORAGE_KEY_COUNT]: nextCount }, () => {
+            if (nextCount === TRIGGER_COUNT) {
+                renderFeedbackFlyout(FLYOUT_ID, STORAGE_KEY_DISMISSED);
+            }
+        });
+    });
+}
+
+function renderFeedbackFlyout(id, dismissedKey) {
+    if (window.top !== window.self) return;
+    const flyout = document.createElement('div');
+    flyout.id = id;
+    Object.assign(flyout.style, {
+        position: 'fixed',
+        right: '24px',
+        bottom: '24px',
+        zIndex: '2147483647',
+        width: '292px',
+        padding: '14px 14px 12px',
+        borderRadius: '14px',
+        background: 'rgba(252, 252, 254, 0.82)',
+        backdropFilter: 'saturate(180%) blur(24px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(24px)',
+        border: '1px solid rgba(110, 150, 235, 0.35)',
+        boxShadow: '0 12px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.52)',
+        color: 'rgba(45, 55, 78, 0.92)',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        opacity: '0',
+        transform: 'translateY(14px)',
+        transition: 'opacity 0.28s ease, transform 0.36s cubic-bezier(0.22, 1, 0.36, 1)',
+        boxSizing: 'border-box',
+    });
+
+    flyout.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
+        <div style="font-size:14px;font-weight:700;letter-spacing:0.01em;color:rgba(35,45,70,0.95);">🫡 报告长官！</div>
+        <button id="ys-feedback-close" type="button" style="
+          border:none;background:transparent;cursor:pointer;
+          width:20px;height:20px;border-radius:6px;line-height:1;
+          color:rgba(95,105,125,0.55);font-size:16px;padding:0;flex-shrink:0;
+        ">×</button>
+      </div>
+      <div style="margin-top:8px;font-size:12px;line-height:1.62;color:rgba(58,68,90,0.86);">
+        看到您高频使用「🫡 Yes Sir」，希望它有帮到您。若觉得顺手，欢迎在商店赐予好评 ✨
+        <div style="margin-top:8px;">若有建议也欢迎直接反馈：</div>
+        <a href="mailto:xujianjun1995@gmail.com" style="margin-top:3px;display:inline-block;color:rgba(80,110,220,0.95);text-decoration:none;font-weight:600;">xujianjun1995@gmail.com</a>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button id="ys-feedback-review" type="button" style="
+          flex:1;border:none;border-radius:9px;padding:7px 8px;cursor:pointer;
+          background:rgba(80,110,220,0.9);color:#fff;font-size:12px;font-weight:600;
+          box-shadow:0 3px 10px rgba(80,110,220,0.22);
+        ">去商店好评</button>
+      </div>
+    `;
+
+    document.body.appendChild(flyout);
+    requestAnimationFrame(() => {
+        flyout.style.opacity = '1';
+        flyout.style.transform = 'translateY(0)';
+    });
+
+    const closeFlyout = () => {
+        chrome.storage.local.set({ [dismissedKey]: true });
+        flyout.style.opacity = '0';
+        flyout.style.transform = 'translateY(14px)';
+        setTimeout(() => {
+            if (flyout.isConnected) flyout.remove();
+        }, 360);
+    };
+
+    const closeBtn = flyout.querySelector('#ys-feedback-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeFlyout);
+
+    const reviewBtn = flyout.querySelector('#ys-feedback-review');
+    if (reviewBtn) {
+        reviewBtn.addEventListener('click', () => {
+            const storeUrl = `https://chromewebstore.google.com/detail/${chrome.runtime.id}`;
+            window.open(storeUrl, '_blank');
+            closeFlyout();
+        });
+    }
+}
+
 document.addEventListener('keydown', function(event) {
     if (event.repeat) return;
     const SWITCH_TOAST_MS = 2800;
@@ -821,6 +918,7 @@ document.addEventListener('keydown', function(event) {
                     if (!res || !res.tabs || res.tabs.length === 0) return;
                     showSwitcher(res.tabs, false, res.currentWindowId);
                     if (typeof initSwitcherHighlight === 'function') initSwitcherHighlight();
+                    checkAndShowFeedbackFlyout();
                 });
             } else {
                 if (typeof hideSwitcher === 'function') hideSwitcher();

@@ -278,7 +278,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     header.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; min-height:28px;">
-        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;">「🫡 Yes Sir」标签页管理</span>
+        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;user-select:none;-webkit-user-select:none;">「🫡 Yes Sir」标签页管理</span>
         
         <div id="ys-top-actions" style="display:flex; gap:8px; position:relative; align-items:center;"></div>
       </div>
@@ -555,7 +555,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             // 2. API Key 设置
             menu.appendChild(createItem('🔑', 'API Key 设置', showApiKeyModal));
 
-            // 3. 统计浮窗开关 (放到最下面)
+            // 3. 统计浮窗开关
             const isEnabled = res.showFloatingWidget !== false;
             const floatToggle = createItem(
                 isEnabled ? '🟢' : '⚪',
@@ -572,6 +572,17 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 true
             );
             menu.appendChild(floatToggle);
+
+            // 4. 主动呼出好评/反馈弹窗（放到统计浮窗下面）
+            menu.appendChild(createItem('👏', '我要好评', () => {
+                const flyoutId = 'ys-feedback-flyout';
+                if (typeof renderFeedbackFlyout === 'function') {
+                    if (document.getElementById(flyoutId)) return;
+                    renderFeedbackFlyout(flyoutId, 'ysFeedbackDismissed');
+                } else {
+                    showCustomToast('好评弹窗暂未就绪，请刷新页面后重试', 2200);
+                }
+            }));
         });
 
         document.getElementById('ys-top-actions').appendChild(menu);
