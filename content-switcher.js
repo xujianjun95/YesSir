@@ -89,11 +89,16 @@ function matchesAiKeywordInString(haystack, kw) {
 const TAB_ROW_ICON_VISIBLE_OPACITY = '0.7';
 const SWITCHER_DEFAULT_PLACEHOLDER = '搜索标题、URL 或域名...';
 const SWITCHER_WEB_SEARCH_PLACEHOLDER = '您可直接输入搜索内容，「🫡 Yes Sir」会在新标签页内展示搜索结果';
+const WEB_SUGGESTION_SELECTED_BG = 'rgba(80, 110, 220, 0.1)';
 
 /** 键盘/鼠标共用的「选中行」背景（与当前页蓝底区分） */
 const TAB_ROW_SELECTED_BG = 'rgba(130, 140, 160, 0.14)';
 /** 当前窗口内正在浏览的标签行（未处于键盘选中态时） */
 const TAB_ROW_ACTIVE_BG = 'rgba(80, 110, 220, 0.12)';
+/** 其他窗口内正在浏览的标签行（非选中态） */
+const TAB_ROW_OTHER_ACTIVE_BG = 'rgba(0, 0, 0, 0.05)';
+/** 其他窗口当前页标题色（弱化，不与主窗口争抢视觉） */
+const TAB_ROW_OTHER_ACTIVE_TITLE_COLOR = 'rgba(50, 60, 80, 0.9)';
 
 /** 行内 favicon：键盘选中、鼠标悬停（未进入纯键盘模式时），或当前窗口当前页时显示 */
 function refreshTabRowIconVis(itemEl) {
@@ -103,7 +108,8 @@ function refreshTabRowIconVis(itemEl) {
     const hoverShows = !switcherKeyboardNavActive && itemEl.matches(':hover');
     const show = itemEl.dataset.selected === 'true'
         || hoverShows
-        || itemEl.dataset.activeInSourceWindow === 'true';
+        || itemEl.dataset.activeInSourceWindow === 'true'
+        || itemEl.dataset.isActiveInItsWindow === 'true';
     slot.style.opacity = show ? TAB_ROW_ICON_VISIBLE_OPACITY : '0';
 }
 
@@ -296,17 +302,17 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
           transition:transform 0.12s ease-in, opacity 0.12s ease-in;
         ">
         <div id="ys-web-search-hint" style="
-          position:absolute; left:182px; top:50%; transform:translateY(-50%);
-          z-index:0; color:rgba(80,110,220,0.72); font-size:13px;
+          position:absolute; right:14px; top:50%; transform:translateY(-50%);
+          z-index:2; color:rgba(80,92,120,0.72); font-size:12px;
           pointer-events:none; white-space:nowrap;
           transition:opacity 0.2s ease; opacity:1;
-        ">(按 Tab 切换网页搜索)</div>
+        "><span>(按 Tab 切换</span><span id="ys-web-mode-word" style="display:inline-flex;"><span id="ys-web-mode-highlight" style="color:rgba(80,110,220,0.9);font-weight:700;text-shadow:0 0 6px rgba(80,110,220,0.16);">网页搜索</span><span style="color:rgba(80,92,120,0.72);font-weight:400;">模式</span></span><span>)</span></div>
         <button id="ys-web-search-enter-btn" type="button" title="点击或按回车执行网页搜索" style="
-          position:absolute; right:6px; top:50%; transform:translateY(-50%);
+          position:absolute; right:6px; top:50%;
           transform:translateY(-50%) scale(0.5) translateX(10px);
           opacity:0; pointer-events:none;
           display:flex; align-items:center; justify-content:center; gap:4px;
-          border:none; border-radius:7px; padding:4px 8px;
+          border:none; border-radius:5px; padding:4px 8px;
           background:rgba(80,110,220,0.08); color:rgba(80,110,220,0.78);
           font-size:11px; font-weight:600; line-height:1;
           cursor:pointer; white-space:nowrap;
@@ -432,6 +438,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     topActions.appendChild(aiGroupBtn);
     topActions.appendChild(regretBtn);
     topActions.appendChild(settingsBtn);
+
+    // AI 聚合按钮做一层更深的 hover 态，增强“可操作”感
+    const AI_GROUP_HOVER_DEEP_BG = 'rgba(0, 180, 200, 0.24)';
+    const AI_GROUP_HOVER_DEEP_BORDER = 'rgba(0, 180, 200, 0.35)';
+    aiGroupBtn.addEventListener('mouseenter', () => {
+        aiGroupBtn.style.background = AI_GROUP_HOVER_DEEP_BG;
+        aiGroupBtn.style.borderColor = AI_GROUP_HOVER_DEEP_BORDER;
+    });
+    aiGroupBtn.addEventListener('mouseleave', () => {
+        aiGroupBtn.style.background = 'rgba(0, 180, 200, 0.18)';
+        aiGroupBtn.style.borderColor = 'rgba(0, 180, 200, 0.25)';
+    });
 
     aiGroupBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -684,6 +702,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     let cardHeightAnimToken = 0;
     let aiSearchToken = 0;          // 用于取消过时的 AI 搜索回调
     let aiSearchDebounceTimer = null; // 防止用户连续输入时发出多余请求
+    let webSuggestionToken = 0; // 用于取消过时的网页搜索建议回调
+    let webSuggestionDebounceTimer = null;
+    let currentWebSuggestions = [];
+    let webSuggestionSelIdx = -1;
+    let webSuggestionKeyboardNavActive = false;
     let aiEmptyStateEmojiCleanup = null;
     const escapeHtml = (value) => String(value)
         .replace(/&/g, '&amp;')
@@ -760,6 +783,13 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             aiSearchDebounceTimer = null;
         }
     };
+    const invalidateWebSuggestions = () => {
+        webSuggestionToken += 1;
+        if (webSuggestionDebounceTimer) {
+            clearTimeout(webSuggestionDebounceTimer);
+            webSuggestionDebounceTimer = null;
+        }
+    };
     const getDefaultSelectedIdx = (items) => {
         const activeInCurrent = items.findIndex(t => t.active && switcherCurrentWindowId !== null && t.windowId === switcherCurrentWindowId);
         if (activeInCurrent >= 0) return activeInCurrent;
@@ -768,6 +798,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     };
 
     function renderList(filterText = '', opts = {}) {
+        // 防止切到网页搜索模式后，旧的本地搜索异步回调继续改写列表
+        if (isWebSearchMode) return;
         const shouldRestoreScroll = !!opts.restoreScroll;
         const shouldPreferActive = !!opts.preferActive;
         const shouldAnimate = !!opts.animate;
@@ -858,8 +890,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
                 clearTimeout(aiSearchDebounceTimer);
                 aiSearchDebounceTimer = setTimeout(() => {
+                    if (isWebSearchMode || !switcherVisible) return;
                     if (myToken !== aiSearchToken) return;
                     ysSendToBg({ action: 'ai_search_tabs', query: filterText }, {}, (res, err) => {
+                        if (isWebSearchMode || !switcherVisible) return;
                         if (myToken !== aiSearchToken) return; // 用户已继续输入，丢弃
                         if (err || !res || !res.keywords || res.keywords.length === 0) {
                             const extra = (res && res.message)
@@ -1105,6 +1139,200 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }
     }
 
+    const renderWebSuggestions = (suggestions, queryText = '', opts = {}) => {
+        const shouldAnimate = !!opts.animate;
+        const loading = !!opts.loading;
+        const prevH = shouldAnimate ? card.offsetHeight : 0;
+        const keyword = String(queryText || '').trim();
+
+        const rebuildSuggestionsDOM = () => {
+            stopAiEmptyStateEmojiLoop();
+            listContainer.innerHTML = '';
+            switcherTabs = [];
+            switcherSelIdx = -1;
+
+            if (!keyword) {
+                const empty = document.createElement('div');
+                Object.assign(empty.style, {
+                    padding: '24px 20px',
+                    textAlign: 'center',
+                    color: 'rgba(100,110,130,0.6)',
+                    fontSize: '12px',
+                });
+                empty.textContent = '🕵️ 正在搜索边界巡逻中...';
+                listContainer.appendChild(empty);
+                return;
+            }
+
+            if (!Array.isArray(suggestions) || suggestions.length === 0) {
+                const empty = document.createElement('div');
+                Object.assign(empty.style, {
+                    padding: '24px 20px',
+                    textAlign: 'center',
+                    color: 'rgba(100,110,130,0.6)',
+                    fontSize: '12px',
+                });
+                empty.textContent = loading
+                    ? '🕵️ 正在搜索边界巡逻中...'
+                    : `🙁 未找到「${keyword}」相关建议，可直接按 Enter 搜索`;
+                listContainer.appendChild(empty);
+                return;
+            }
+
+            const fragment = document.createDocumentFragment();
+            suggestions.forEach((text, idx) => {
+                const row = document.createElement('div');
+                row.id = `ys-web-suggestion-${idx}`;
+                Object.assign(row.style, {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    minHeight: '36px',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    margin: '0 6px 2px',
+                    cursor: 'pointer',
+                    boxSizing: 'border-box',
+                    background: idx === webSuggestionSelIdx ? WEB_SUGGESTION_SELECTED_BG : 'transparent',
+                    transition: 'background 0.12s ease',
+                });
+
+                const iconWrap = document.createElement('div');
+                Object.assign(iconWrap.style, {
+                    width: '20px',
+                    height: '20px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    background: 'rgba(80,110,220,0.08)',
+                    flexShrink: '0',
+                    fontSize: '11px',
+                });
+                iconWrap.textContent = '🔎';
+
+                const textEl = document.createElement('div');
+                textEl.textContent = text;
+                Object.assign(textEl.style, {
+                    flex: '1',
+                    minWidth: '0',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    fontSize: '13px',
+                    color: 'rgba(40,50,70,0.9)',
+                });
+
+                const actionHint = document.createElement('div');
+                actionHint.textContent = 'Enter 搜索';
+                Object.assign(actionHint.style, {
+                    fontSize: '11px',
+                    color: 'rgba(120,130,150,0.55)',
+                    whiteSpace: 'nowrap',
+                    flexShrink: '0',
+                });
+
+                row.addEventListener('mouseenter', () => {
+                    if (webSuggestionKeyboardNavActive) return;
+                    webSuggestionSelIdx = idx;
+                    renderWebSuggestions(currentWebSuggestions, keyword, { animate: false });
+                });
+                row.addEventListener('click', () => {
+                    if (!text) return;
+                    if (searchInput) searchInput.value = text;
+                    submitWebSearch();
+                });
+
+                row.appendChild(iconWrap);
+                row.appendChild(textEl);
+                row.appendChild(actionHint);
+                fragment.appendChild(row);
+            });
+            listContainer.appendChild(fragment);
+        };
+
+        rebuildSuggestionsDOM();
+        if (!shouldAnimate) return;
+        const nextH = card.offsetHeight;
+        if (Math.abs(prevH - nextH) <= 1.5) return;
+        cardHeightAnimToken += 1;
+        const token = cardHeightAnimToken;
+        if (card._ysCardHeightOnEnd) {
+            card.removeEventListener('transitionend', card._ysCardHeightOnEnd);
+            card._ysCardHeightOnEnd = null;
+        }
+        card.style.transition = 'none';
+        card.style.height = `${prevH}px`;
+        void card.offsetHeight;
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                if (token !== cardHeightAnimToken) return;
+                card.style.transition = `${CARD_OPEN_TRANSITION}, height 0.32s ${CARD_HEIGHT_EASE}`;
+                card.style.height = `${nextH}px`;
+            });
+        });
+        const onEnd = (e) => {
+            if (e.propertyName !== 'height') return;
+            if (token !== cardHeightAnimToken) return;
+            card.removeEventListener('transitionend', onEnd);
+            card._ysCardHeightOnEnd = null;
+            card.style.height = '';
+            card.style.transition = CARD_OPEN_TRANSITION;
+        };
+        card._ysCardHeightOnEnd = onEnd;
+        card.addEventListener('transitionend', onEnd);
+    };
+
+    const requestWebSuggestions = (queryText, immediate = false) => {
+        if (!isWebSearchMode) return;
+        const query = String(queryText || '').trim();
+        invalidateWebSuggestions();
+        if (!query) {
+            currentWebSuggestions = [];
+            webSuggestionSelIdx = -1;
+            renderWebSuggestions([], '', { animate: true });
+            return;
+        }
+        renderWebSuggestions([], query, { animate: true, loading: true });
+        const myToken = ++webSuggestionToken;
+        const run = () => {
+            ysSendToBg({ action: 'get_search_suggestions', query }, {}, (res, err) => {
+                if (myToken !== webSuggestionToken || !isWebSearchMode || !switcherVisible) return;
+                if (err || !res || !Array.isArray(res.suggestions)) {
+                    currentWebSuggestions = [];
+                    webSuggestionSelIdx = -1;
+                    renderWebSuggestions([], query, { animate: true });
+                    return;
+                }
+                currentWebSuggestions = res.suggestions
+                    .map((item) => String(item || '').trim())
+                    .filter(Boolean)
+                    .slice(0, 8);
+                webSuggestionSelIdx = currentWebSuggestions.length > 0 ? 0 : -1;
+                renderWebSuggestions(currentWebSuggestions, query, { animate: true });
+            });
+        };
+        if (immediate) {
+            run();
+        } else {
+            webSuggestionDebounceTimer = setTimeout(run, 180);
+        }
+    };
+    const moveWebSuggestionSelection = (delta) => {
+        const total = currentWebSuggestions.length;
+        if (total <= 0) return;
+        webSuggestionKeyboardNavActive = true;
+        if (delta > 0) {
+            webSuggestionSelIdx = (webSuggestionSelIdx + 1 + total) % total;
+        } else {
+            const base = webSuggestionSelIdx < 0 ? 0 : webSuggestionSelIdx;
+            webSuggestionSelIdx = (base - 1 + total) % total;
+        }
+        renderWebSuggestions(currentWebSuggestions, searchInput ? searchInput.value : '');
+        const selectedEl = document.getElementById(`ys-web-suggestion-${webSuggestionSelIdx}`);
+        if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' });
+    };
+
     card.appendChild(header);
     card.appendChild(listContainer);
 
@@ -1208,16 +1436,29 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const webSearchEnterBtn = document.getElementById('ys-web-search-enter-btn');
     const searchBarWrapper = document.getElementById('ys-search-bar-wrapper');
     const webSearchHint = document.getElementById('ys-web-search-hint');
+    const webModeWord = document.getElementById('ys-web-mode-word');
+    const webModeHighlight = document.getElementById('ys-web-mode-highlight');
+    let webModeWordPulseAnim = null;
+    const ensureWebModeWordPulse = () => {
+        if (!webModeHighlight || webModeWordPulseAnim) return;
+        webModeWordPulseAnim = webModeHighlight.animate(
+            [
+                { opacity: 0.78 },
+                { opacity: 0.95 },
+            ],
+            {
+                duration: 2400,
+                iterations: Infinity,
+                direction: 'alternate',
+                easing: 'ease-in-out',
+            }
+        );
+    };
+    ensureWebModeWordPulse();
     const applyListModeUi = () => {
         const listContainerEl = document.getElementById('ys-switcher-list');
         if (!listContainerEl) return;
         listContainerEl.style.transition = 'opacity 0.3s ease, filter 0.3s ease';
-        if (isWebSearchMode) {
-            listContainerEl.style.opacity = '0.3';
-            listContainerEl.style.filter = 'blur(2px)';
-            listContainerEl.style.pointerEvents = 'none';
-            return;
-        }
         listContainerEl.style.opacity = '1';
         listContainerEl.style.filter = 'none';
         listContainerEl.style.pointerEvents = 'auto';
@@ -1237,6 +1478,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const applySearchModeUi = () => {
         if (!searchInput) return;
         if (isWebSearchMode) {
+            invalidateAiSearch();
+            // 先清场，避免上一模式结果残留；再按当前输入拉建议
+            renderWebSuggestions([], '', { animate: true });
             searchInput.placeholder = SWITCHER_WEB_SEARCH_PLACEHOLDER;
             searchInput.style.paddingRight = '88px';
             if (webSearchEnterBtn) {
@@ -1248,7 +1492,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 webSearchHint.style.display = 'none';
                 webSearchHint.style.opacity = '0';
             }
+            requestWebSuggestions(searchInput.value, true);
         } else {
+            invalidateWebSuggestions();
+            currentWebSuggestions = [];
+            webSuggestionSelIdx = -1;
             searchInput.placeholder = SWITCHER_DEFAULT_PLACEHOLDER;
             searchInput.style.paddingRight = '12px';
             if (webSearchEnterBtn) {
@@ -1288,7 +1536,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (webSearchHint && !isWebSearchMode) {
                 webSearchHint.style.opacity = String(e.target.value || '').trim() ? '0' : '1';
             }
-            if (isWebSearchMode) return;
+            if (isWebSearchMode) {
+                requestWebSuggestions(e.target.value, false);
+                return;
+            }
             invalidateAiSearch();
             switcherSelIdx = 0;
             renderList(e.target.value, { restoreScroll: false, preferActive: false, animate: true });
@@ -1345,11 +1596,17 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             }
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault();
-                if (isWebSearchMode) return;
+                if (isWebSearchMode) {
+                    moveWebSuggestionSelection(e.key === 'ArrowDown' ? 1 : -1);
+                    return;
+                }
             }
             if (e.key === 'Enter') {
                 e.preventDefault();
                 if (isWebSearchMode) {
+                    if (webSuggestionSelIdx >= 0 && currentWebSuggestions[webSuggestionSelIdx]) {
+                        searchInput.value = currentWebSuggestions[webSuggestionSelIdx];
+                    }
                     submitWebSearch();
                     return;
                 }
@@ -1375,6 +1632,22 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         if (!switcherVisible) return;
         const focusedEl = document.activeElement;
         const inputFocused = !!focusedEl && focusedEl.id === 'ys-search-input';
+        if (isWebSearchMode && !inputFocused) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                moveWebSuggestionSelection(e.key === 'ArrowDown' ? 1 : -1);
+                return;
+            }
+            if (e.key === 'Enter') {
+                if (e.isComposing) return;
+                e.preventDefault();
+                if (webSuggestionSelIdx >= 0 && currentWebSuggestions[webSuggestionSelIdx] && searchInput) {
+                    searchInput.value = currentWebSuggestions[webSuggestionSelIdx];
+                }
+                submitWebSearch();
+                return;
+            }
+        }
         if (isWebSearchMode && inputFocused) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return;
         }
@@ -1403,6 +1676,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     switcherMouseMoveHandler = (e) => {
         if (lastMX === e.clientX && lastMY === e.clientY) return;
         lastMX = e.clientX; lastMY = e.clientY;
+        if (isWebSearchMode && webSuggestionKeyboardNavActive) {
+            webSuggestionKeyboardNavActive = false;
+        }
         if (!switcherKeyboardNavActive) return;
         switcherKeyboardNavActive = false;
 
@@ -1530,6 +1806,7 @@ function buildTabItem(tab, globalIdx, container) {
         pointerEvents:  'auto',
         position:       'relative',
         boxSizing:      'border-box',
+        overflow:       'visible',
     });
     item.dataset.selected = 'false';
     item.dataset.activeInSourceWindow = 'false';
@@ -1537,6 +1814,7 @@ function buildTabItem(tab, globalIdx, container) {
     item.dataset.tabId = String(tab.id);
     item.dataset.globalIdx = String(globalIdx);
     item.dataset.windowId = typeof tab.windowId === 'number' ? String(tab.windowId) : '';
+    item.dataset.isActiveInItsWindow = String(!!tab.active);
 
     const leftArea = document.createElement('div');
     Object.assign(leftArea.style, {
@@ -1617,7 +1895,16 @@ function buildTabItem(tab, globalIdx, container) {
 
     const closeBtn = document.createElement('div');
     closeBtn.className = 'ys-close-btn';
-    closeBtn.textContent = '×';
+    const closeGlyph = document.createElement('span');
+    closeGlyph.textContent = '✕';
+    Object.assign(closeGlyph.style, {
+        display: 'block',
+        fontSize: '11px',
+        lineHeight: '1',
+        fontWeight: '600',
+        transform: 'translateY(-0.5px)',
+    });
+    closeBtn.appendChild(closeGlyph);
     Object.assign(closeBtn.style, {
         width:           '18px',
         height:          '18px',
@@ -1625,8 +1912,6 @@ function buildTabItem(tab, globalIdx, container) {
         display:         'flex',
         alignItems:      'center',
         justifyContent:  'center',
-        fontSize:        '14px',
-        lineHeight:      '1',
         color:           'rgba(0, 0, 0, 0.35)',
         background:      'rgba(0, 0, 0, 0.06)',
         transition:      'opacity 0.12s ease',
@@ -1635,87 +1920,59 @@ function buildTabItem(tab, globalIdx, container) {
         cursor:          'pointer',
     });
 
-    // 页面功能标签（AI；单标签分组也会请求）。严格只渲染「恰好 4 字」的结果，
-    // 避免旧缓存里残留的 2/3 字标签在换了新 prompt 之后继续显示。
+    // 页面主题词标签（AI；单标签分组也会请求）。渲染 2~5 字结果，
+    // 兼容新版主题词提取，同时过滤掉超长噪声文案。
     const rawPageLabel = tabPageLabelMap[tab.id] ?? tabPageLabelMap[String(tab.id)];
-    const pageLabel = typeof rawPageLabel === 'string'
-        && Array.from(rawPageLabel.trim()).length === 4
-        ? rawPageLabel.trim()
-        : '';
+    const pageLabelText = typeof rawPageLabel === 'string' ? rawPageLabel.trim() : '';
+    const pageLabelLen = Array.from(pageLabelText).length;
+    const pageLabel = pageLabelLen >= 2 && pageLabelLen <= 5 ? pageLabelText : '';
 
-    const showTail = tab.active || !!pageLabel;
+    if (tab.active) {
+        const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
+        title.style.fontWeight = '600';
+        title.style.color = isSourceWindowActive
+            ? 'rgba(50, 70, 160, 0.95)'
+            : TAB_ROW_OTHER_ACTIVE_TITLE_COLOR;
+        title.dataset.isActive = 'true';
+        item.dataset.activeInSourceWindow = isSourceWindowActive ? 'true' : 'false';
+    }
+
+    const showTail = !!pageLabel;
     let tailCluster = null;
     if (showTail) {
         tailCluster = document.createElement('div');
         Object.assign(tailCluster.style, {
             display: 'flex',
             alignItems: 'center',
-            gap: '4px',
             flexShrink: '0',
-        });
-
-        // 固定两列：📍 始终在左列，类别在右列；无标签时右列仍占位，避免仅有 📍 时整段贴右导致列不对齐
-        const pinSlot = document.createElement('div');
-        Object.assign(pinSlot.style, {
-            width: '24px',
-            minWidth: '24px',
-            flexShrink: '0',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
         });
 
         const labelSlot = document.createElement('div');
         Object.assign(labelSlot.style, {
-            width: '60px',
-            minWidth: '60px',
+            width: '85px',
+            minWidth: '85px',
             flexShrink: '0',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'flex-end',
         });
 
-        if (tab.active) {
-            title.style.fontWeight = '600';
-            title.dataset.isActive = 'true';
-            const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
-            item.dataset.activeInSourceWindow = isSourceWindowActive ? 'true' : 'false';
-
-            const activeBadge = document.createElement('div');
-            Object.assign(activeBadge.style, {
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '20px',
-                height: '20px',
-                padding: '0',
-                borderRadius: '6px',
-                background: 'rgba(80, 110, 220, 0.12)',
-                border: '1px solid rgba(80, 110, 220, 0.25)',
-                color: 'rgba(50, 70, 160, 0.95)',
-                flexShrink: '0',
-                boxSizing: 'border-box',
-            });
-            activeBadge.innerHTML = `<span style="font-size:10px;opacity:0.85;">📍</span>`;
-            pinSlot.appendChild(activeBadge);
-        }
-
         if (pageLabel) {
             const labelEl = document.createElement('span');
             labelEl.className = 'ys-page-label';
             labelEl.textContent = pageLabel;
             Object.assign(labelEl.style, {
-                fontSize:       '10px',
-                fontWeight:     '500',
-                // 柔和靛青底 + 深蓝灰字：与面板主色呼应，比纯灰更易读、仍偏克制
-                color:          'rgba(42, 52, 88, 0.88)',
-                background:     '#EBEBEB',
-                border:         '1px solid rgba(78, 102, 195, 0.14)',
+                fontSize:       '11px',
+                fontWeight:     '600',
+                color:          'rgba(82, 88, 102, 0.62)',
+                background:     'rgba(130, 140, 160, 0.12)',
+                border:         '1px solid rgba(120, 130, 150, 0.22)',
                 borderRadius:   '4px',
-                padding:        '1px 5px',
+                padding:        '2px 6px',
                 flexShrink:     '0',
                 whiteSpace:     'nowrap',
-                lineHeight:     '1.6',
+                lineHeight:     '1.5',
+                letterSpacing:  '0.02em',
                 maxWidth:       '100%',
                 overflow:       'hidden',
                 textOverflow:   'ellipsis',
@@ -1723,10 +1980,29 @@ function buildTabItem(tab, globalIdx, container) {
             labelSlot.appendChild(labelEl);
         }
 
-        tailCluster.appendChild(pinSlot);
         tailCluster.appendChild(labelSlot);
     }
 
+    if (tab.active) {
+        const isSourceActive = item.dataset.activeInSourceWindow === 'true';
+        const activeDot = document.createElement('div');
+        activeDot.className = 'ys-active-dot';
+        Object.assign(activeDot.style, {
+            position: 'absolute',
+            left: '-10px',
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: '6px',
+            height: '6px',
+            borderRadius: '50%',
+            background: isSourceActive ? 'rgba(80, 110, 220, 1)' : 'rgba(50, 60, 80, 0.9)',
+            boxShadow: isSourceActive
+                ? '0 0 6px rgba(80, 110, 220, 0.4)'
+                : '0 0 4px rgba(50, 60, 80, 0.18)',
+            pointerEvents: 'none',
+        });
+        item.appendChild(activeDot);
+    }
     leftArea.appendChild(iconSlot);
     leftArea.appendChild(title);
     if (tailCluster) {
@@ -1745,6 +2021,8 @@ function buildTabItem(tab, globalIdx, container) {
     actionArea.appendChild(closeBtn);
     item.appendChild(leftArea);
     item.appendChild(actionArea);
+    // 首次渲染即应用未选中态背景，避免必须 hover 后才出现活跃行样式
+    item.style.background = getUnselectedItemBackground(item);
     container.appendChild(item);
 
     // hover / click / 关闭 均由 listContainer 上的事件委托统一处理，行内不再绑定监听
@@ -1757,7 +2035,15 @@ function isSourceWindowActiveTabItem(item) {
 
 function getUnselectedItemBackground(item) {
     if (isSourceWindowActiveTabItem(item)) return TAB_ROW_ACTIVE_BG;
+    if (item && item.dataset.isActiveInItsWindow === 'true') return TAB_ROW_OTHER_ACTIVE_BG;
     return 'transparent';
+}
+
+function getTabTitleColor(item, titleEl) {
+    if (!titleEl || titleEl.dataset.isActive !== 'true') return 'rgba(50, 60, 80, 0.9)';
+    return isSourceWindowActiveTabItem(item)
+        ? 'rgba(50, 70, 160, 0.95)'
+        : TAB_ROW_OTHER_ACTIVE_TITLE_COLOR;
 }
 
 function updateSwitcherSelection(newIdx) {
@@ -1767,9 +2053,7 @@ function updateSwitcherSelection(newIdx) {
         oldItem.style.background = getUnselectedItemBackground(oldItem);
         const title = oldItem.querySelector('.ys-tab-title');
         if (title) {
-            title.style.color = title.dataset.isActive === 'true'
-                ? 'rgba(50, 70, 160, 0.95)'
-                : 'rgba(50, 60, 80, 0.9)';
+            title.style.color = getTabTitleColor(oldItem, title);
         }
         const groupRow = oldItem.closest('.ys-group-row');
         if (groupRow) groupRow.querySelector('.ys-group-left').style.opacity = '1';
@@ -1786,14 +2070,13 @@ function updateSwitcherSelection(newIdx) {
     const newItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (newItem) {
         newItem.dataset.selected = 'true';
-        newItem.style.background = isSourceWindowActiveTabItem(newItem)
+        const isAnyActive = isSourceWindowActiveTabItem(newItem) || newItem.dataset.isActiveInItsWindow === 'true';
+        newItem.style.background = isAnyActive
             ? TAB_ROW_ACTIVE_BG
             : TAB_ROW_SELECTED_BG;
         const title = newItem.querySelector('.ys-tab-title');
         if (title) {
-            title.style.color = title.dataset.isActive === 'true'
-                ? 'rgba(50, 70, 160, 0.95)'
-                : 'rgba(50, 60, 80, 0.9)';
+            title.style.color = getTabTitleColor(newItem, title);
         }
 
         const groupRow = newItem.closest('.ys-group-row');

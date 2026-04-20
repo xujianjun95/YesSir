@@ -223,26 +223,18 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
 
 const CATEGORY_CACHE_VERSION = 'v3';
 const SITE_NAME_CACHE_VERSION = 'v2';
-const PAGE_LABEL_CACHE_VERSION = 'v4';
+const PAGE_LABEL_CACHE_VERSION = 'v5';
 
-/** 面板右侧功能标签统一为「恰好 4 字」。用 Array.from 而非 .length，兼容代理对。 */
-function isFourCharLabel(raw) {
+/** 面板右侧主题词统一为 2~5 字。用 Array.from 而非 .length，兼容代理对。 */
+function isValidThemeWordLabel(raw) {
     const s = String(raw || '').trim();
-    return s.length > 0 && Array.from(s).length === 4;
+    const len = Array.from(s).length;
+    return len >= 2 && len <= 5;
 }
-const ALLOWED_PAGE_LABELS = Object.freeze([
-    '网站首页', '频道主页', '搜索结果', '分类索引',
-    '信息瀑布', '内容列表', '内容详情', '商品详情', '媒体播放',
-    '对话交互', '在线编辑', '管理后台', '个人主页',
-    '登录注册', '表单填写', '交易结算', '系统设置',
-    '扩展管理', '本地页面', '报错提示',
-]);
-const ALLOWED_PAGE_LABEL_SET = new Set(ALLOWED_PAGE_LABELS);
 
 function normalizeAllowedPageLabel(raw) {
     const s = String(raw || '').trim();
-    if (!isFourCharLabel(s)) return '';
-    return ALLOWED_PAGE_LABEL_SET.has(s) ? s : '';
+    return isValidThemeWordLabel(s) ? s : '';
 }
 
 function inferFallbackPageLabel(title, url) {
@@ -460,14 +452,15 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
                 messages: [
                     {
                         role: 'system',
-                        content: `你是标签页内容分类助手。给你一组来自同一网站的标签页，请为每个页面选择一个最匹配的四字标签。
+                        content: `你是网页主题词提取专家。给你一组来自同一网站的标签页，请为每个页面提取一个最核心的主题词。
 
 【硬性要求】
-- 输出值只能从以下词库中选择，禁止输出词库外内容：
-  [网站首页, 频道主页, 搜索结果, 分类索引, 信息瀑布, 内容列表, 内容详情, 商品详情, 媒体播放, 对话交互, 在线编辑, 管理后台, 个人主页, 登录注册, 表单填写, 交易结算, 系统设置, 扩展管理, 本地页面, 报错提示]
-- 必须为每个输入 ID 都返回一个标签，不允许缺失。
+- 主题词必须精准描述网页内容（例如：投资调研、项目方案、UI设计、API文档、财报分析）。
+- 每个主题词长度必须在 2～5 个字之间，严禁超过 5 个字。
+- 必须为每个输入 ID 都返回结果，不允许缺失。
+- 禁止解释、禁止多余文本，只返回 JSON。
 
-返回纯 JSON，格式示例：{"123":"搜索结果","456":"内容详情"}。键必须是传入的真实 ID，不要使用字面量 "tabId"。不要任何解释。`,
+返回纯 JSON，格式示例：{"123":"投资调研","456":"接口文档"}。键必须是传入的真实 ID，不要使用字面量 "tabId"。`,
                     },
                     { role: 'user', content: tabDescriptions },
                 ],
@@ -489,7 +482,7 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
             const clean = String(v || '').trim();
             const idKey = String(k);
             if (!validIds.has(idKey)) return;
-            if (clean.length >= 2) labels[idKey] = clean;
+            if (isValidThemeWordLabel(clean)) labels[idKey] = clean;
         });
         return labels;
     } catch (error) {
@@ -973,6 +966,25 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId)
     return groupCount;
 }
 
+async function fetchSearchSuggestions(query) {
+    const keyword = String(query || '').trim();
+    if (!keyword) return [];
+    try {
+        const url = `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(keyword)}`;
+        const response = await fetch(url, { method: 'GET' });
+        if (!response.ok) return [];
+        const data = await response.json().catch(() => null);
+        if (!Array.isArray(data) || !Array.isArray(data[1])) return [];
+        return data[1]
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+            .slice(0, 8);
+    } catch (error) {
+        console.error('获取搜索建议失败:', error);
+        return [];
+    }
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // 供 content script 在睡眠唤醒后轻量唤醒 SW，降低首条业务消息失败率
@@ -1315,6 +1327,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         (async () => {
             await tabHistoryReady;
             sendResponse({ lastTab: globalTabHistory.last });
+        })();
+        return true;
+    }
+
+    else if (request.action === 'get_search_suggestions') {
+        (async () => {
+            const suggestions = await fetchSearchSuggestions(request.query);
+            sendResponse({ suggestions });
         })();
         return true;
     }

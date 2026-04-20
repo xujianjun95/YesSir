@@ -15,7 +15,8 @@
     ],
     "host_permissions": [
       "https://api.deepseek.com/*",
-      "https://api.pmtools.com.cn/*"
+      "https://api.pmtools.com.cn/*",
+      "https://suggestqueries.google.com/*"
     ],
     "web_accessible_resources": [
       {
