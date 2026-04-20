@@ -83,6 +83,57 @@ chrome.windows.onFocusChanged.addListener((windowId) => {
 
 void restoreGlobalTabHistory();
 void restoreAiSnapshotCache();
+void restoreFaviconCache();
+
+// ─── 图标缓存：兜底睡眠/恢复标签页缺失的 favIconUrl ─────────────────────────────
+const FAVICON_CACHE_KEY = 'ysFaviconCacheV1';
+const FAVICON_CACHE_MAX_ENTRIES = 1200;
+const FAVICON_CACHE_TRIM_TO = 900;
+let faviconCache = {};
+let faviconCacheWriteTimer = null;
+
+async function restoreFaviconCache() {
+    try {
+        const stored = await chrome.storage.local.get(FAVICON_CACHE_KEY);
+        const raw = stored[FAVICON_CACHE_KEY];
+        if (raw && typeof raw === 'object') faviconCache = raw;
+    } catch (error) {
+        console.warn('恢复 favicon 缓存失败:', error);
+    }
+}
+
+function queuePersistFaviconCache() {
+    if (faviconCacheWriteTimer) return;
+    faviconCacheWriteTimer = setTimeout(async () => {
+        faviconCacheWriteTimer = null;
+        try {
+            const entries = Object.entries(faviconCache);
+            if (entries.length > FAVICON_CACHE_MAX_ENTRIES) {
+                // 软裁剪：保留最后写入的一段，避免缓存无限增长
+                faviconCache = Object.fromEntries(entries.slice(-FAVICON_CACHE_TRIM_TO));
+            }
+            await chrome.storage.local.set({ [FAVICON_CACHE_KEY]: faviconCache });
+        } catch (error) {
+            console.warn('持久化 favicon 缓存失败:', error);
+        }
+    }, 200);
+}
+
+function isUsableFaviconUrl(iconUrl) {
+    const s = String(iconUrl || '').trim();
+    if (!s) return false;
+    if (/^chrome(-extension)?:\/\//i.test(s)) return false;
+    return /^https?:\/\//i.test(s);
+}
+
+function saveFaviconToCache(url, iconUrl) {
+    if (!isUsableFaviconUrl(iconUrl)) return;
+    const domain = getDomainFromUrl(url);
+    if (!domain) return;
+    if (faviconCache[domain] === iconUrl) return;
+    faviconCache[domain] = iconUrl;
+    queuePersistFaviconCache();
+}
 
 // ─── 设备 UUID（中转限流用，首次生成后持久化） ───
 const DEVICE_UUID_KEY = 'ysDeviceUUID';
@@ -1043,6 +1094,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     else if (request.action === "get_tabs") {
         const currentWindowId = sender.tab ? sender.tab.windowId : null;
         chrome.tabs.query({}, function(tabs) {
+            tabs.forEach((t) => saveFaviconToCache(t.url, t.favIconUrl));
             const sortedTabs = tabs.slice().sort((a, b) => {
                 if (a.windowId !== b.windowId) return a.windowId - b.windowId;
                 return a.index - b.index;
@@ -1060,16 +1112,20 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             sendResponse({
                 currentWindowId,
-                tabs: sortedTabs.map(t => ({
-                    id:         t.id,
-                    windowId:   t.windowId,
-                    windowName: windowMap[t.windowId] || '',
-                    index:      t.index,
-                    title:      t.title || '(无标题)',
-                    url:        t.url   || '',
-                    active:     t.active,
-                    favIconUrl: t.favIconUrl || '',
-                }))
+                tabs: sortedTabs.map(t => {
+                    const domain = getDomainFromUrl(t.url);
+                    const fallbackIcon = domain ? String(faviconCache[domain] || '') : '';
+                    return {
+                        id:         t.id,
+                        windowId:   t.windowId,
+                        windowName: windowMap[t.windowId] || '',
+                        index:      t.index,
+                        title:      t.title || '(无标题)',
+                        url:        t.url   || '',
+                        active:     t.active,
+                        favIconUrl: t.favIconUrl || fallbackIcon,
+                    };
+                })
             });
         });
         return true;

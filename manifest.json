@@ -9,11 +9,18 @@
       "storage",
       "sessions",
       "tabGroups",
-      "windows"
+      "windows",
+      "favicon"
     ],
     "host_permissions": [
       "https://api.deepseek.com/*",
       "https://api.pmtools.com.cn/*"
+    ],
+    "web_accessible_resources": [
+      {
+        "resources": ["_favicon/*"],
+        "matches": ["<all_urls>"]
+      }
     ],
     "icons": {
       "16":  "icon_16.png",

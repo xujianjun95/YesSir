@@ -138,6 +138,25 @@ function getTabRowIconFallback(tab) {
     return '🌐';
 }
 
+/** 使用扩展内置 _favicon API 绕过站点 CSP 对跨域 favicon 的拦截。 */
+function buildExtensionFaviconUrl(pageUrl, size = 64) {
+    const u = String(pageUrl || '');
+    if (!/^https?:\/\//i.test(u)) return '';
+    try {
+        return `chrome-extension://${chrome.runtime.id}/_favicon/?pageUrl=${encodeURIComponent(u)}&size=${size}`;
+    } catch (_) {
+        return '';
+    }
+}
+
+function resolveTabIconUrl(tab, size = 64) {
+    // Retina 屏优先请求大图，再由 CSS 压到展示尺寸，避免 14/16px 低分辨率源图发糊。
+    const requestedSize = Math.max(64, Number(size) || 0);
+    const extFavicon = buildExtensionFaviconUrl(tab && tab.url, requestedSize);
+    if (extFavicon) return extFavicon;
+    return String((tab && tab.favIconUrl) || '');
+}
+
 // 工具函数：按域名对 Tab 进行分组
 function groupTabsByDomain(tabs) {
     const groups = [];
@@ -150,7 +169,7 @@ function groupTabsByDomain(tabs) {
         if (!domainMap.has(domain)) {
             const newGroup = {
                 domain,
-                icon: brand?.iconUrl || tab.favIconUrl || '',
+                icon: brand?.iconUrl || resolveTabIconUrl(tab, 64) || '',
                 displayNameOverride: brand?.displayName || null,
                 tabs: [],
             };
@@ -159,7 +178,8 @@ function groupTabsByDomain(tabs) {
         }
 
         const group = domainMap.get(domain);
-        if (!brand && !group.icon && tab.favIconUrl) group.icon = tab.favIconUrl;
+        const fallbackIcon = resolveTabIconUrl(tab, 64);
+        if (!brand && !group.icon && fallbackIcon) group.icon = fallbackIcon;
 
         group.tabs.push({ ...tab, originalIndex: i });
     });
@@ -928,7 +948,15 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             });
             if (group.icon) {
                 const img = document.createElement('img');
-                img.src = group.icon; img.width = 14; img.height = 14; img.style.borderRadius = '2px';
+                img.src = group.icon; img.width = 14; img.height = 14;
+                Object.assign(img.style, {
+                    width: '14px',
+                    height: '14px',
+                    objectFit: 'contain',
+                    flexShrink: '0',
+                    borderRadius: '2px',
+                    display: 'block',
+                });
                 img.onerror = () => {
                     img.remove();
                     if (group.domain === '本地网页/其他') {
@@ -1088,12 +1116,20 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             });
             left.appendChild(lab);
 
-            if (lt.favIconUrl) {
+            const lastTabIcon = resolveTabIconUrl(lt, 64);
+            if (lastTabIcon) {
                 const img = document.createElement('img');
-                img.src = lt.favIconUrl;
+                img.src = lastTabIcon;
                 img.width = 14;
                 img.height = 14;
-                Object.assign(img.style, { borderRadius: '2px', flexShrink: '0' });
+                Object.assign(img.style, {
+                    width: '14px',
+                    height: '14px',
+                    objectFit: 'contain',
+                    flexShrink: '0',
+                    borderRadius: '2px',
+                    display: 'block',
+                });
                 img.onerror = () => { img.style.display = 'none'; };
                 left.appendChild(img);
             }
@@ -1367,13 +1403,20 @@ function buildTabItem(tab, globalIdx, container) {
         });
         iconSlot.appendChild(span);
     }
-    if (tab.favIconUrl) {
+    const resolvedIconUrl = resolveTabIconUrl(tab, 64);
+    if (resolvedIconUrl) {
         const iconImg = document.createElement('img');
-        iconImg.src = tab.favIconUrl;
+        iconImg.src = resolvedIconUrl;
         iconImg.width = 16;
         iconImg.height = 16;
-        iconImg.style.borderRadius = '3px';
-        iconImg.style.display = 'block';
+        Object.assign(iconImg.style, {
+            width: '16px',
+            height: '16px',
+            objectFit: 'contain',
+            flexShrink: '0',
+            borderRadius: '3px',
+            display: 'block',
+        });
         iconImg.onerror = () => {
             iconImg.remove();
             mountIconFallback();
