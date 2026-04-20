@@ -1495,7 +1495,7 @@ function buildTabItem(tab, globalIdx, container) {
                 fontWeight:     '500',
                 // 柔和靛青底 + 深蓝灰字：与面板主色呼应，比纯灰更易读、仍偏克制
                 color:          'rgba(42, 52, 88, 0.88)',
-                background:     'rgba(78, 102, 195, 0.11)',
+                background:     '#EBEBEB',
                 border:         '1px solid rgba(78, 102, 195, 0.14)',
                 borderRadius:   '4px',
                 padding:        '1px 5px',

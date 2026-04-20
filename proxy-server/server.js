@@ -78,16 +78,8 @@ function checkQuota(uuid, feature, units) {
 
     if (f === 'page_labels') {
         const u = Math.min(500, Math.max(1, parseInt(units, 10) || 1));
-        if (entry.pageLabelTabs + u > LIMIT_PAGE_LABEL_TABS) {
-            return {
-                allowed: false,
-                remaining: Math.max(0, LIMIT_PAGE_LABEL_TABS - entry.pageLabelTabs),
-                limit: LIMIT_PAGE_LABEL_TABS,
-                silent: true,
-            };
-        }
         entry.pageLabelTabs += u;
-        return { allowed: true, remaining: LIMIT_PAGE_LABEL_TABS - entry.pageLabelTabs };
+        return { allowed: true, remaining: -1 };
     }
 
     return { allowed: true, remaining: -1 };

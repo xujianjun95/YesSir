@@ -172,12 +172,51 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
 
 const CATEGORY_CACHE_VERSION = 'v3';
 const SITE_NAME_CACHE_VERSION = 'v2';
-const PAGE_LABEL_CACHE_VERSION = 'v2';
+const PAGE_LABEL_CACHE_VERSION = 'v4';
 
 /** 面板右侧功能标签统一为「恰好 4 字」。用 Array.from 而非 .length，兼容代理对。 */
 function isFourCharLabel(raw) {
     const s = String(raw || '').trim();
     return s.length > 0 && Array.from(s).length === 4;
+}
+const ALLOWED_PAGE_LABELS = Object.freeze([
+    '网站首页', '频道主页', '搜索结果', '分类索引',
+    '信息瀑布', '内容列表', '内容详情', '商品详情', '媒体播放',
+    '对话交互', '在线编辑', '管理后台', '个人主页',
+    '登录注册', '表单填写', '交易结算', '系统设置',
+    '扩展管理', '本地页面', '报错提示',
+]);
+const ALLOWED_PAGE_LABEL_SET = new Set(ALLOWED_PAGE_LABELS);
+
+function normalizeAllowedPageLabel(raw) {
+    const s = String(raw || '').trim();
+    if (!isFourCharLabel(s)) return '';
+    return ALLOWED_PAGE_LABEL_SET.has(s) ? s : '';
+}
+
+function inferFallbackPageLabel(title, url) {
+    const text = `${String(title || '')} ${String(url || '')}`.toLowerCase();
+    const safeUrl = String(url || '');
+    if (!/^https?:\/\//i.test(safeUrl)) return '本地页面';
+    if (/404|not[\s-]?found|error|出错|错误|异常|无法访问|net::/i.test(text)) return '报错提示';
+    if (/login|signin|sign-in|signup|sign-up|register|auth|登录|注册|验证码|找回密码/i.test(text)) return '登录注册';
+    if (/search|q=|query=|wd=|keyword=|关键词|搜索/i.test(text)) return '搜索结果';
+    if (/setting|preference|profile\/settings|设置|偏好|账号安全/i.test(text)) return '系统设置';
+    if (/admin|dashboard|console|后台|控制台|管理/i.test(text)) return '管理后台';
+    if (/profile|user\/|member\/|me\/|个人主页|主页/i.test(text)) return '个人主页';
+    if (/checkout|cart|order|pay|payment|结算|支付|订单|购物车/i.test(text)) return '交易结算';
+    if (/edit|editor|compose|写作|编辑|设计|画布|notion|doc/i.test(text)) return '在线编辑';
+    if (/video|watch|player|music|audio|播放|视频|直播|播客|电影/i.test(text)) return '媒体播放';
+    if (/product|item|sku|商品|购买|详情页/i.test(text)) return '商品详情';
+    if (/feed|timeline|stream|推荐|瀑布流|动态|首页推荐/i.test(text)) return '信息瀑布';
+    if (/list|category|tag|archive|目录|列表|合集|分类/i.test(text)) return '内容列表';
+    return '内容详情';
+}
+
+function toStablePageLabel(raw, tab) {
+    const strict = normalizeAllowedPageLabel(raw);
+    if (strict) return strict;
+    return inferFallbackPageLabel(tab && tab.title, tab && tab.url);
 }
 const AI_SNAPSHOT_STORAGE_KEY = 'aiSnapshotV1';
 const AI_SNAPSHOT_MAX_ENTRIES = 600;
@@ -349,7 +388,8 @@ function buildAiSnapshotFromCache(tabs) {
         if (cached.sig !== buildTabSignature(tab)) return;
         if (cached.category) classification[id] = cached.category;
         if (cached.siteName) siteNames[id] = cached.siteName;
-        if (cached.pageLabel) labels[id] = cached.pageLabel;
+        const safeLabel = normalizeAllowedPageLabel(cached.pageLabel);
+        if (safeLabel) labels[id] = safeLabel;
     });
     return { classification, siteNames, labels };
 }
@@ -369,16 +409,14 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
                 messages: [
                     {
                         role: 'system',
-                        content: `你是标签页功能提取助手。给你一组来自同一网站的标签页，为每个页面生成一个中文功能标签，描述这个页面是用来做什么的。
+                        content: `你是标签页内容分类助手。给你一组来自同一网站的标签页，请为每个页面选择一个最匹配的四字标签。
 
 【硬性要求】
-- 标签必须**恰好 4 个中文汉字**，不多一字、不少一字。
-- 禁止使用英文、数字、标点、空格、emoji、符号。
-- 优先选择常见的双 2+2 组合或四字词，例如：项目列表、代码审查、问题详情、个人主页、设置中心、新建标签、应用商店、会话详情、文件目录、通知消息、资源下载。
-- 当语义不足 4 字时，用通用后缀补齐（如"页面"、"中心"、"列表"、"详情"、"操作"）；当超过 4 字时，抽取最核心的 4 字主名词。
-- 同一网站的多个页面，标签应尽量有区分度，但仍各自 4 字。
+- 输出值只能从以下词库中选择，禁止输出词库外内容：
+  [网站首页, 频道主页, 搜索结果, 分类索引, 信息瀑布, 内容列表, 内容详情, 商品详情, 媒体播放, 对话交互, 在线编辑, 管理后台, 个人主页, 登录注册, 表单填写, 交易结算, 系统设置, 扩展管理, 本地页面, 报错提示]
+- 必须为每个输入 ID 都返回一个标签，不允许缺失。
 
-返回纯 JSON，格式：{"tabId": "四字标签"}，不要任何解释。`,
+返回纯 JSON，格式示例：{"123":"搜索结果","456":"内容详情"}。键必须是传入的真实 ID，不要使用字面量 "tabId"。不要任何解释。`,
                     },
                     { role: 'user', content: tabDescriptions },
                 ],
@@ -392,13 +430,15 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
         const data = await response.json();
         const raw = data.choices?.[0]?.message?.content?.trim() || '{}';
         let parsed = {};
-        try { parsed = JSON.parse(raw); } catch (_) {}
+        try { parsed = parseDeepSeekJsonContent(raw); } catch (_) {}
 
         const labels = {};
+        const validIds = new Set(tabList.map((t) => String(t.id)));
         Object.entries(parsed).forEach(([k, v]) => {
             const clean = String(v || '').trim();
-            // 严格只接受恰好 4 字的输出；不合规则直接丢弃，渲染端就不会显示这条 badge
-            if (isFourCharLabel(clean)) labels[String(k)] = clean;
+            const idKey = String(k);
+            if (!validIds.has(idKey)) return;
+            if (clean.length >= 2) labels[idKey] = clean;
         });
         return labels;
     } catch (error) {
@@ -435,7 +475,7 @@ async function computeAiSnapshotForTabs(tabs) {
         }
         if (siteName) siteNames[id] = siteName;
 
-        const cachedLabel = isSigMatch && isFourCharLabel(cached.pageLabel) ? cached.pageLabel : '';
+        const cachedLabel = isSigMatch ? normalizeAllowedPageLabel(cached.pageLabel) : '';
         updates[id] = {
             ...(cached || {}),
             sig,
@@ -459,8 +499,8 @@ async function computeAiSnapshotForTabs(tabs) {
             const id = String(tab.id);
             const cacheKey = pageLabelCacheKey(tab.title, tab.url);
             const cachedLabel = await chrome.storage.local.get(cacheKey);
-            const fromStorage = cachedLabel[cacheKey] ? String(cachedLabel[cacheKey]) : '';
-            if (isFourCharLabel(fromStorage)) {
+            const fromStorage = normalizeAllowedPageLabel(cachedLabel[cacheKey]);
+            if (fromStorage) {
                 labels[id] = fromStorage;
                 const current = updates[id] || {};
                 updates[id] = {
@@ -471,8 +511,8 @@ async function computeAiSnapshotForTabs(tabs) {
                 };
                 continue;
             }
-            const existing = updates[id] && updates[id].pageLabel ? String(updates[id].pageLabel) : '';
-            if (isFourCharLabel(existing)) {
+            const existing = updates[id] ? normalizeAllowedPageLabel(updates[id].pageLabel) : '';
+            if (existing) {
                 labels[id] = existing;
                 continue;
             }
@@ -485,8 +525,7 @@ async function computeAiSnapshotForTabs(tabs) {
             );
             for (const tab of missingForBatch) {
                 const id = String(tab.id);
-                const label = fetched[id] ? String(fetched[id]).trim() : '';
-                if (!isFourCharLabel(label)) continue;
+                const label = toStablePageLabel(fetched[id], tab);
                 labels[id] = label;
                 const cacheKey = pageLabelCacheKey(tab.title, tab.url);
                 await chrome.storage.local.set({ [cacheKey]: label });
@@ -1126,13 +1165,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             if (tabList.length === 0) { sendResponse({ labels: {} }); return; }
             const labels = await fetchPageLabelsForTabs(tabList, apiKey);
             Object.entries(labels).forEach(([id, label]) => {
-                if (!isFourCharLabel(label)) return;
                 const tab = tabList.find((t) => String(t.id) === String(id));
                 if (!tab) return;
+                const safeLabel = toStablePageLabel(label, tab);
                 aiSnapshotCache.entries[String(id)] = {
                     ...(aiSnapshotCache.entries[String(id)] || {}),
                     sig: buildTabSignature(tab),
-                    pageLabel: label,
+                    pageLabel: safeLabel,
                     updatedAt: Date.now(),
                 };
             });
