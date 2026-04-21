@@ -1,0 +1,983 @@
+// ─── 04 面板主体：壳、顶栏、委托；列表渲染与网页建议见 04b ───────────────────────────────
+
+function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
+    const mode = { isWebSearchMode: false, isTabAnimating: false };
+    let savedScrollTop = 0;
+    const oldList = document.getElementById('ys-switcher-list');
+    const oldSearch = document.getElementById('ys-search-input');
+    const preservedKeyword = isRefresh && oldSearch ? oldSearch.value : '';
+    if (isRefresh && oldList) {
+        savedScrollTop = oldList.scrollTop;
+    }
+
+    hideSwitcher();
+    // 接管成本地可变数组：后续关闭单个标签时可直接 splice + 重绘，无需整块重建面板
+    tabs = tabs.slice();
+    switcherCurrentWindowId = currentWindowId;
+    switcherTabs = tabs.slice();
+    switcherSelIdx = 0;
+    switcherKeyboardNavActive = false;
+    switcherVisible = true;
+    if (!isRefresh) {
+        tabPageLabelMap = {};
+    }
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ys-switcher-overlay';
+    Object.assign(overlay.style, {
+        position:       'fixed',
+        inset:          '0',
+        zIndex:         '2147483646',
+        display:        'flex',
+        alignItems:     'flex-start',
+        justifyContent: 'center',
+        paddingTop:     'max(8vh, 56px)',
+        boxSizing:      'border-box',
+        background:     'rgba(160, 175, 200, 0.16)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
+        opacity:        '0',
+        transition:     'opacity 0.15s ease',
+        pointerEvents:  'auto',
+        fontFamily:     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    });
+
+    overlay.addEventListener('mousedown', (e) => {
+        if (e.target === overlay) hideSwitcher();
+    });
+    
+    overlay.addEventListener('wheel', (e) => {
+        const listContainer = document.getElementById('ys-switcher-list');
+        if (!listContainer || !listContainer.contains(e.target)) {
+            e.preventDefault();
+        }
+    }, { passive: false });
+
+    const card = document.createElement('div');
+    card.id = 'ys-switcher-card';
+    Object.assign(card.style, {
+        background:     'rgba(248, 248, 246, 0.46)',
+        backdropFilter: 'saturate(180%) blur(32px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(32px)',
+        border:         '1px solid rgba(255, 255, 255, 0.52)',
+        borderRadius:   '20px',
+        boxShadow:      '0 24px 64px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6)',
+        width:          '580px',
+        maxHeight:      '65vh',
+        display:        'flex',
+        flexDirection:  'column',
+        overflow:       'hidden',
+        transform:      'scale(0.93) translateY(6px)',
+        transition:     'transform 0.18s cubic-bezier(0.34,1.3,0.64,1)',
+    });
+
+    const header = document.createElement('div');
+    Object.assign(header.style, {
+        padding:        '16px 20px',
+        display:        'flex',
+        flexDirection:  'column',
+        gap:            '14px',
+        borderBottom:   '1px solid rgba(0, 0, 0, 0.05)',
+        flexShrink:     '0',
+    });
+
+    header.innerHTML = `
+      <div style="display:flex; justify-content:space-between; align-items:center; min-height:28px;">
+        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;user-select:none;-webkit-user-select:none;">「🫡 Yes Sir」标签页管理</span>
+        
+        <div id="ys-top-actions" style="display:flex; gap:8px; position:relative; align-items:center;"></div>
+      </div>
+
+      <div id="ys-search-bar-wrapper" style="
+        position:relative; width:100%; border-radius:10px;
+        border:1px solid rgba(255, 255, 255, 0.65); background:rgba(255, 255, 255, 0.25);
+        box-shadow:inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02);
+        transition:all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+        box-sizing:border-box; overflow:hidden;
+      ">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:2;">
+          <circle cx="7" cy="7" r="5" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5"/>
+          <path d="M11 11L14 14" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+        <input id="ys-search-input" type="text" placeholder="${SWITCHER_DEFAULT_PLACEHOLDER}" style="
+          width:100%; padding:9px 12px 9px 34px;
+          border:none; background:transparent;
+          font-size:13px; color:rgba(40, 50, 70, 0.9); outline:none;
+          box-sizing:border-box; position:relative; z-index:1;
+          transition:transform 0.12s ease-in, opacity 0.12s ease-in;
+        ">
+        <div id="ys-web-search-hint" style="
+          position:absolute; right:14px; top:50%; transform:translateY(-50%);
+          z-index:2; color:rgba(80,92,120,0.72); font-size:12px;
+          pointer-events:none; white-space:nowrap;
+          transition:opacity 0.2s ease; opacity:1;
+        "><span>(按 Tab 切换</span><span id="ys-web-mode-word" style="display:inline-flex;"><span id="ys-web-mode-highlight" style="color:rgba(80,110,220,0.9);font-weight:700;text-shadow:0 0 6px rgba(80,110,220,0.16);">网页搜索</span><span style="color:rgba(80,92,120,0.72);font-weight:400;">模式</span></span><span>)</span></div>
+        <button id="ys-web-search-enter-btn" type="button" title="点击或按回车执行网页搜索" style="
+          position:absolute; right:6px; top:50%;
+          transform:translateY(-50%) scale(0.5) translateX(10px);
+          opacity:0; pointer-events:none;
+          display:flex; align-items:center; justify-content:center; gap:4px;
+          border:none; border-radius:5px; padding:4px 8px;
+          background:rgba(80,110,220,0.08); color:rgba(80,110,220,0.78);
+          font-size:11px; font-weight:600; line-height:1;
+          cursor:pointer; white-space:nowrap;
+          box-shadow:inset 0 0 0 1px rgba(80,110,220,0.14);
+          transition:all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+          z-index:3;
+        "><span style="font-size:12px;">↵</span><span>Enter</span></button>
+      </div>`;
+
+    const topActions = header.querySelector('#ys-top-actions');
+
+    function createFluidButton(id, emoji, label, colors, titleAttr, opts = {}) {
+        const btn = document.createElement('div');
+        btn.id = id;
+        btn.classList.add('ys-fluid-btn');
+        btn.dataset.selected = 'false';
+        btn.dataset.lockExpanded = opts.lockExpanded ? 'true' : 'false';
+        btn.title = titleAttr || label;
+        btn.fluidColors = colors;
+
+        function collapseFluidEl(el) {
+            const c = el.fluidColors;
+            if (!c) return;
+            el.style.maxWidth = '28px';
+            el.style.padding = '0 6px';
+            el.style.background = c.defaultBg;
+            const t = el.querySelector('.ys-btn-text');
+            if (t) t.style.opacity = '0';
+        }
+
+        function applyFluidExpanded() {
+            btn.style.maxWidth = '100px';
+            btn.style.padding = '0 10px';
+            btn.style.background = colors.hoverBg;
+            const t = btn.querySelector('.ys-btn-text');
+            if (t) t.style.opacity = '1';
+        }
+
+        Object.assign(btn.style, {
+            display: 'flex',
+            alignItems: 'center',
+            height: '28px',
+            padding: '0 6px',
+            background: colors.defaultBg,
+            border: `1px solid ${colors.border}`,
+            borderRadius: '8px',
+            cursor: 'pointer',
+            boxSizing: 'border-box',
+            overflow: 'hidden',
+            maxWidth: '28px',
+            transition: 'max-width 0.62s cubic-bezier(0.25, 1, 0.5, 1), background 0.32s ease, padding 0.62s cubic-bezier(0.25, 1, 0.5, 1)',
+            flexShrink: '0',
+        });
+        btn.innerHTML = `
+            <span style="font-size:12px; flex-shrink:0; width:14px; display:flex; justify-content:center;">${emoji}</span>
+            <span class="ys-btn-text" style="font-size:11px; font-weight:600; color:${colors.text}; margin-left:6px; opacity:0; transition:opacity 0.48s ease; white-space:nowrap; pointer-events:none;">${label}</span>
+        `;
+
+        btn.addEventListener('mouseenter', () => {
+            applyFluidExpanded();
+        });
+
+        btn.addEventListener('mouseleave', () => {
+            if (btn.dataset.lockExpanded === 'true') return;
+            if (btn.dataset.selected === 'true') return;
+            collapseFluidEl(btn);
+        });
+
+        // 捕获阶段：先切换「钉住展开」状态，再执行业务 click
+        btn.addEventListener('click', () => {
+            if (btn.dataset.lockExpanded === 'true') {
+                applyFluidExpanded();
+                return;
+            }
+            const isSelected = btn.dataset.selected === 'true';
+            const next = !isSelected;
+            btn.dataset.selected = next ? 'true' : 'false';
+
+            if (next) {
+                const parent = btn.parentElement;
+                if (parent) {
+                    parent.querySelectorAll('.ys-fluid-btn').forEach((el) => {
+                        if (el !== btn && el.dataset.selected === 'true' && el.dataset.lockExpanded !== 'true') {
+                            el.dataset.selected = 'false';
+                            collapseFluidEl(el);
+                        }
+                    });
+                }
+                applyFluidExpanded();
+            }
+            // 取消选中时不立刻收缩：若仍在 hover，由 mouseenter 已保持展开；移出后由 mouseleave 收缩
+        }, true);
+
+        if (btn.dataset.lockExpanded === 'true') {
+            applyFluidExpanded();
+        }
+
+        return btn;
+    }
+
+    // 1. AI 聚合 (核心功能：🤖 全息青绿)
+    const aiGroupBtn = createFluidButton('ys-ai-group-btn', '🤖', 'AI 聚合', {
+        defaultBg: 'rgba(0, 180, 200, 0.12)',
+        hoverBg: 'rgba(0, 180, 200, 0.18)',
+        border: 'rgba(0, 180, 200, 0.25)',
+        text: 'rgba(10, 150, 170, 0.95)',
+    }, 'AI 智能聚类：仅在当前窗口内按子主题创建标签组', { lockExpanded: true });
+
+    const regretBtn = createFluidButton('ys-regret-btn', '💊', '后悔药', {
+        defaultBg: 'rgba(0, 0, 0, 0.04)',
+        hoverBg: 'rgba(0, 0, 0, 0.08)',
+        border: 'rgba(0, 0, 0, 0.06)',
+        text: 'rgba(80, 90, 110, 0.9)',
+    }, '重新打开最近关闭的3个标签页');
+
+    const settingsBtn = createFluidButton('ys-main-settings-btn', '⚙️', '设置', {
+        defaultBg: 'rgba(0, 0, 0, 0.04)',
+        hoverBg: 'rgba(0, 0, 0, 0.08)',
+        border: 'rgba(0, 0, 0, 0.06)',
+        text: 'rgba(80, 90, 110, 0.9)',
+    }, '设置');
+
+    topActions.appendChild(aiGroupBtn);
+    topActions.appendChild(regretBtn);
+    topActions.appendChild(settingsBtn);
+
+    // AI 聚合按钮做一层更深的 hover 态，增强“可操作”感
+    const AI_GROUP_HOVER_DEEP_BG = 'rgba(0, 180, 200, 0.24)';
+    const AI_GROUP_HOVER_DEEP_BORDER = 'rgba(0, 180, 200, 0.35)';
+    aiGroupBtn.addEventListener('mouseenter', () => {
+        aiGroupBtn.style.background = AI_GROUP_HOVER_DEEP_BG;
+        aiGroupBtn.style.borderColor = AI_GROUP_HOVER_DEEP_BORDER;
+    });
+    aiGroupBtn.addEventListener('mouseleave', () => {
+        aiGroupBtn.style.background = 'rgba(0, 180, 200, 0.18)';
+        aiGroupBtn.style.borderColor = 'rgba(0, 180, 200, 0.25)';
+    });
+
+    aiGroupBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let tabsToProcess = switcherTabs.filter((t) => t.url && /^https?:\/\//i.test(t.url));
+        if (switcherCurrentWindowId !== null && switcherCurrentWindowId !== undefined) {
+            const wid = Number(switcherCurrentWindowId);
+            tabsToProcess = tabsToProcess.filter((t) => Number(t.windowId) === wid);
+        }
+        if (tabsToProcess.length === 0) {
+            showYsMessageToast('当前窗口没有可聚合的 http(s) 标签页', 2800);
+            return;
+        }
+
+        const finishProcessing = showProcessingToast(tabsToProcess.length);
+        ysSendToBg({
+            action: 'ai_batch_group',
+            tabs: tabsToProcess,
+            windowId: switcherCurrentWindowId,
+        }, { maxRetries: 2 }, (res, err) => {
+            finishProcessing();
+
+            if (err) {
+                showCustomToast('聚合失败：' + err, 4000);
+                return;
+            }
+            if (res && res.success) {
+                showCustomToast(`✅ 整理完毕，已为您创建 ${res.groupCount} 个标签组`, 3200);
+                setTimeout(() => hideSwitcher(), 1500);
+            } else {
+                let hint = '聚合未完成';
+                if (res && res.error === 'no_api_key') hint = '请先在设置中配置 DeepSeek API Key';
+                else if (res && res.error === 'rate_limit' && res.message) {
+                    showCustomToast(res.message, 5200);
+                    return;
+                } else if (res && res.message) {
+                    hint = res.message;
+                    if (/failed to fetch|networkerror|load failed/i.test(hint)) {
+                        hint = '网络无法连接 DeepSeek（api.deepseek.com）。请检查网络/代理，或在扩展页重新加载本扩展后再试。';
+                    }
+                } else if (res && res.error === 'parse_failed') hint = 'AI 返回格式异常，请重试';
+                else if (res && res.error === 'no_http_tabs') hint = '没有可聚合的页面';
+                showCustomToast('⚠️ ' + hint, 5500);
+            }
+        });
+    });
+
+    regretBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        ysSendToBg({ action: 'restore_last_3_tabs' }, {}, (res, err) => {
+            if (err) return;
+            if (res && res.success) {
+                hideSwitcher();
+            } else {
+                regretBtn.style.borderColor = 'rgba(255, 100, 100, 0.3)';
+                setTimeout(() => {
+                    regretBtn.style.borderColor = 'rgba(0, 0, 0, 0.06)';
+                }, 500);
+            }
+        });
+    });
+
+    // 设置按钮点击事件
+    settingsBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let menu = document.getElementById('ys-settings-dropdown');
+        if (menu) { menu.remove(); return; }
+
+        menu = document.createElement('div');
+        menu.id = 'ys-settings-dropdown';
+        Object.assign(menu.style, {
+            position: 'absolute', top: '36px', right: '0', background: 'rgba(255, 255, 255, 0.85)',
+            backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+            border: '1px solid rgba(255, 255, 255, 0.8)', boxShadow: '0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.5)',
+            borderRadius: '10px', padding: '6px', display: 'flex', flexDirection: 'column', gap: '2px', zIndex: '100', minWidth: '150px'
+        });
+
+        // 统一的菜单项工厂函数
+        const createItem = (icon, text, onClick, isToggle = false) => {
+            const item = document.createElement('div');
+            Object.assign(item.style, {
+                padding: '8px 12px', borderRadius: '6px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', transition: 'background 0.15s',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden'
+            });
+            item.innerHTML = `<span style="margin-right:8px;font-size:13px;flex-shrink:0;">${icon}</span><span style="font-size:12px;font-weight:600;color:rgba(50,60,80,0.9);white-space:nowrap;">${text}</span>`;
+
+            item.addEventListener('mouseenter', () => item.style.background = 'rgba(80, 110, 220, 0.08)');
+            item.addEventListener('mouseleave', () => item.style.background = 'transparent');
+            item.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (!isToggle) menu.remove();
+                onClick(item);
+            });
+            return item;
+        };
+
+        // 先获取浮窗状态，确保渲染顺序
+        chrome.storage.local.get({ showFloatingWidget: true }, (res) => {
+            // 1. 修饰键设置
+            menu.appendChild(createItem('⌨️', '修饰键设置', showModifierSettingsModal));
+
+            // 2. API Key 设置
+            menu.appendChild(createItem('🔑', 'API Key 设置', showApiKeyModal));
+
+            // 3. 统计浮窗开关
+            const isEnabled = res.showFloatingWidget !== false;
+            const floatToggle = createItem(
+                isEnabled ? '🟢' : '⚪',
+                `统计浮窗：${isEnabled ? '开启' : '关闭'}`,
+                (itemEl) => {
+                    chrome.storage.local.get({ showFloatingWidget: true }, (r) => {
+                        const nextState = r.showFloatingWidget === false;
+                        chrome.storage.local.set({ showFloatingWidget: nextState }, () => {
+                            itemEl.querySelector('span:first-child').innerText = nextState ? '🟢' : '⚪';
+                            itemEl.querySelector('span:last-child').innerText = `统计浮窗：${nextState ? '开启' : '关闭'}`;
+                        });
+                    });
+                },
+                true
+            );
+            menu.appendChild(floatToggle);
+
+            // 4. 主动呼出好评/反馈弹窗（放到统计浮窗下面）
+            menu.appendChild(createItem('👏', '我要好评', () => {
+                const flyoutId = 'ys-feedback-flyout';
+                if (typeof renderFeedbackFlyout === 'function') {
+                    if (document.getElementById(flyoutId)) return;
+                    renderFeedbackFlyout(flyoutId, 'ysFeedbackDismissed');
+                } else {
+                    showCustomToast('好评弹窗暂未就绪，请刷新页面后重试', 2200);
+                }
+            }));
+        });
+
+        document.getElementById('ys-top-actions').appendChild(menu);
+
+        // 点击外部关闭菜单
+        const closeMenu = (ev) => {
+            if (!menu.contains(ev.target) && ev.target.closest('#ys-main-settings-btn') === null) {
+                menu.remove();
+                document.removeEventListener('click', closeMenu);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeMenu), 0);
+    });
+
+    const listContainer = document.createElement('div');
+    listContainer.id = 'ys-switcher-list';
+    Object.assign(listContainer.style, {
+        overflowY:  'auto',
+        padding:    '0 20px',
+        flexGrow:   '1',
+        scrollbarWidth: 'none',
+        overscrollBehavior: 'contain',
+        display:    'flex',
+        flexDirection: 'column',
+        gap:        '0',
+    });
+
+    // ─── 事件委托：所有 tab 行的 hover/click/关闭，统一在 listContainer 上处理 ───
+    // mouseenter/mouseleave 不冒泡，用 mouseover/mouseout + relatedTarget 模拟
+    let currentHoverItem = null;
+
+    const rowOfEventTarget = (target) => {
+        if (!target || !target.closest) return null;
+        const item = target.closest('[id^="ys-tab-item-"]');
+        return (item && listContainer.contains(item)) ? item : null;
+    };
+
+    const setRowHoverOn = (item) => {
+        const closeBtn = item.querySelector('.ys-close-btn');
+        if (closeBtn) {
+            const showClose = !switcherKeyboardNavActive || item.dataset.selected === 'true';
+            closeBtn.style.opacity = showClose ? '1' : '0';
+            closeBtn.style.pointerEvents = showClose ? 'auto' : 'none';
+        }
+        refreshTabRowIconVis(item);
+        if (!switcherKeyboardNavActive && item.dataset.selected !== 'true') {
+            const idx = Number(item.dataset.globalIdx);
+            if (Number.isFinite(idx)) updateSwitcherSelection(idx);
+        }
+    };
+
+    const setRowHoverOff = (item) => {
+        const closeBtn = item.querySelector('.ys-close-btn');
+        if (closeBtn) {
+            closeBtn.style.opacity = '0';
+            closeBtn.style.pointerEvents = 'none';
+        }
+        refreshTabRowIconVis(item);
+        if (item.dataset.selected !== 'true') {
+            item.style.background = getUnselectedItemBackground(item);
+        }
+    };
+
+    listContainer.addEventListener('mouseover', (e) => {
+        const item = rowOfEventTarget(e.target);
+        if (!item || item === currentHoverItem) return;
+        if (currentHoverItem) setRowHoverOff(currentHoverItem);
+        currentHoverItem = item;
+        setRowHoverOn(item);
+    });
+
+    listContainer.addEventListener('mouseout', (e) => {
+        const item = rowOfEventTarget(e.target);
+        if (!item || item !== currentHoverItem) return;
+        const next = e.relatedTarget;
+        if (next && item.contains(next)) return;
+        setRowHoverOff(item);
+        currentHoverItem = null;
+    });
+
+    listContainer.addEventListener('click', (e) => {
+        const item = rowOfEventTarget(e.target);
+        if (!item) return;
+        const tabId = Number(item.dataset.tabId);
+        if (!Number.isFinite(tabId)) return;
+
+        const closeTarget = e.target.closest && e.target.closest('.ys-close-btn');
+        if (closeTarget && item.contains(closeTarget)) {
+            e.stopPropagation();
+            // 先「乐观地」把当前行在面板里移除：立即视觉反馈，无闪烁、滚动位置不变
+            const session = currentSwitcherSession;
+            if (session) session.removeTabById(tabId);
+            ysSendToBg({ action: 'close_tab_by_id', tabId }, {}, (res, err) => {
+                if (err) return;
+                // 真实关闭失败则回滚：重新拉一次真实 tabs 重建面板（极少见场景）
+                if (!res || !res.success) {
+                    ysSendToBg({ action: 'get_tabs' }, {}, (res2, err2) => {
+                        if (err2) return;
+                        if (res2 && res2.tabs && res2.tabs.length > 0) {
+                            showSwitcher(res2.tabs, true, res2.currentWindowId);
+                            initSwitcherHighlight();
+                        } else {
+                            hideSwitcher();
+                        }
+                    });
+                }
+            });
+            return;
+        }
+
+        e.stopPropagation();
+        const winIdRaw = item.dataset.windowId;
+        if (winIdRaw) {
+            const windowId = Number(winIdRaw);
+            if (Number.isFinite(windowId)) {
+                chrome.runtime.sendMessage({ action: 'switch_tab_global', tabId, windowId });
+            } else {
+                chrome.runtime.sendMessage({ action: 'switch_tab', tabId });
+            }
+        } else {
+            chrome.runtime.sendMessage({ action: 'switch_tab', tabId });
+        }
+        hideSwitcher();
+    });
+
+
+    const submitWebSearchSlot = { submitWebSearch: null };
+    const listApi = ysSwitcherAttachListRenderBundle(mode, listContainer, card, submitWebSearchSlot, tabs);
+    const {
+        renderList,
+        renderWebSuggestions,
+        requestWebSuggestions,
+        moveWebSuggestionSelection,
+        invalidateAiSearch,
+        invalidateWebSuggestions,
+    } = listApi;
+
+    card.appendChild(header);
+    card.appendChild(listContainer);
+
+    const footer = document.createElement('div');
+    Object.assign(footer.style, {
+        padding: '12px 20px',
+        background: 'rgba(0, 0, 0, 0.02)',
+        borderTop: '1px solid rgba(0, 0, 0, 0.05)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        flexShrink: '0',
+        gap: '12px',
+        minHeight: '44px',
+        boxSizing: 'border-box',
+    });
+
+    ysSendToBg({ action: 'get_last_context' }, {}, (res, err) => {
+        if (err) return;
+        footer.replaceChildren();
+        if (res && res.lastTab) {
+            const lt = res.lastTab;
+            const left = document.createElement('div');
+            Object.assign(left.style, {
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                minWidth: '0',
+                flex: '1',
+            });
+            const lab = document.createElement('span');
+            lab.textContent = '上一个标签页：';
+            Object.assign(lab.style, {
+                fontSize: '11px',
+                color: 'rgba(100,110,130,0.6)',
+                flexShrink: '0',
+                whiteSpace: 'nowrap',
+            });
+            left.appendChild(lab);
+
+            const lastTabIcon = resolveTabIconUrl(lt, 64);
+            if (lastTabIcon) {
+                const img = document.createElement('img');
+                img.src = lastTabIcon;
+                img.width = 14;
+                img.height = 14;
+                Object.assign(img.style, {
+                    width: '14px',
+                    height: '14px',
+                    objectFit: 'contain',
+                    flexShrink: '0',
+                    borderRadius: '2px',
+                    display: 'block',
+                });
+                img.onerror = () => { img.style.display = 'none'; };
+                left.appendChild(img);
+            }
+
+            const titleEl = document.createElement('span');
+            titleEl.textContent = lt.title || '(无标题)';
+            Object.assign(titleEl.style, {
+                fontSize: '12px',
+                color: 'rgba(60,70,90,0.85)',
+                fontWeight: '500',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                minWidth: '0',
+            });
+            left.appendChild(titleEl);
+
+            const hint = document.createElement('div');
+            const modRaw = MOD_LABELS[modifierKey] || '';
+            const modParts = String(modRaw).split(/\s+/);
+            const modLabel = modParts.length > 1 ? modParts[modParts.length - 1] : modRaw;
+            hint.textContent = `${modLabel} + E 快速切回`;
+            Object.assign(hint.style, {
+                fontSize: '11px',
+                color: 'rgba(80,110,220,0.8)',
+                fontWeight: '600',
+                paddingLeft: '8px',
+                whiteSpace: 'nowrap',
+                flexShrink: '0',
+            });
+
+            footer.appendChild(left);
+            footer.appendChild(hint);
+        } else {
+            const empty = document.createElement('div');
+            empty.textContent = '随便切换个网页，这里就会记录你的上一个标签页啦 👇';
+            Object.assign(empty.style, { fontSize: '11px', color: 'rgba(100,110,130,0.5)' });
+            footer.appendChild(empty);
+        }
+    });
+
+    card.appendChild(footer);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    const searchInput = document.getElementById('ys-search-input');
+    const webSearchEnterBtn = document.getElementById('ys-web-search-enter-btn');
+    const searchBarWrapper = document.getElementById('ys-search-bar-wrapper');
+    const webSearchHint = document.getElementById('ys-web-search-hint');
+    const webModeWord = document.getElementById('ys-web-mode-word');
+    const webModeHighlight = document.getElementById('ys-web-mode-highlight');
+    let webModeWordPulseAnim = null;
+    const ensureWebModeWordPulse = () => {
+        if (!webModeHighlight || webModeWordPulseAnim) return;
+        webModeWordPulseAnim = webModeHighlight.animate(
+            [
+                { opacity: 0.78 },
+                { opacity: 0.95 },
+            ],
+            {
+                duration: 2400,
+                iterations: Infinity,
+                direction: 'alternate',
+                easing: 'ease-in-out',
+            }
+        );
+    };
+    ensureWebModeWordPulse();
+    const applyListModeUi = () => {
+        const listContainerEl = document.getElementById('ys-switcher-list');
+        if (!listContainerEl) return;
+        listContainerEl.style.transition = 'opacity 0.3s ease, filter 0.3s ease';
+        listContainerEl.style.opacity = '1';
+        listContainerEl.style.filter = 'none';
+        listContainerEl.style.pointerEvents = 'auto';
+    };
+    const submitWebSearch = () => {
+        const keyword = searchInput ? String(searchInput.value || '').trim() : '';
+        if (!keyword) return;
+        ysSendToBg({ action: 'search_web', keyword }, {}, (res, err) => {
+            if (err || !res || !res.success) {
+                const errMsg = (res && res.error) ? String(res.error) : (err || '网页搜索失败');
+                showCustomToast(`⚠️ ${errMsg}`, 2600);
+                return;
+            }
+            hideSwitcher();
+        });
+    };
+    submitWebSearchSlot.submitWebSearch = submitWebSearch;
+
+    const applySearchModeUi = () => {
+        if (!searchInput) return;
+        if (mode.isWebSearchMode) {
+            invalidateAiSearch();
+            // 先清场，避免上一模式结果残留；再按当前输入拉建议
+            renderWebSuggestions([], '', { animate: true });
+            searchInput.placeholder = SWITCHER_WEB_SEARCH_PLACEHOLDER;
+            searchInput.style.paddingRight = '88px';
+            if (webSearchEnterBtn) {
+                webSearchEnterBtn.style.opacity = '1';
+                webSearchEnterBtn.style.transform = 'translateY(-50%) scale(1) translateX(0)';
+                webSearchEnterBtn.style.pointerEvents = 'auto';
+            }
+            if (webSearchHint) {
+                webSearchHint.style.display = 'none';
+                webSearchHint.style.opacity = '0';
+            }
+            requestWebSuggestions(searchInput.value, true);
+        } else {
+            invalidateWebSuggestions();
+            currentWebSuggestions = [];
+            webSuggestionSelIdx = -1;
+            searchInput.placeholder = SWITCHER_DEFAULT_PLACEHOLDER;
+            searchInput.style.paddingRight = '12px';
+            if (webSearchEnterBtn) {
+                webSearchEnterBtn.style.opacity = '0';
+                webSearchEnterBtn.style.transform = 'translateY(-50%) scale(0.5) translateX(10px)';
+                webSearchEnterBtn.style.pointerEvents = 'none';
+            }
+            if (webSearchHint) {
+                webSearchHint.style.display = 'block';
+                webSearchHint.style.opacity = String(searchInput.value || '').trim() ? '0' : '1';
+            }
+        }
+        applyListModeUi();
+    };
+
+    if (webSearchEnterBtn) {
+        webSearchEnterBtn.addEventListener('mouseenter', () => {
+            webSearchEnterBtn.style.background = 'rgba(80,110,220,0.15)';
+            webSearchEnterBtn.style.color = 'rgba(70,100,210,0.96)';
+        });
+        webSearchEnterBtn.addEventListener('mouseleave', () => {
+            webSearchEnterBtn.style.background = 'rgba(80,110,220,0.08)';
+            webSearchEnterBtn.style.color = 'rgba(80,110,220,0.78)';
+        });
+        webSearchEnterBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (!mode.isWebSearchMode) return;
+            submitWebSearch();
+        });
+    }
+
+    if (searchInput) {
+        searchInput.value = preservedKeyword;
+        applySearchModeUi();
+        searchInput.addEventListener('input', (e) => {
+            if (webSearchHint && !mode.isWebSearchMode) {
+                webSearchHint.style.opacity = String(e.target.value || '').trim() ? '0' : '1';
+            }
+            if (mode.isWebSearchMode) {
+                requestWebSuggestions(e.target.value, false);
+                return;
+            }
+            invalidateAiSearch();
+            switcherSelIdx = 0;
+            renderList(e.target.value, { restoreScroll: false, preferActive: false, animate: true });
+        });
+        searchInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                if (mode.isTabAnimating) return;
+                mode.isTabAnimating = true;
+
+                if (!searchBarWrapper) {
+                    mode.isWebSearchMode = !mode.isWebSearchMode;
+                    applySearchModeUi();
+                    if (!mode.isWebSearchMode) {
+                        invalidateAiSearch();
+                        switcherSelIdx = 0;
+                        renderList(searchInput.value, { restoreScroll: false, preferActive: false, animate: true });
+                    }
+                    mode.isTabAnimating = false;
+                    return;
+                }
+
+                searchInput.style.transition = 'transform 0.12s ease-in, opacity 0.12s ease-in';
+                searchInput.style.transform = 'translateX(-15px)';
+                searchInput.style.opacity = '0';
+                if (webSearchHint) webSearchHint.style.opacity = '0';
+
+                setTimeout(() => {
+                    if (!switcherVisible || !searchInput.isConnected) {
+                        mode.isTabAnimating = false;
+                        return;
+                    }
+                    mode.isWebSearchMode = !mode.isWebSearchMode;
+                    applySearchModeUi();
+                    if (!mode.isWebSearchMode) {
+                        invalidateAiSearch();
+                        switcherSelIdx = 0;
+                        renderList(searchInput.value, { restoreScroll: false, preferActive: false, animate: true });
+                    }
+
+                    searchInput.style.transition = 'none';
+                    searchInput.style.transform = 'translateX(15px)';
+                    void searchInput.offsetHeight;
+
+                    searchInput.style.transition = 'transform 0.15s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.15s ease-out';
+                    searchInput.style.transform = 'translateX(0)';
+                    searchInput.style.opacity = '1';
+
+                    setTimeout(() => {
+                        mode.isTabAnimating = false;
+                    }, 150);
+                }, 120);
+                return;
+            }
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (mode.isWebSearchMode) {
+                    moveWebSuggestionSelection(e.key === 'ArrowDown' ? 1 : -1);
+                    return;
+                }
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (mode.isWebSearchMode) {
+                    if (webSuggestionSelIdx >= 0 && currentWebSuggestions[webSuggestionSelIdx]) {
+                        searchInput.value = currentWebSuggestions[webSuggestionSelIdx];
+                    }
+                    submitWebSearch();
+                    return;
+                }
+                const activeItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
+                if (activeItem) activeItem.click();
+            }
+        });
+        searchInput.addEventListener('focus', () => {
+            if (!searchBarWrapper) return;
+            searchBarWrapper.style.background = 'rgba(255, 255, 255, 0.45)';
+            searchBarWrapper.style.borderColor = 'rgba(80, 110, 220, 0.4)';
+            searchBarWrapper.style.boxShadow = '0 0 0 3px rgba(80, 110, 220, 0.12), inset 0 1px 2px rgba(0,0,0,0.01)';
+        });
+        searchInput.addEventListener('blur', () => {
+            if (!searchBarWrapper) return;
+            searchBarWrapper.style.background = 'rgba(255, 255, 255, 0.25)';
+            searchBarWrapper.style.borderColor = 'rgba(255, 255, 255, 0.65)';
+            searchBarWrapper.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02)';
+        });
+    }
+
+    switcherKeydownHandler = (e) => {
+        if (!switcherVisible) return;
+        const focusedEl = document.activeElement;
+        const inputFocused = !!focusedEl && focusedEl.id === 'ys-search-input';
+        if (mode.isWebSearchMode && !inputFocused) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                moveWebSuggestionSelection(e.key === 'ArrowDown' ? 1 : -1);
+                return;
+            }
+            if (e.key === 'Enter') {
+                if (e.isComposing) return;
+                e.preventDefault();
+                if (webSuggestionSelIdx >= 0 && currentWebSuggestions[webSuggestionSelIdx] && searchInput) {
+                    searchInput.value = currentWebSuggestions[webSuggestionSelIdx];
+                }
+                submitWebSearch();
+                return;
+            }
+        }
+        if (mode.isWebSearchMode && inputFocused) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter') return;
+        }
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            switcherKeyboardNavActive = true;
+            updateSwitcherSelection(switcherSelIdx + 1);
+            scrollToSelected();
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            switcherKeyboardNavActive = true;
+            updateSwitcherSelection(switcherSelIdx - 1);
+            scrollToSelected();
+        } else if (e.key === 'Enter') {
+            if (e.isComposing) return;
+            e.preventDefault();
+            const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
+            if (item) item.click();
+        }
+    };
+    document.addEventListener('keydown', switcherKeydownHandler, true);
+
+    // 键盘接管选中后，只有「真实鼠标移动」才把控制权交还给鼠标 hover，
+    // 避免 DOM 变化/滚动时 :hover 误触发。mousemove 只在鼠标物理移动时派发。
+    let lastMX = null, lastMY = null;
+    switcherMouseMoveHandler = (e) => {
+        if (lastMX === e.clientX && lastMY === e.clientY) return;
+        lastMX = e.clientX; lastMY = e.clientY;
+        if (mode.isWebSearchMode && webSuggestionKeyboardNavActive) {
+            webSuggestionKeyboardNavActive = false;
+        }
+        if (!switcherKeyboardNavActive) return;
+        switcherKeyboardNavActive = false;
+
+        const overlayEl = document.getElementById('ys-switcher-overlay');
+        if (!overlayEl) return;
+
+        const hovered = e.target && e.target.closest
+            ? e.target.closest('[id^="ys-tab-item-"]')
+            : null;
+        if (hovered && overlayEl.contains(hovered)) {
+            const idx = Number(hovered.id.replace('ys-tab-item-', ''));
+            if (Number.isFinite(idx) && idx !== switcherSelIdx) {
+                updateSwitcherSelection(idx);
+            }
+            const closeBtn = hovered.querySelector('.ys-close-btn');
+            if (closeBtn) {
+                closeBtn.style.opacity = '1';
+                closeBtn.style.pointerEvents = 'auto';
+            }
+        }
+        refreshAllSwitcherRowsUi();
+    };
+    document.addEventListener('mousemove', switcherMouseMoveHandler, true);
+
+    // 暴露给「事件委托」里 × 关闭按钮用：原地删行 + 就地重绘，避免整块重建面板导致的闪烁
+    currentSwitcherSession = {
+        removeTabById(tabId) {
+            const idx = tabs.findIndex((t) => t.id === tabId);
+            if (idx < 0) return;
+            tabs.splice(idx, 1);
+
+            if (tabs.length === 0) {
+                hideSwitcher();
+                return;
+            }
+
+            // 被关闭行位于当前选中行之前 → 选中索引跟随前移 1；否则保持不变
+            const closedDisplayIdx = idx; // tabs 顺序即 display 顺序（renderList 只在其上做分组）
+            if (closedDisplayIdx < switcherSelIdx) {
+                switcherSelIdx = Math.max(0, switcherSelIdx - 1);
+            }
+
+            const si = document.getElementById('ys-search-input');
+            renderList(si ? si.value : '', {
+                restoreScroll: true,
+                preferActive: false,
+                animate: false,
+            });
+        },
+    };
+
+    renderList(preservedKeyword, {
+        restoreScroll: isRefresh,
+        preferActive: !preservedKeyword,
+        animate: false,
+        scrollTop: savedScrollTop,
+    });
+
+    requestAnimationFrame(() => {
+        overlay.style.opacity = '1';
+        card.style.transform = 'scale(1) translateY(0)';
+        setTimeout(() => {
+            if (searchInput) searchInput.focus();
+        }, 50);
+    });
+
+    const tabsForAi = tabs.map((t) => ({ id: t.id, title: t.title || '', url: t.url || '' }));
+    const applyAiSnapshotToView = (res) => {
+        if (!res) return;
+        let shouldRerender = false;
+
+        if (res.siteNames) {
+            tabs.forEach((tab) => {
+                const name = res.siteNames[tab.id] ?? res.siteNames[String(tab.id)];
+                if (!name) return;
+                const domain = getTabDomainKey(tab);
+                if (domainToSiteNameMap[domain] !== name) {
+                    domainToSiteNameMap[domain] = name;
+                    shouldRerender = true;
+                }
+            });
+        }
+
+        if (res.labels) {
+            Object.entries(res.labels).forEach(([tabId, label]) => {
+                if (label && tabPageLabelMap[tabId] !== label) {
+                    tabPageLabelMap[tabId] = label;
+                    shouldRerender = true;
+                }
+            });
+        }
+
+        if (shouldRerender) {
+            const si = document.getElementById('ys-search-input');
+            renderList(si ? si.value : '', { restoreScroll: true, preferActive: false, animate: false });
+        }
+    };
+
+    // 先读缓存快照，优先秒开；再异步补齐缺失项。
+    ysSendToBg({ action: 'get_ai_snapshot', tabs: tabsForAi }, {}, (res, err) => {
+        if (err) return;
+        applyAiSnapshotToView(res);
+    });
+    ysSendToBg({ action: 'prewarm_ai_snapshot', tabs: tabsForAi }, {}, (res, err) => {
+        if (err) return;
+        applyAiSnapshotToView(res);
+    });
+}

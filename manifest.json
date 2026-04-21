@@ -35,7 +35,15 @@
     "content_scripts": [
       {
         "matches": ["<all_urls>"],
-        "js": ["content.js", "content-switcher.js"]
+        "js": [
+          "content.js",
+          "content-switcher/01-utils-and-state.js",
+          "content-switcher/02-selection-and-scroll.js",
+          "content-switcher/03-build-tab-item.js",
+          "content-switcher/04b-switcher-list-bundle.js",
+          "content-switcher/04-show-switcher.js",
+          "content-switcher/05-hide-and-toasts.js"
+        ]
       }
     ]
   }
