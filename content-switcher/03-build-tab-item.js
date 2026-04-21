@@ -92,7 +92,7 @@ function buildTabItem(tab, globalIdx, container) {
     Object.assign(title.style, {
         fontSize:       '13px',
         fontWeight:     '500',
-        color:          'rgba(50, 60, 80, 0.9)',
+        color:          'var(--ys-text-primary)',
         overflow:       'hidden',
         textOverflow:   'ellipsis',
         whiteSpace:     'nowrap',
@@ -143,7 +143,7 @@ function buildTabItem(tab, globalIdx, container) {
         const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
         title.style.fontWeight = '600';
         title.style.color = isSourceWindowActive
-            ? 'rgba(50, 70, 160, 0.95)'
+            ? 'var(--ys-accent-text)'
             : TAB_ROW_OTHER_ACTIVE_TITLE_COLOR;
         title.dataset.isActive = 'true';
         item.dataset.activeInSourceWindow = isSourceWindowActive ? 'true' : 'false';
@@ -176,9 +176,9 @@ function buildTabItem(tab, globalIdx, container) {
             Object.assign(labelEl.style, {
                 fontSize:       '11px',
                 fontWeight:     '600',
-                color:          'rgba(82, 88, 102, 0.62)',
-                background:     'rgba(130, 140, 160, 0.12)',
-                border:         '1px solid rgba(120, 130, 150, 0.22)',
+                color:          'var(--ys-text-muted)',
+                background:     'var(--ys-btn-bg)',
+                border:         '1px solid var(--ys-divider)',
                 borderRadius:   '4px',
                 padding:        '2px 6px',
                 flexShrink:     '0',
@@ -207,10 +207,10 @@ function buildTabItem(tab, globalIdx, container) {
             width: '6px',
             height: '6px',
             borderRadius: '50%',
-            background: isSourceActive ? 'rgba(80, 110, 220, 1)' : 'rgba(50, 60, 80, 0.9)',
+            background: isSourceActive ? 'var(--ys-accent)' : 'var(--ys-text-secondary)',
             boxShadow: isSourceActive
-                ? '0 0 6px rgba(80, 110, 220, 0.4)'
-                : '0 0 4px rgba(50, 60, 80, 0.18)',
+                ? '0 0 6px var(--ys-accent-bg)'
+                : '0 0 4px var(--ys-divider)',
             pointerEvents: 'none',
         });
         item.appendChild(activeDot);

@@ -199,8 +199,8 @@ function openYsModal(title, renderContent) {
     const overlay = document.createElement('div');
     Object.assign(overlay.style, {
         position: 'fixed', inset: '0', zIndex: '2147483648',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(0, 0, 0, 0.15)', backdropFilter: 'blur(4px)',
+        display: 'block',
+        background: 'var(--ys-overlay-bg, rgba(0, 0, 0, 0.15))', backdropFilter: 'blur(4px)',
         WebkitBackdropFilter: 'blur(4px)',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         opacity: '0', transition: 'opacity 0.2s ease'
@@ -208,10 +208,11 @@ function openYsModal(title, renderContent) {
 
     const modal = document.createElement('div');
     Object.assign(modal.style, {
-        background: 'rgba(252, 252, 254, 0.85)', backdropFilter: 'saturate(180%) blur(32px)',
+        background: 'var(--ys-card-bg, rgba(252, 252, 254, 0.85))', backdropFilter: 'saturate(180%) blur(32px)',
         WebkitBackdropFilter: 'saturate(180%) blur(32px)',
-        border: '1px solid rgba(255, 255, 255, 0.8)', borderRadius: '16px',
-        boxShadow: '0 24px 48px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8)',
+        border: '1px solid var(--ys-card-border, rgba(255, 255, 255, 0.8))', borderRadius: '16px',
+        boxShadow: 'var(--ys-card-shadow, 0 24px 48px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8))',
+        position: 'absolute',
         width: '320px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px',
         transform: 'scale(0.95) translateY(10px)', transition: 'all 0.25s cubic-bezier(0.34,1.3,0.64,1)'
     });
@@ -221,8 +222,8 @@ function openYsModal(title, renderContent) {
     header.style.justifyContent = 'space-between';
     header.style.alignItems = 'center';
     header.innerHTML = `
-        <span style="font-size:15px;font-weight:600;color:rgba(40,50,70,0.95);">${title}</span>
-        <div class="ys-modal-close" style="cursor:pointer;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(0,0,0,0.04);color:rgba(100,110,130,0.8);font-size:16px;line-height:1;transition:background 0.15s;">×</div>`;
+        <span style="font-size:15px;font-weight:600;color:var(--ys-text-title, rgba(40,50,70,0.95));">${title}</span>
+        <div class="ys-modal-close" style="cursor:pointer;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:var(--ys-btn-bg, rgba(0,0,0,0.04));color:var(--ys-text-secondary, rgba(100,110,130,0.8));font-size:16px;line-height:1;transition:background 0.15s;">×</div>`;
 
     modal.appendChild(header);
 
@@ -233,9 +234,32 @@ function openYsModal(title, renderContent) {
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
 
+    const positionModal = () => {
+        const margin = 16;
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const modalRect = modal.getBoundingClientRect();
+        const switcherCard = document.getElementById('ys-switcher-card');
+        let centerX = vw / 2;
+        let centerY = vh / 2;
+
+        if (switcherCard && switcherCard.isConnected) {
+            const cardRect = switcherCard.getBoundingClientRect();
+            centerX = cardRect.left + (cardRect.width / 2);
+            centerY = cardRect.top + (cardRect.height / 2);
+        }
+
+        const left = Math.max(margin, Math.min(vw - margin - modalRect.width, centerX - (modalRect.width / 2)));
+        const top = Math.max(margin, Math.min(vh - margin - modalRect.height, centerY - (modalRect.height / 2)));
+        modal.style.left = `${left}px`;
+        modal.style.top = `${top}px`;
+    };
+    positionModal();
+    window.addEventListener('resize', positionModal);
+
     const closeBtn = header.querySelector('.ys-modal-close');
-    closeBtn.addEventListener('mouseenter', () => closeBtn.style.background = 'rgba(0,0,0,0.08)');
-    closeBtn.addEventListener('mouseleave', () => closeBtn.style.background = 'rgba(0,0,0,0.04)');
+    closeBtn.addEventListener('mouseenter', () => closeBtn.style.background = 'var(--ys-btn-hover, rgba(0,0,0,0.08))');
+    closeBtn.addEventListener('mouseleave', () => closeBtn.style.background = 'var(--ys-btn-bg, rgba(0,0,0,0.04))');
     closeBtn.addEventListener('click', close);
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
 
@@ -245,6 +269,7 @@ function openYsModal(title, renderContent) {
     });
 
     function close() {
+        window.removeEventListener('resize', positionModal);
         modal.style.transform = 'scale(0.95) translateY(10px)';
         overlay.style.opacity = '0';
         setTimeout(() => overlay.remove(), 200);
@@ -257,7 +282,7 @@ function showModifierSettingsModal() {
         const render = () => {
             const keys = modifierKeysForPlatform();
             let html = `
-                <div style="font-size:12px;color:rgba(100,110,130,0.85);margin-bottom:12px;line-height:1.5;">
+                <div style="font-size:12px;color:var(--ys-text-secondary, rgba(100,110,130,0.85));margin-bottom:12px;line-height:1.5;">
                     按住修饰键双击空白处关闭当前标签页 & 双击修饰键呼出标签页管理看板。
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px;">
@@ -267,14 +292,14 @@ function showModifierSettingsModal() {
                 html += `
                     <div data-key="${k}" class="ys-key-opt-modal" style="
                         display:flex;align-items:center;gap:10px; padding:10px 14px; border-radius:10px; cursor:pointer;
-                        background:${isSel ? 'rgba(80,110,220,0.12)' : 'rgba(0,0,0,0.03)'};
-                        border:1px solid ${isSel ? 'rgba(80,110,220,0.3)' : 'transparent'};
+                        background:${isSel ? 'var(--ys-accent-bg)' : 'var(--ys-btn-bg)'};
+                        border:1px solid ${isSel ? 'var(--ys-accent-hover)' : 'transparent'};
                         transition:all 0.15s;
                     ">
-                        <div style="width:16px;height:16px;border-radius:50%;border:1.5px solid ${isSel ? 'rgba(80,110,220,0.9)' : 'rgba(100,110,130,0.4)'}; background:${isSel ? 'rgba(80,110,220,0.9)' : 'transparent'}; display:flex;align-items:center;justify-content:center;">
+                        <div style="width:16px;height:16px;border-radius:50%;border:1.5px solid ${isSel ? 'var(--ys-accent)' : 'var(--ys-text-muted)'}; background:${isSel ? 'var(--ys-accent)' : 'transparent'}; display:flex;align-items:center;justify-content:center;">
                             ${isSel ? '<div style="width:6px;height:6px;border-radius:50%;background:#fff;"></div>' : ''}
                         </div>
-                        <span style="font-size:13px; color:${isSel ? 'rgba(50,70,160,0.95)' : 'rgba(60,70,80,0.9)'}; font-weight:${isSel ? '600' : '500'}">${MOD_LABELS[k]}</span>
+                        <span style="font-size:13px; color:${isSel ? 'var(--ys-accent-text)' : 'var(--ys-text-primary)'}; font-weight:${isSel ? '600' : '500'}">${MOD_LABELS[k]}</span>
                     </div>
                 `;
             });
@@ -283,10 +308,10 @@ function showModifierSettingsModal() {
 
             container.querySelectorAll('.ys-key-opt-modal').forEach((el) => {
                 el.addEventListener('mouseenter', () => {
-                    if (el.dataset.key !== modifierKey) el.style.background = 'rgba(0,0,0,0.06)';
+                    if (el.dataset.key !== modifierKey) el.style.background = 'var(--ys-btn-hover)';
                 });
                 el.addEventListener('mouseleave', () => {
-                    if (el.dataset.key !== modifierKey) el.style.background = 'rgba(0,0,0,0.03)';
+                    if (el.dataset.key !== modifierKey) el.style.background = 'var(--ys-btn-bg)';
                 });
                 el.addEventListener('click', () => {
                     modifierKey = el.dataset.key;
@@ -303,38 +328,44 @@ function showModifierSettingsModal() {
 function showApiKeyModal() {
     openYsModal('🔑 API Key 设置', (container, close) => {
         container.innerHTML = `
-            <div style="font-size:12px;color:rgba(100,110,130,0.85);line-height:1.5;margin-bottom:12px;">
+            <div style="font-size:12px;color:var(--ys-text-secondary, rgba(100,110,130,0.85));line-height:1.5;margin-bottom:12px;">
                 「🫡 Yes Sir」标签页管理的 AI 功能依托于大模型处理，当前版本仅支持配置 DeepSeek 提供的 API key。
             </div>
             <div style="position:relative;margin-bottom:16px;">
                 <input type="password" id="ys-apikey-input" placeholder="sk-..." autocomplete="off" style="
                     width:100%; padding:10px 44px 10px 14px; border-radius:8px;
-                    border:1px solid rgba(0,0,0,0.15); background:rgba(255,255,255,0.6);
-                    font-size:13px; outline:none; box-sizing:border-box;
+                    border:1px solid var(--ys-search-border, rgba(0,0,0,0.15)); background:var(--ys-search-bg, rgba(255,255,255,0.6));
+                    color:var(--ys-text-primary, rgba(40,50,70,0.9)); font-size:13px; outline:none; box-sizing:border-box;
                     box-shadow:inset 0 1px 2px rgba(0,0,0,0.02); transition:border-color 0.2s;
                 ">
                 <button id="ys-apikey-visibility-toggle" type="button" title="显示/隐藏 API key" style="
                     position:absolute; right:8px; top:50%; transform:translateY(-50%);
                     width:28px; height:28px; border:none; border-radius:7px;
-                    background:rgba(0,0,0,0.04); cursor:pointer;
+                    background:var(--ys-btn-bg, rgba(0,0,0,0.04)); cursor:pointer;
                     display:flex; align-items:center; justify-content:center;
                     font-size:14px; line-height:1; transition:background 0.15s;
                 ">😎</button>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:8px;">
-                <button id="ys-apikey-cancel" style="padding:7px 16px; border-radius:8px; border:1px solid rgba(0,0,0,0.1); background:rgba(255,255,255,0.5); cursor:pointer; font-size:13px; color:rgba(60,70,80,0.9); font-weight:500; transition:background 0.15s;">取消</button>
-                <button id="ys-apikey-save" style="padding:7px 16px; border-radius:8px; border:none; background:rgba(80,110,220,0.9); color:#fff; cursor:pointer; font-size:13px; font-weight:600; transition:background 0.15s; box-shadow:0 2px 6px rgba(80,110,220,0.2);">确定</button>
+                <button id="ys-apikey-cancel" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-btn-border, rgba(0,0,0,0.1)); background:var(--ys-btn-bg, rgba(255,255,255,0.5)); cursor:pointer; font-size:13px; color:var(--ys-text-primary, rgba(60,70,80,0.9)); font-weight:500; transition:background 0.15s;">取消</button>
+                <button id="ys-apikey-save" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-accent-hover); background:var(--ys-accent); color:var(--ys-accent-text, #fff); cursor:pointer; font-size:13px; font-weight:600; transition:background 0.15s, box-shadow 0.15s; box-shadow:0 2px 6px var(--ys-accent-bg);">确定</button>
             </div>
         `;
 
         const input = container.querySelector('#ys-apikey-input');
         const visibilityBtn = container.querySelector('#ys-apikey-visibility-toggle');
 
-        input.addEventListener('focus', () => input.style.borderColor = 'rgba(80,110,220,0.5)');
-        input.addEventListener('blur', () => input.style.borderColor = 'rgba(0,0,0,0.15)');
+        input.addEventListener('focus', () => {
+            input.style.borderColor = 'var(--ys-search-focus-border, rgba(80,110,220,0.5))';
+            input.style.boxShadow = 'var(--ys-search-focus-shadow, inset 0 1px 2px rgba(0,0,0,0.02))';
+        });
+        input.addEventListener('blur', () => {
+            input.style.borderColor = 'var(--ys-search-border, rgba(0,0,0,0.15))';
+            input.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.02)';
+        });
 
-        visibilityBtn.addEventListener('mouseenter', () => visibilityBtn.style.background = 'rgba(0,0,0,0.08)');
-        visibilityBtn.addEventListener('mouseleave', () => visibilityBtn.style.background = 'rgba(0,0,0,0.04)');
+        visibilityBtn.addEventListener('mouseenter', () => visibilityBtn.style.background = 'var(--ys-btn-hover, rgba(0,0,0,0.08))');
+        visibilityBtn.addEventListener('mouseleave', () => visibilityBtn.style.background = 'var(--ys-btn-bg, rgba(0,0,0,0.04))');
         visibilityBtn.addEventListener('click', () => {
             const showing = input.type === 'text';
             input.type = showing ? 'password' : 'text';
@@ -347,13 +378,13 @@ function showApiKeyModal() {
         });
 
         const cancelBtn = container.querySelector('#ys-apikey-cancel');
-        cancelBtn.addEventListener('mouseenter', () => cancelBtn.style.background = 'rgba(0,0,0,0.05)');
-        cancelBtn.addEventListener('mouseleave', () => cancelBtn.style.background = 'rgba(255,255,255,0.5)');
+        cancelBtn.addEventListener('mouseenter', () => cancelBtn.style.background = 'var(--ys-btn-hover, rgba(0,0,0,0.05))');
+        cancelBtn.addEventListener('mouseleave', () => cancelBtn.style.background = 'var(--ys-btn-bg, rgba(255,255,255,0.5))');
         cancelBtn.addEventListener('click', close);
 
         const saveBtn = container.querySelector('#ys-apikey-save');
-        saveBtn.addEventListener('mouseenter', () => saveBtn.style.background = 'rgba(60,90,200,0.95)');
-        saveBtn.addEventListener('mouseleave', () => saveBtn.style.background = 'rgba(80,110,220,0.9)');
+        saveBtn.addEventListener('mouseenter', () => saveBtn.style.boxShadow = '0 4px 12px var(--ys-accent-bg)');
+        saveBtn.addEventListener('mouseleave', () => saveBtn.style.boxShadow = '0 2px 6px var(--ys-accent-bg)');
         saveBtn.addEventListener('click', () => {
             const val = input.value.trim();
             chrome.storage.local.set({ deepseekApiKey: val }, () => {
@@ -389,16 +420,16 @@ function initFloatingWidget() {
     let panelView = 'chart'; 
 
     const glass = (extra = {}) => Object.assign({
-        background:     'rgba(245, 245, 248, 0.18)',
+        background:     'var(--ys-card-bg, rgba(245, 245, 248, 0.18))',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border:         '1px solid rgba(255, 255, 255, 0.38)',
-        boxShadow:      '0 6px 24px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.5)',
+        border:         '1px solid var(--ys-card-border, rgba(255, 255, 255, 0.38))',
+        boxShadow:      'var(--ys-card-shadow, 0 6px 24px rgba(0,0,0,0.10), inset 0 1px 0 rgba(255,255,255,0.5))',
     }, extra);
 
     const btn = document.createElement('div');
     btn.id = 'geek-float-btn';
-    const floatChromeBorder = '1px solid rgba(110, 150, 235, 0.48)';
+    const floatChromeBorder = '1px solid var(--ys-accent-hover, rgba(110, 150, 235, 0.48))';
     Object.assign(btn.style, glass({
         position:       'fixed',
         width:          '38px',
@@ -418,15 +449,15 @@ function initFloatingWidget() {
     btn.innerHTML = `
       <svg width="18" height="18" viewBox="0 0 18 18" fill="none" xmlns="http://www.w3.org/2000/svg">
         <polyline points="1,14 5,8 9,11 13,4 17,7"
-          stroke="rgba(80,110,200,0.85)" stroke-width="1.8"
+          stroke="var(--ys-accent, rgba(80,110,200,0.85))" stroke-width="1.8"
           stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-        <circle cx="5" cy="8" r="1.5" fill="rgba(80,110,200,0.7)"/>
-        <circle cx="9" cy="11" r="1.5" fill="rgba(80,110,200,0.7)"/>
-        <circle cx="13" cy="4" r="1.5" fill="rgba(80,110,200,0.7)"/>
+        <circle cx="5" cy="8" r="1.5" fill="var(--ys-accent, rgba(80,110,200,0.7))"/>
+        <circle cx="9" cy="11" r="1.5" fill="var(--ys-accent, rgba(80,110,200,0.7))"/>
+        <circle cx="13" cy="4" r="1.5" fill="var(--ys-accent, rgba(80,110,200,0.7))"/>
       </svg>`;
 
     btn.addEventListener('mouseenter', () => {
-        if (!isDragging) { btn.style.opacity = '1'; btn.style.boxShadow = '0 8px 28px rgba(80,110,200,0.22), inset 0 1px 0 rgba(255,255,255,0.5)'; }
+        if (!isDragging) { btn.style.opacity = '1'; btn.style.boxShadow = '0 8px 28px var(--ys-accent-bg, rgba(80,110,200,0.22)), inset 0 1px 0 rgba(255,255,255,0.5)'; }
     });
     btn.addEventListener('mouseleave', () => {
         if (!isDragging) { btn.style.opacity = '0.72'; btn.style.boxShadow = glass().boxShadow; }
@@ -448,7 +479,7 @@ function initFloatingWidget() {
         transition:     'opacity 0.18s ease, transform 0.18s cubic-bezier(0.34,1.4,0.64,1)',
         fontFamily:     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         pointerEvents:  'auto',
-        border:         '1px solid rgba(110, 150, 235, 0.4)',
+        border:         '1px solid var(--ys-accent-hover, rgba(110, 150, 235, 0.4))',
     }));
 
     document.body.appendChild(btn);
@@ -801,12 +832,12 @@ function renderFeedbackFlyout(id, dismissedKey) {
         width: '292px',
         padding: '14px 14px 12px',
         borderRadius: '14px',
-        background: 'rgba(252, 252, 254, 0.82)',
+        background: 'var(--ys-card-bg, rgba(252, 252, 254, 0.82))',
         backdropFilter: 'saturate(180%) blur(24px)',
         WebkitBackdropFilter: 'saturate(180%) blur(24px)',
-        border: '1px solid rgba(110, 150, 235, 0.35)',
-        boxShadow: '0 12px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.52)',
-        color: 'rgba(45, 55, 78, 0.92)',
+        border: '1px solid var(--ys-card-border, rgba(110, 150, 235, 0.35))',
+        boxShadow: 'var(--ys-card-shadow, 0 12px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.52))',
+        color: 'var(--ys-text-primary, rgba(45, 55, 78, 0.92))',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         opacity: '0',
         transform: 'translateY(14px)',
@@ -816,23 +847,25 @@ function renderFeedbackFlyout(id, dismissedKey) {
 
     flyout.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-        <div style="font-size:14px;font-weight:700;letter-spacing:0.01em;color:rgba(35,45,70,0.95);">🫡 报告长官！</div>
+        <div style="font-size:14px;font-weight:700;letter-spacing:0.01em;color:var(--ys-text-title, rgba(35,45,70,0.95));">🫡 报告长官！</div>
         <button id="ys-feedback-close" type="button" style="
-          border:none;background:transparent;cursor:pointer;
+          border:none;background:var(--ys-btn-bg, transparent);cursor:pointer;
           width:20px;height:20px;border-radius:6px;line-height:1;
-          color:rgba(95,105,125,0.55);font-size:16px;padding:0;flex-shrink:0;
+          color:var(--ys-text-muted, rgba(95,105,125,0.55));font-size:16px;padding:0;flex-shrink:0;
+          transition:background 0.15s ease;
         ">×</button>
       </div>
-      <div style="margin-top:8px;font-size:12px;line-height:1.62;color:rgba(58,68,90,0.86);">
+      <div style="margin-top:8px;font-size:12px;line-height:1.62;color:var(--ys-text-secondary, rgba(58,68,90,0.86));">
         看到您高频使用「🫡 Yes Sir」，希望它有帮到您。若觉得顺手，欢迎在商店赐予好评 ✨
         <div style="margin-top:8px;">若有建议也欢迎直接反馈：</div>
-        <a href="mailto:xujianjun1995@gmail.com" style="margin-top:3px;display:inline-block;color:rgba(80,110,220,0.95);text-decoration:none;font-weight:600;">xujianjun1995@gmail.com</a>
+        <a href="mailto:xujianjun1995@gmail.com" style="margin-top:3px;display:inline-block;color:var(--ys-accent, rgba(80,110,220,0.95));text-decoration:none;font-weight:600;">xujianjun1995@gmail.com</a>
       </div>
       <div style="display:flex;gap:8px;margin-top:12px;">
         <button id="ys-feedback-review" type="button" style="
           flex:1;border:none;border-radius:9px;padding:7px 8px;cursor:pointer;
-          background:rgba(80,110,220,0.9);color:#fff;font-size:12px;font-weight:600;
-          box-shadow:0 3px 10px rgba(80,110,220,0.22);
+          background:var(--ys-accent, rgba(80,110,220,0.9));color:var(--ys-accent-text, #fff);font-size:12px;font-weight:600;
+          box-shadow:0 3px 10px var(--ys-accent-bg, rgba(80,110,220,0.22));
+          transition:background 0.15s ease;
         ">去商店好评</button>
       </div>
     `;
@@ -853,10 +886,16 @@ function renderFeedbackFlyout(id, dismissedKey) {
     };
 
     const closeBtn = flyout.querySelector('#ys-feedback-close');
-    if (closeBtn) closeBtn.addEventListener('click', closeFlyout);
+    if (closeBtn) {
+        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'var(--ys-btn-hover, rgba(0,0,0,0.08))'; });
+        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'var(--ys-btn-bg, transparent)'; });
+        closeBtn.addEventListener('click', closeFlyout);
+    }
 
     const reviewBtn = flyout.querySelector('#ys-feedback-review');
     if (reviewBtn) {
+        reviewBtn.addEventListener('mouseenter', () => { reviewBtn.style.background = 'var(--ys-accent-hover, rgba(60,90,200,0.95))'; });
+        reviewBtn.addEventListener('mouseleave', () => { reviewBtn.style.background = 'var(--ys-accent, rgba(80,110,220,0.9))'; });
         reviewBtn.addEventListener('click', () => {
             const storeUrl =
                 'https://chromewebstore.google.com/detail/%E6%A0%87%E7%AD%BE%E9%A1%B5ai%E8%87%AA%E5%8A%A8%E5%88%86%E7%BB%84%E8%B7%A8%E7%AA%97%E5%8F%A3%E7%AE%A1%E7%90%86%E5%BF%AB%E9%80%9F%E5%88%87%E6%8D%A2%E5%8F%8C%E5%87%BB%E5%85%B3%E9%97%AD%E6%99%BA%E8%83%BD%E8%AF%AD/ggdplmigmgopdecjadbgakofifnonacb';

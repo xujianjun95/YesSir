@@ -11,9 +11,9 @@ function getUnselectedItemBackground(item) {
 }
 
 function getTabTitleColor(item, titleEl) {
-    if (!titleEl || titleEl.dataset.isActive !== 'true') return 'rgba(50, 60, 80, 0.9)';
+    if (!titleEl || titleEl.dataset.isActive !== 'true') return 'var(--ys-text-primary)';
     return isSourceWindowActiveTabItem(item)
-        ? 'rgba(50, 70, 160, 0.95)'
+        ? 'var(--ys-accent-text)'
         : TAB_ROW_OTHER_ACTIVE_TITLE_COLOR;
 }
 

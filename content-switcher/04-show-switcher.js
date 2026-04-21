@@ -1,6 +1,121 @@
 // ─── 04 面板主体：壳、顶栏、委托；列表渲染与网页建议见 04b ───────────────────────────────
 
 function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
+    chrome.storage.local.get({ themeMode: 'system' }, (res) => {
+        document.documentElement.setAttribute('data-ys-theme', res.themeMode);
+    });
+    // 单例监听系统主题变化：仅在跟随系统时触发实时同步
+    if (window.matchMedia && !window.__ysThemeSystemListenerBound) {
+        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+        const onSystemThemeChange = () => {
+            chrome.storage.local.get({ themeMode: 'system' }, (res) => {
+                if (res.themeMode === 'system') {
+                    document.documentElement.setAttribute('data-ys-theme', 'system');
+                }
+            });
+        };
+        if (typeof mediaQuery.addEventListener === 'function') {
+            mediaQuery.addEventListener('change', onSystemThemeChange);
+        } else if (typeof mediaQuery.addListener === 'function') {
+            mediaQuery.addListener(onSystemThemeChange);
+        }
+        window.__ysThemeSystemListenerBound = true;
+    }
+
+    if (!document.getElementById('ys-theme-vars')) {
+        const style = document.createElement('style');
+        style.id = 'ys-theme-vars';
+        const darkVars = `
+          --ys-overlay-bg: rgba(0, 0, 0, 0.4);
+          --ys-card-bg: rgba(30, 30, 30, 0.75);
+          --ys-card-border: rgba(255, 255, 255, 0.12);
+          --ys-card-shadow: 0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+          --ys-divider: rgba(255, 255, 255, 0.08);
+          --ys-text-title: rgba(255, 255, 255, 0.9);
+          --ys-text-primary: rgba(255, 255, 255, 0.85);
+          --ys-text-secondary: rgba(255, 255, 255, 0.55);
+          --ys-text-muted: rgba(255, 255, 255, 0.4);
+          --ys-search-bg: rgba(0, 0, 0, 0.2);
+          --ys-search-border: rgba(255, 255, 255, 0.15);
+          --ys-search-icon: rgba(255, 255, 255, 0.4);
+          --ys-search-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+          --ys-search-focus-bg: rgba(0, 0, 0, 0.4);
+          --ys-search-focus-border: #FBBF24;
+          --ys-search-focus-shadow: 0 0 0 3px rgba(251, 191, 36, 0.24), inset 0 1px 2px rgba(0,0,0,0.2);
+          --ys-accent: #FBBF24;
+          --ys-accent-text: #FFFFFF;
+          --ys-accent-bg: rgba(251, 191, 36, 0.16);
+          --ys-accent-hover: rgba(251, 191, 36, 0.15);
+          --ys-accent-glow: rgba(251, 191, 36, 0.35);
+          --ys-btn-bg: rgba(255, 255, 255, 0.06);
+          --ys-btn-hover: rgba(255, 255, 255, 0.08);
+          --ys-btn-border: rgba(255, 255, 255, 0.08);
+          --ys-btn-text: rgba(255, 255, 255, 0.75);
+          --ys-footer-bg: rgba(255, 255, 255, 0.03);
+          --ys-settings-bg: rgba(40, 40, 40, 0.85);
+          --ys-settings-border: rgba(255, 255, 255, 0.12);
+          --ys-settings-shadow: 0 8px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+          --ys-settings-item-hover: rgba(255, 255, 255, 0.08);
+          --ys-ai-bg: rgba(94, 156, 255, 0.16);
+          --ys-ai-hover: rgba(94, 156, 255, 0.24);
+          --ys-ai-border: rgba(94, 156, 255, 0.36);
+          --ys-ai-text: rgba(142, 196, 255, 0.96);
+          --ys-ai-hover-deep-bg: rgba(94, 156, 255, 0.3);
+          --ys-ai-hover-deep-border: rgba(94, 156, 255, 0.46);
+        `;
+        style.textContent = `
+        :root {
+          --ys-overlay-bg: rgba(160, 175, 200, 0.16);
+          --ys-card-bg: rgba(248, 248, 246, 0.46);
+          --ys-card-border: rgba(255, 255, 255, 0.52);
+          --ys-card-shadow: 0 24px 64px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
+          --ys-divider: rgba(0, 0, 0, 0.05);
+          --ys-text-title: rgba(40, 50, 70, 0.95);
+          --ys-text-primary: rgba(40, 50, 70, 0.9);
+          --ys-text-secondary: rgba(80, 92, 120, 0.72);
+          --ys-text-muted: rgba(100, 110, 130, 0.6);
+          --ys-search-bg: rgba(255, 255, 255, 0.25);
+          --ys-search-border: rgba(255, 255, 255, 0.65);
+          --ys-search-icon: rgba(120, 130, 150, 0.6);
+          --ys-search-shadow: inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02);
+          --ys-search-focus-bg: rgba(255, 255, 255, 0.45);
+          --ys-search-focus-border: rgba(80, 110, 220, 0.4);
+          --ys-search-focus-shadow: 0 0 0 3px rgba(80, 110, 220, 0.12), inset 0 1px 2px rgba(0,0,0,0.01);
+          --ys-accent: rgba(80, 110, 220, 0.9);
+          --ys-accent-text: rgba(50, 70, 160, 0.95);
+          --ys-accent-bg: rgba(80, 110, 220, 0.16);
+          --ys-accent-hover: rgba(80, 110, 220, 0.15);
+          --ys-accent-glow: rgba(80, 110, 220, 0.16);
+          --ys-footer-bg: rgba(0, 0, 0, 0.02);
+          --ys-btn-bg: rgba(0, 0, 0, 0.04);
+          --ys-btn-hover: rgba(0, 0, 0, 0.08);
+          --ys-btn-border: rgba(0, 0, 0, 0.06);
+          --ys-btn-text: rgba(80, 90, 110, 0.9);
+          --ys-settings-bg: rgba(255, 255, 255, 0.85);
+          --ys-settings-border: rgba(255, 255, 255, 0.8);
+          --ys-settings-shadow: 0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.5);
+          --ys-settings-item-hover: rgba(80, 110, 220, 0.08);
+          --ys-ai-bg: rgba(0, 180, 200, 0.12);
+          --ys-ai-hover: rgba(0, 180, 200, 0.18);
+          --ys-ai-border: rgba(0, 180, 200, 0.25);
+          --ys-ai-text: rgba(10, 150, 170, 0.95);
+          --ys-ai-hover-deep-bg: rgba(0, 180, 200, 0.24);
+          --ys-ai-hover-deep-border: rgba(0, 180, 200, 0.35);
+        }
+
+        :root[data-ys-theme="dark"] {
+          ${darkVars}
+        }
+
+        @media (prefers-color-scheme: dark) {
+          :root:not([data-ys-theme="light"]) {
+            ${darkVars}
+          }
+        }
+        `;
+        document.head.appendChild(style);
+    }
+
     const mode = { isWebSearchMode: false, isTabAnimating: false };
     let savedScrollTop = 0;
     const oldList = document.getElementById('ys-switcher-list');
@@ -33,7 +148,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         justifyContent: 'center',
         paddingTop:     'max(8vh, 56px)',
         boxSizing:      'border-box',
-        background:     'rgba(160, 175, 200, 0.16)',
+        background:     'var(--ys-overlay-bg)',
         backdropFilter: 'blur(10px)',
         WebkitBackdropFilter: 'blur(10px)',
         opacity:        '0',
@@ -56,19 +171,19 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const card = document.createElement('div');
     card.id = 'ys-switcher-card';
     Object.assign(card.style, {
-        background:     'rgba(248, 248, 246, 0.46)',
+        background:     'var(--ys-card-bg)',
         backdropFilter: 'saturate(180%) blur(32px)',
         WebkitBackdropFilter: 'saturate(180%) blur(32px)',
-        border:         '1px solid rgba(255, 255, 255, 0.52)',
+        border:         '1px solid var(--ys-card-border)',
         borderRadius:   '20px',
-        boxShadow:      '0 24px 64px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6)',
+        boxShadow:      'var(--ys-card-shadow)',
         width:          '580px',
         maxHeight:      '65vh',
         display:        'flex',
         flexDirection:  'column',
         overflow:       'hidden',
         transform:      'scale(0.93) translateY(6px)',
-        transition:     'transform 0.18s cubic-bezier(0.34,1.3,0.64,1)',
+        transition:     'transform 0.18s cubic-bezier(0.34,1.3,0.64,1), background 0.3s ease',
     });
 
     const header = document.createElement('div');
@@ -77,51 +192,51 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         display:        'flex',
         flexDirection:  'column',
         gap:            '14px',
-        borderBottom:   '1px solid rgba(0, 0, 0, 0.05)',
+        borderBottom:   '1px solid var(--ys-divider)',
         flexShrink:     '0',
     });
 
     header.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; min-height:28px;">
-        <span style="font-size:14px;font-weight:700;color:rgba(40,50,70,0.95);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;user-select:none;-webkit-user-select:none;">「🫡 Yes Sir」标签页管理</span>
+        <span style="font-size:14px;font-weight:700;color:var(--ys-text-title);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;user-select:none;-webkit-user-select:none;">「🫡 Yes Sir」标签页管理</span>
         
         <div id="ys-top-actions" style="display:flex; gap:8px; position:relative; align-items:center;"></div>
       </div>
 
       <div id="ys-search-bar-wrapper" style="
         position:relative; width:100%; border-radius:10px;
-        border:1px solid rgba(255, 255, 255, 0.65); background:rgba(255, 255, 255, 0.25);
-        box-shadow:inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02);
+        border:1px solid var(--ys-search-border); background:var(--ys-search-bg);
+        box-shadow:var(--ys-search-shadow);
         transition:all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
         box-sizing:border-box; overflow:hidden;
       ">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:2;">
-          <circle cx="7" cy="7" r="5" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5"/>
-          <path d="M11 11L14 14" stroke="rgba(120, 130, 150, 0.6)" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="7" cy="7" r="5" stroke="var(--ys-search-icon)" stroke-width="1.5"/>
+          <path d="M11 11L14 14" stroke="var(--ys-search-icon)" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
         <input id="ys-search-input" type="text" placeholder="${SWITCHER_DEFAULT_PLACEHOLDER}" style="
           width:100%; padding:9px 12px 9px 34px;
           border:none; background:transparent;
-          font-size:13px; color:rgba(40, 50, 70, 0.9); outline:none;
+          font-size:13px; color:var(--ys-text-primary); outline:none;
           box-sizing:border-box; position:relative; z-index:1;
           transition:transform 0.12s ease-in, opacity 0.12s ease-in;
         ">
         <div id="ys-web-search-hint" style="
           position:absolute; right:14px; top:50%; transform:translateY(-50%);
-          z-index:2; color:rgba(80,92,120,0.72); font-size:12px;
+          z-index:2; color:var(--ys-text-secondary); font-size:12px;
           pointer-events:none; white-space:nowrap;
           transition:opacity 0.2s ease; opacity:1;
-        "><span>(按 Tab 切换</span><span id="ys-web-mode-word" style="display:inline-flex;"><span id="ys-web-mode-highlight" style="color:rgba(80,110,220,0.9);font-weight:700;text-shadow:0 0 6px rgba(80,110,220,0.16);">网页搜索</span><span style="color:rgba(80,92,120,0.72);font-weight:400;">模式</span></span><span>)</span></div>
+        "><span>(按 Tab 切换</span><span id="ys-web-mode-word" style="display:inline-flex;"><span id="ys-web-mode-highlight" style="color:var(--ys-accent);font-weight:700;text-shadow:0 0 6px var(--ys-accent-glow);">网页搜索</span><span style="color:var(--ys-text-secondary);font-weight:400;">模式</span></span><span>)</span></div>
         <button id="ys-web-search-enter-btn" type="button" title="点击或按回车执行网页搜索" style="
           position:absolute; right:6px; top:50%;
           transform:translateY(-50%) scale(0.5) translateX(10px);
           opacity:0; pointer-events:none;
           display:flex; align-items:center; justify-content:center; gap:4px;
           border:none; border-radius:5px; padding:4px 8px;
-          background:rgba(80,110,220,0.08); color:rgba(80,110,220,0.78);
+          background:var(--ys-accent-bg); color:var(--ys-accent);
           font-size:11px; font-weight:600; line-height:1;
           cursor:pointer; white-space:nowrap;
-          box-shadow:inset 0 0 0 1px rgba(80,110,220,0.14);
+          box-shadow:inset 0 0 0 1px var(--ys-accent-hover);
           transition:all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
           z-index:3;
         "><span style="font-size:12px;">↵</span><span>Enter</span></button>
@@ -130,6 +245,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const topActions = header.querySelector('#ys-top-actions');
 
     function createFluidButton(id, emoji, label, colors, titleAttr, opts = {}) {
+        const resolveFluidColor = (value) => (
+            typeof value === 'string' && value.startsWith('--') ? `var(${value})` : value
+        );
         const btn = document.createElement('div');
         btn.id = id;
         btn.classList.add('ys-fluid-btn');
@@ -143,7 +261,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (!c) return;
             el.style.maxWidth = '28px';
             el.style.padding = '0 6px';
-            el.style.background = c.defaultBg;
+            el.style.background = resolveFluidColor(c.defaultBg);
             const t = el.querySelector('.ys-btn-text');
             if (t) t.style.opacity = '0';
         }
@@ -151,7 +269,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         function applyFluidExpanded() {
             btn.style.maxWidth = '100px';
             btn.style.padding = '0 10px';
-            btn.style.background = colors.hoverBg;
+            btn.style.background = resolveFluidColor(colors.hoverBg);
             const t = btn.querySelector('.ys-btn-text');
             if (t) t.style.opacity = '1';
         }
@@ -161,8 +279,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             alignItems: 'center',
             height: '28px',
             padding: '0 6px',
-            background: colors.defaultBg,
-            border: `1px solid ${colors.border}`,
+            background: resolveFluidColor(colors.defaultBg),
+            border: `1px solid ${resolveFluidColor(colors.border)}`,
             borderRadius: '8px',
             cursor: 'pointer',
             boxSizing: 'border-box',
@@ -173,7 +291,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         });
         btn.innerHTML = `
             <span style="font-size:12px; flex-shrink:0; width:14px; display:flex; justify-content:center;">${emoji}</span>
-            <span class="ys-btn-text" style="font-size:11px; font-weight:600; color:${colors.text}; margin-left:6px; opacity:0; transition:opacity 0.48s ease; white-space:nowrap; pointer-events:none;">${label}</span>
+            <span class="ys-btn-text" style="font-size:11px; font-weight:600; color:${resolveFluidColor(colors.text)}; margin-left:6px; opacity:0; transition:opacity 0.48s ease; white-space:nowrap; pointer-events:none;">${label}</span>
         `;
 
         btn.addEventListener('mouseenter', () => {
@@ -220,24 +338,24 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     // 1. AI 聚合 (核心功能：🤖 全息青绿)
     const aiGroupBtn = createFluidButton('ys-ai-group-btn', '🤖', 'AI 聚合', {
-        defaultBg: 'rgba(0, 180, 200, 0.12)',
-        hoverBg: 'rgba(0, 180, 200, 0.18)',
-        border: 'rgba(0, 180, 200, 0.25)',
-        text: 'rgba(10, 150, 170, 0.95)',
+        defaultBg: '--ys-ai-bg',
+        hoverBg: '--ys-ai-hover',
+        border: '--ys-ai-border',
+        text: '--ys-ai-text',
     }, 'AI 智能聚类：仅在当前窗口内按子主题创建标签组', { lockExpanded: true });
 
     const regretBtn = createFluidButton('ys-regret-btn', '💊', '后悔药', {
-        defaultBg: 'rgba(0, 0, 0, 0.04)',
-        hoverBg: 'rgba(0, 0, 0, 0.08)',
-        border: 'rgba(0, 0, 0, 0.06)',
-        text: 'rgba(80, 90, 110, 0.9)',
+        defaultBg: '--ys-btn-bg',
+        hoverBg: '--ys-btn-hover',
+        border: '--ys-btn-border',
+        text: '--ys-btn-text',
     }, '重新打开最近关闭的3个标签页');
 
     const settingsBtn = createFluidButton('ys-main-settings-btn', '⚙️', '设置', {
-        defaultBg: 'rgba(0, 0, 0, 0.04)',
-        hoverBg: 'rgba(0, 0, 0, 0.08)',
-        border: 'rgba(0, 0, 0, 0.06)',
-        text: 'rgba(80, 90, 110, 0.9)',
+        defaultBg: '--ys-btn-bg',
+        hoverBg: '--ys-btn-hover',
+        border: '--ys-btn-border',
+        text: '--ys-btn-text',
     }, '设置');
 
     topActions.appendChild(aiGroupBtn);
@@ -245,15 +363,15 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     topActions.appendChild(settingsBtn);
 
     // AI 聚合按钮做一层更深的 hover 态，增强“可操作”感
-    const AI_GROUP_HOVER_DEEP_BG = 'rgba(0, 180, 200, 0.24)';
-    const AI_GROUP_HOVER_DEEP_BORDER = 'rgba(0, 180, 200, 0.35)';
+    const AI_GROUP_HOVER_DEEP_BG = 'var(--ys-ai-hover-deep-bg)';
+    const AI_GROUP_HOVER_DEEP_BORDER = 'var(--ys-ai-hover-deep-border)';
     aiGroupBtn.addEventListener('mouseenter', () => {
         aiGroupBtn.style.background = AI_GROUP_HOVER_DEEP_BG;
         aiGroupBtn.style.borderColor = AI_GROUP_HOVER_DEEP_BORDER;
     });
     aiGroupBtn.addEventListener('mouseleave', () => {
-        aiGroupBtn.style.background = 'rgba(0, 180, 200, 0.18)';
-        aiGroupBtn.style.borderColor = 'rgba(0, 180, 200, 0.25)';
+        aiGroupBtn.style.background = 'var(--ys-ai-hover)';
+        aiGroupBtn.style.borderColor = 'var(--ys-ai-border)';
     });
 
     aiGroupBtn.addEventListener('click', (e) => {
@@ -325,9 +443,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         menu = document.createElement('div');
         menu.id = 'ys-settings-dropdown';
         Object.assign(menu.style, {
-            position: 'absolute', top: '36px', right: '0', background: 'rgba(255, 255, 255, 0.85)',
+            position: 'absolute', top: '36px', right: '0', background: 'var(--ys-settings-bg)',
             backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-            border: '1px solid rgba(255, 255, 255, 0.8)', boxShadow: '0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.5)',
+            border: '1px solid var(--ys-settings-border)', boxShadow: 'var(--ys-settings-shadow)',
             borderRadius: '10px', padding: '6px', display: 'flex', flexDirection: 'column', gap: '2px', zIndex: '100', minWidth: '150px'
         });
 
@@ -340,9 +458,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 whiteSpace: 'nowrap',
                 overflow: 'hidden'
             });
-            item.innerHTML = `<span style="margin-right:8px;font-size:13px;flex-shrink:0;">${icon}</span><span style="font-size:12px;font-weight:600;color:rgba(50,60,80,0.9);white-space:nowrap;">${text}</span>`;
+            item.innerHTML = `<span style="margin-right:8px;font-size:13px;flex-shrink:0;">${icon}</span><span style="font-size:12px;font-weight:600;color:var(--ys-text-title);white-space:nowrap;">${text}</span>`;
 
-            item.addEventListener('mouseenter', () => item.style.background = 'rgba(80, 110, 220, 0.08)');
+            item.addEventListener('mouseenter', () => item.style.background = 'var(--ys-settings-item-hover)');
             item.addEventListener('mouseleave', () => item.style.background = 'transparent');
             item.addEventListener('click', (ev) => {
                 ev.stopPropagation();
@@ -352,7 +470,105 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             return item;
         };
 
-        // 先获取浮窗状态，确保渲染顺序
+        const showThemeModeModal = () => {
+            if (typeof openYsModal !== 'function') {
+                showCustomToast('主题模式弹窗暂未就绪，请刷新页面后重试', 2200);
+                return;
+            }
+            openYsModal('🎨 主题模式', (container) => {
+                chrome.storage.local.get({ themeMode: 'system' }, (resTheme) => {
+                    const modes = [
+                        { val: 'light', icon: '☀️', title: '白昼' },
+                        { val: 'system', icon: '💻', title: '跟随系统' },
+                        { val: 'dark', icon: '🌙', title: '黑夜' },
+                    ];
+                    let currentThemeMode = resTheme.themeMode;
+
+                    const root = document.createElement('div');
+                    Object.assign(root.style, {
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '14px',
+                    });
+
+                    const segmentWrap = document.createElement('div');
+                    Object.assign(segmentWrap.style, {
+                        display: 'flex',
+                        justifyContent: 'center',
+                    });
+
+                    const segmentCtrl = document.createElement('div');
+                    Object.assign(segmentCtrl.style, {
+                        display: 'flex',
+                        background: 'var(--ys-btn-bg)',
+                        borderRadius: '10px',
+                        padding: '4px',
+                        gap: '6px',
+                    });
+
+                    const renderSegmentState = () => {
+                        Array.from(segmentCtrl.children).forEach((c, idx) => {
+                            const active = currentThemeMode === modes[idx].val;
+                            c.style.background = active ? 'var(--ys-accent-bg)' : 'transparent';
+                            c.style.border = active ? '1px solid var(--ys-accent-hover)' : '1px solid transparent';
+                            c.style.boxShadow = active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none';
+                            c.style.opacity = active ? '1' : '0.65';
+                        });
+                    };
+
+                    modes.forEach((m) => {
+                        const btn = document.createElement('div');
+                        btn.textContent = m.icon;
+                        btn.title = m.title;
+                        Object.assign(btn.style, {
+                            minWidth: '52px',
+                            height: '34px',
+                            padding: '0 14px',
+                            fontSize: '18px',
+                            cursor: 'pointer',
+                            borderRadius: '8px',
+                            border: '1px solid transparent',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background 0.2s, box-shadow 0.2s, opacity 0.2s',
+                        });
+                        btn.addEventListener('mouseenter', () => {
+                            if (currentThemeMode !== m.val) btn.style.background = 'var(--ys-btn-hover)';
+                        });
+                        btn.addEventListener('mouseleave', () => {
+                            if (currentThemeMode !== m.val) btn.style.background = 'transparent';
+                        });
+                        btn.addEventListener('click', () => {
+                            currentThemeMode = m.val;
+                            chrome.storage.local.set({ themeMode: currentThemeMode });
+                            document.documentElement.setAttribute('data-ys-theme', currentThemeMode);
+                            renderSegmentState();
+                        });
+                        segmentCtrl.appendChild(btn);
+                    });
+                    renderSegmentState();
+
+                    const caption = document.createElement('div');
+                    caption.textContent = '明以察物，暗以观心。';
+                    Object.assign(caption.style, {
+                        marginTop: '2px',
+                        paddingTop: '2px',
+                        textAlign: 'center',
+                        fontSize: '11px',
+                        color: 'var(--ys-text-muted)',
+                        letterSpacing: '0.03em',
+                        lineHeight: '1.6',
+                    });
+
+                    segmentWrap.appendChild(segmentCtrl);
+                    root.appendChild(segmentWrap);
+                    root.appendChild(caption);
+                    container.replaceChildren(root);
+                });
+            });
+        };
+
         chrome.storage.local.get({ showFloatingWidget: true }, (res) => {
             // 1. 修饰键设置
             menu.appendChild(createItem('⌨️', '修饰键设置', showModifierSettingsModal));
@@ -360,7 +576,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             // 2. API Key 设置
             menu.appendChild(createItem('🔑', 'API Key 设置', showApiKeyModal));
 
-            // 3. 统计浮窗开关
+            // 3. 主题模式（弹窗内三段式）
+            menu.appendChild(createItem('🎨', '主题模式', showThemeModeModal));
+
+            // 4. 统计浮窗开关
             const isEnabled = res.showFloatingWidget !== false;
             const floatToggle = createItem(
                 isEnabled ? '🟢' : '⚪',
@@ -378,7 +597,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             );
             menu.appendChild(floatToggle);
 
-            // 4. 主动呼出好评/反馈弹窗（放到统计浮窗下面）
+            // 5. 主动呼出好评/反馈弹窗（放到统计浮窗下面）
             menu.appendChild(createItem('👏', '我要好评', () => {
                 const flyoutId = 'ys-feedback-flyout';
                 if (typeof renderFeedbackFlyout === 'function') {
@@ -531,8 +750,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const footer = document.createElement('div');
     Object.assign(footer.style, {
         padding: '12px 20px',
-        background: 'rgba(0, 0, 0, 0.02)',
-        borderTop: '1px solid rgba(0, 0, 0, 0.05)',
+        background: 'var(--ys-footer-bg)',
+        borderTop: '1px solid var(--ys-divider)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
@@ -559,7 +778,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             lab.textContent = '上一个标签页：';
             Object.assign(lab.style, {
                 fontSize: '11px',
-                color: 'rgba(100,110,130,0.6)',
+                color: 'var(--ys-text-muted)',
                 flexShrink: '0',
                 whiteSpace: 'nowrap',
             });
@@ -587,7 +806,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             titleEl.textContent = lt.title || '(无标题)';
             Object.assign(titleEl.style, {
                 fontSize: '12px',
-                color: 'rgba(60,70,90,0.85)',
+                color: 'var(--ys-text-secondary)',
                 fontWeight: '500',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -603,7 +822,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             hint.textContent = `${modLabel} + E 快速切回`;
             Object.assign(hint.style, {
                 fontSize: '11px',
-                color: 'rgba(80,110,220,0.8)',
+                color: 'var(--ys-accent)',
                 fontWeight: '600',
                 paddingLeft: '8px',
                 whiteSpace: 'nowrap',
@@ -615,7 +834,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         } else {
             const empty = document.createElement('div');
             empty.textContent = '随便切换个网页，这里就会记录你的上一个标签页啦 👇';
-            Object.assign(empty.style, { fontSize: '11px', color: 'rgba(100,110,130,0.5)' });
+            Object.assign(empty.style, { fontSize: '11px', color: 'var(--ys-text-muted)' });
             footer.appendChild(empty);
         }
     });
@@ -708,12 +927,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     if (webSearchEnterBtn) {
         webSearchEnterBtn.addEventListener('mouseenter', () => {
-            webSearchEnterBtn.style.background = 'rgba(80,110,220,0.15)';
-            webSearchEnterBtn.style.color = 'rgba(70,100,210,0.96)';
+            webSearchEnterBtn.style.background = 'var(--ys-accent-hover)';
+            webSearchEnterBtn.style.color = 'var(--ys-accent)';
         });
         webSearchEnterBtn.addEventListener('mouseleave', () => {
-            webSearchEnterBtn.style.background = 'rgba(80,110,220,0.08)';
-            webSearchEnterBtn.style.color = 'rgba(80,110,220,0.78)';
+            webSearchEnterBtn.style.background = 'var(--ys-accent-bg)';
+            webSearchEnterBtn.style.color = 'var(--ys-accent)';
         });
         webSearchEnterBtn.addEventListener('click', (e) => {
             e.preventDefault();
@@ -810,15 +1029,15 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         });
         searchInput.addEventListener('focus', () => {
             if (!searchBarWrapper) return;
-            searchBarWrapper.style.background = 'rgba(255, 255, 255, 0.45)';
-            searchBarWrapper.style.borderColor = 'rgba(80, 110, 220, 0.4)';
-            searchBarWrapper.style.boxShadow = '0 0 0 3px rgba(80, 110, 220, 0.12), inset 0 1px 2px rgba(0,0,0,0.01)';
+            searchBarWrapper.style.background = 'var(--ys-search-focus-bg)';
+            searchBarWrapper.style.borderColor = 'var(--ys-search-focus-border)';
+            searchBarWrapper.style.boxShadow = 'var(--ys-search-focus-shadow)';
         });
         searchInput.addEventListener('blur', () => {
             if (!searchBarWrapper) return;
-            searchBarWrapper.style.background = 'rgba(255, 255, 255, 0.25)';
-            searchBarWrapper.style.borderColor = 'rgba(255, 255, 255, 0.65)';
-            searchBarWrapper.style.boxShadow = 'inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02)';
+            searchBarWrapper.style.background = 'var(--ys-search-bg)';
+            searchBarWrapper.style.borderColor = 'var(--ys-search-border)';
+            searchBarWrapper.style.boxShadow = 'var(--ys-search-shadow)';
         });
     }
 

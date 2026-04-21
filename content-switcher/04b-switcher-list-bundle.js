@@ -309,8 +309,8 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                 Object.assign(iconDiv.style, {
                     width: '18px', height: '18px', flexShrink: '0',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'rgba(80, 110, 220, 0.12)', borderRadius: '4px',
-                    fontSize: '10px', fontWeight: 'bold', color: 'rgba(50, 70, 160, 0.9)'
+                    background: 'var(--ys-btn-bg)', borderRadius: '4px',
+                    fontSize: '10px', fontWeight: 'bold', color: 'var(--ys-text-secondary)'
                 });
                 if (group.icon) {
                     const img = document.createElement('img');
@@ -348,7 +348,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                 Object.assign(domainText.style, {
                     flex: '1',
                     minWidth: '0',
-                    fontSize: '13px', fontWeight: '500', color: 'rgba(50, 60, 80, 0.9)',
+                    fontSize: '13px', fontWeight: '500', color: 'var(--ys-text-primary)',
                     lineHeight: '1.4',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
