@@ -19,6 +19,8 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const fs = require('fs');
+const path = require('path');
 
 const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -109,6 +111,15 @@ function readBody(req) {
     });
 }
 
+function getClientIp(req) {
+    const xff = String(req.headers['x-forwarded-for'] || '').trim();
+    if (xff) {
+        const first = xff.split(',')[0].trim();
+        if (first) return first;
+    }
+    return (req.socket && req.socket.remoteAddress) || '';
+}
+
 function forwardToDeepSeek(bodyStr) {
     return new Promise((resolve, reject) => {
         const options = {
@@ -158,6 +169,44 @@ const server = http.createServer(async (req, res) => {
     if (parsedUrl.pathname === '/health') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ status: 'ok', timestamp: Date.now() }));
+        return;
+    }
+
+    if (req.method === 'POST' && (parsedUrl.pathname === '/yessir/telemetry' || parsedUrl.pathname === '/api/telemetry')) {
+        let bodyStr;
+        let parsed;
+        try {
+            bodyStr = await readBody(req);
+            parsed = JSON.parse(bodyStr);
+        } catch (_) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'invalid_body' }));
+            return;
+        }
+
+        const uuid = String((parsed && parsed.uuid) || '').trim().slice(0, 64);
+        const event = String((parsed && parsed.event) || '').trim().slice(0, 32);
+        const version = String((parsed && parsed.version) || '').trim().slice(0, 32);
+        if (!uuid || !event) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'missing_parameters' }));
+            return;
+        }
+
+        const logEntry = JSON.stringify({
+            timestamp: new Date().toISOString(),
+            uuid,
+            event,
+            version,
+            ip: getClientIp(req),
+        }) + '\n';
+        const logFile = path.join(__dirname, 'telemetry.log');
+        fs.appendFile(logFile, logEntry, (err) => {
+            if (err) console.error('[YesSir Proxy] 写入 telemetry 日志失败:', err.message);
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true }));
         return;
     }
 

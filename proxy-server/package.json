@@ -5,7 +5,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "DEEPSEEK_API_KEY=your_key_here node server.js"
+    "dev": "DEEPSEEK_API_KEY=your_key_here node server.js",
+    "telemetry:report": "node analyze-telemetry.js"
   },
   "engines": {
     "node": ">=18.0.0"

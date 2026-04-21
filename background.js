@@ -1,6 +1,7 @@
 // Service Worker 入口：按依赖顺序加载（共享全局作用域）
 importScripts('rules.js');
 importScripts('bg-core.js');
+importScripts('bg-telemetry.js');
 importScripts('bg-ai-network.js');
 importScripts('bg-messages.js');
 
