@@ -768,7 +768,7 @@ function trySilentAiPrewarm() {
     ysRuntimeSendMessageRetry({ action: 'prewarm_ai_current_window' }, { maxRetries: 2 }, () => {});
 }
 
-/** ✨ 呼出面板累计 10 次后弹出一次好评/反馈引导（关闭后永久不再打扰） */
+/** ✨ 呼出面板累计 30 次后弹出一次好评/反馈引导（关闭后永久不再打扰） */
 function checkAndShowFeedbackFlyout() {
     if (window.top !== window.self) return;
     const FLYOUT_ID = 'ys-feedback-flyout';
@@ -776,7 +776,7 @@ function checkAndShowFeedbackFlyout() {
 
     const STORAGE_KEY_COUNT = 'ysCallCountForFeedback';
     const STORAGE_KEY_DISMISSED = 'ysFeedbackDismissed';
-    const TRIGGER_COUNT = 10;
+    const TRIGGER_COUNT = 30;
 
     chrome.storage.local.get([STORAGE_KEY_COUNT, STORAGE_KEY_DISMISSED], (res) => {
         if (res && res[STORAGE_KEY_DISMISSED]) return;
@@ -858,7 +858,8 @@ function renderFeedbackFlyout(id, dismissedKey) {
     const reviewBtn = flyout.querySelector('#ys-feedback-review');
     if (reviewBtn) {
         reviewBtn.addEventListener('click', () => {
-            const storeUrl = `https://chromewebstore.google.com/detail/${chrome.runtime.id}`;
+            const storeUrl =
+                'https://chromewebstore.google.com/detail/%E6%A0%87%E7%AD%BE%E9%A1%B5ai%E8%87%AA%E5%8A%A8%E5%88%86%E7%BB%84%E8%B7%A8%E7%AA%97%E5%8F%A3%E7%AE%A1%E7%90%86%E5%BF%AB%E9%80%9F%E5%88%87%E6%8D%A2%E5%8F%8C%E5%87%BB%E5%85%B3%E9%97%AD%E6%99%BA%E8%83%BD%E8%AF%AD/ggdplmigmgopdecjadbgakofifnonacb';
             window.open(storeUrl, '_blank');
             closeFlyout();
         });
