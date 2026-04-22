@@ -348,7 +348,7 @@ function showApiKeyModal() {
             </div>
             <div style="display:flex; justify-content:flex-end; gap:8px;">
                 <button id="ys-apikey-cancel" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-btn-border, rgba(0,0,0,0.1)); background:var(--ys-btn-bg, rgba(255,255,255,0.5)); cursor:pointer; font-size:13px; color:var(--ys-text-primary, rgba(60,70,80,0.9)); font-weight:500; transition:background 0.15s;">取消</button>
-                <button id="ys-apikey-save" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-accent-hover); background:var(--ys-accent); color:var(--ys-accent-text, #fff); cursor:pointer; font-size:13px; font-weight:600; transition:background 0.15s, box-shadow 0.15s; box-shadow:0 2px 6px var(--ys-accent-bg);">确定</button>
+                <button id="ys-apikey-save" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-accent-hover); background:var(--ys-accent); color:#ffffff; cursor:pointer; font-size:13px; font-weight:600; transition:background 0.15s, box-shadow 0.15s; box-shadow:0 2px 6px var(--ys-accent-bg);">确定</button>
             </div>
         `;
 
@@ -383,8 +383,16 @@ function showApiKeyModal() {
         cancelBtn.addEventListener('click', close);
 
         const saveBtn = container.querySelector('#ys-apikey-save');
-        saveBtn.addEventListener('mouseenter', () => saveBtn.style.boxShadow = '0 4px 12px var(--ys-accent-bg)');
-        saveBtn.addEventListener('mouseleave', () => saveBtn.style.boxShadow = '0 2px 6px var(--ys-accent-bg)');
+        saveBtn.addEventListener('mouseenter', () => {
+            saveBtn.style.background = 'var(--ys-accent)';
+            saveBtn.style.color = '#ffffff';
+            saveBtn.style.boxShadow = '0 4px 12px var(--ys-accent-bg)';
+        });
+        saveBtn.addEventListener('mouseleave', () => {
+            saveBtn.style.background = 'var(--ys-accent)';
+            saveBtn.style.color = '#ffffff';
+            saveBtn.style.boxShadow = '0 2px 6px var(--ys-accent-bg)';
+        });
         saveBtn.addEventListener('click', () => {
             const val = input.value.trim();
             chrome.storage.local.set({ deepseekApiKey: val }, () => {
@@ -863,7 +871,7 @@ function renderFeedbackFlyout(id, dismissedKey) {
       <div style="display:flex;gap:8px;margin-top:12px;">
         <button id="ys-feedback-review" type="button" style="
           flex:1;border:none;border-radius:9px;padding:7px 8px;cursor:pointer;
-          background:var(--ys-accent, rgba(80,110,220,0.9));color:var(--ys-accent-text, #fff);font-size:12px;font-weight:600;
+          background:var(--ys-accent, rgba(80,110,220,0.9));color:#ffffff;font-size:12px;font-weight:600;
           box-shadow:0 3px 10px var(--ys-accent-bg, rgba(80,110,220,0.22));
           transition:background 0.15s ease;
         ">去商店好评</button>
@@ -894,8 +902,14 @@ function renderFeedbackFlyout(id, dismissedKey) {
 
     const reviewBtn = flyout.querySelector('#ys-feedback-review');
     if (reviewBtn) {
-        reviewBtn.addEventListener('mouseenter', () => { reviewBtn.style.background = 'var(--ys-accent-hover, rgba(60,90,200,0.95))'; });
-        reviewBtn.addEventListener('mouseleave', () => { reviewBtn.style.background = 'var(--ys-accent, rgba(80,110,220,0.9))'; });
+        reviewBtn.addEventListener('mouseenter', () => {
+            reviewBtn.style.background = 'var(--ys-accent)';
+            reviewBtn.style.color = '#ffffff';
+        });
+        reviewBtn.addEventListener('mouseleave', () => {
+            reviewBtn.style.background = 'var(--ys-accent, rgba(80,110,220,0.9))';
+            reviewBtn.style.color = '#ffffff';
+        });
         reviewBtn.addEventListener('click', () => {
             const storeUrl =
                 'https://chromewebstore.google.com/detail/%E6%A0%87%E7%AD%BE%E9%A1%B5ai%E8%87%AA%E5%8A%A8%E5%88%86%E7%BB%84%E8%B7%A8%E7%AA%97%E5%8F%A3%E7%AE%A1%E7%90%86%E5%BF%AB%E9%80%9F%E5%88%87%E6%8D%A2%E5%8F%8C%E5%87%BB%E5%85%B3%E9%97%AD%E6%99%BA%E8%83%BD%E8%AF%AD/ggdplmigmgopdecjadbgakofifnonacb';
