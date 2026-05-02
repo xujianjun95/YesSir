@@ -181,7 +181,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                         overflow: 'hidden',
                     });
                     const text = document.createElement('div');
-                    text.textContent = '💡 未找到精确匹配结果，已自动切换至 AI 模糊搜索...';
+                    text.textContent = ysT('listAiSwitchingToAiSearch');
                     loadingWrap.appendChild(emojiSlot);
                     loadingWrap.appendChild(text);
                     listContainer.appendChild(loadingWrap);
@@ -203,8 +203,8 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                                     ? `<div style="margin-top:10px;font-size:11px;color:rgba(180,100,60,0.92);line-height:1.55;text-align:left;max-width:280px;margin-left:auto;margin-right:auto;">${escapeHtml(res.message)}</div>`
                                     : '';
                                 const base = err
-                                    ? '无法连接扩展后台，请重试或重新加载扩展。'
-                                    : '未找到匹配的标签页';
+                                    ? ysT('listBgUnreachable')
+                                    : ysT('listNoMatchingTabs');
                                 listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">${base}${extra}</div>`;
                                 return;
                             }
@@ -228,12 +228,13 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                             marginBottom: '8px',
                         });
                         const text = document.createElement('div');
-                        text.innerHTML = `「🫡 Yes Sir」翻遍了所有角落，似乎没有关于「<b>${escapeHtml(filterText.trim())}</b>」的记录`;
+                        const kwEsc = escapeHtml(filterText.trim());
+                        text.innerHTML = ysT('listNoMatchForKeyword', [kwEsc]).replace(kwEsc, `<b>${kwEsc}</b>`);
                         noResultWrap.appendChild(emoji);
                         noResultWrap.appendChild(text);
                         listContainer.appendChild(noResultWrap);
                     } else {
-                        listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">未找到匹配的标签页</div>`;
+                        listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">${ysT('listNoMatchingTabs')}</div>`;
                     }
                 }
                 return;
@@ -252,7 +253,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     flexShrink: '0',
                 });
                 const label = document.createElement('span');
-                label.textContent = '✨ AI 搜索';
+                label.textContent = ysT('aiSearchBannerLabel');
                 const dot = document.createElement('span');
                 dot.textContent = '·';
                 dot.style.opacity = '0.5';
@@ -462,7 +463,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                         color: 'var(--ys-text-muted)',
                         fontSize: '12px',
                     });
-                    empty.textContent = '🕵️ 正在搜索边界巡逻中...';
+                    empty.textContent = ysT('webSuggestLoading');
                     listContainer.appendChild(empty);
                     return;
                 }
@@ -476,8 +477,8 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                         fontSize: '12px',
                     });
                     empty.textContent = loading
-                        ? '🕵️ 正在搜索边界巡逻中...'
-                        : `🙁 未找到「${keyword}」相关建议，可直接按 Enter 搜索`;
+                        ? ysT('webSuggestLoading')
+                        : ysT('webSuggestNoSuggestionsFor', [keyword]);
                     listContainer.appendChild(empty);
                     return;
                 }
@@ -527,7 +528,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     });
     
                     const actionHint = document.createElement('div');
-                    actionHint.textContent = 'Enter 搜索';
+                    actionHint.textContent = ysT('webSuggestEnterHint');
                     Object.assign(actionHint.style, {
                         fontSize: '11px',
                         color: 'var(--ys-text-secondary)',
@@ -637,11 +638,22 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
             const selectedEl = document.getElementById(`ys-web-suggestion-${webSuggestionSelIdx}`);
             if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' });
         };
+        const getSelectedWebSuggestion = () => {
+            if (webSuggestionSelIdx < 0) return '';
+            return String(currentWebSuggestions[webSuggestionSelIdx] || '').trim();
+        };
+        const isWebSuggestionKeyboardNavActive = () => webSuggestionKeyboardNavActive;
+        const clearWebSuggestionKeyboardNavActive = () => {
+            webSuggestionKeyboardNavActive = false;
+        };
     return {
         renderList,
         renderWebSuggestions,
         requestWebSuggestions,
         moveWebSuggestionSelection,
+        getSelectedWebSuggestion,
+        isWebSuggestionKeyboardNavActive,
+        clearWebSuggestionKeyboardNavActive,
         invalidateAiSearch,
         invalidateWebSuggestions,
     };

@@ -4,5 +4,260 @@
   },
   "extensionDescription": {
     "message": "YesSir：AI 跨窗口整理标签页，自动分组 + 快速切换 + 双击关闭 + 智能语义搜索 + 毛玻璃风格，让您彻底告别标签混乱。"
+  },
+  "panelTitle": {
+    "message": "「🫡 YesSir」标签页管理"
+  },
+  "searchPlaceholder": {
+    "message": "搜索标题、URL 或域名..."
+  },
+  "webSearchPlaceholder": {
+    "message": "您可直接输入搜索内容，「🫡 YesSir」会在新标签页内展示搜索结果"
+  },
+  "webSearchModeTabSwitch": {
+    "message": "按 Tab 切换"
+  },
+  "webSearchModeWordWeb": {
+    "message": "网页搜索"
+  },
+  "webSearchModeWordMode": {
+    "message": "模式"
+  },
+  "webSearchEnterTitle": {
+    "message": "点击或按回车执行网页搜索"
+  },
+  "btnAiGroup": {
+    "message": "AI 聚合"
+  },
+  "btnAiGroupTitle": {
+    "message": "AI 智能聚类：仅在当前窗口内按子主题创建标签组"
+  },
+  "btnUndo": {
+    "message": "后悔药"
+  },
+  "btnUndoTitle": {
+    "message": "重新打开最近关闭的3个标签页"
+  },
+  "btnSettings": {
+    "message": "设置"
+  },
+  "btnSettingsTitle": {
+    "message": "设置"
+  },
+  "toastNoHttpTabs": {
+    "message": "当前窗口没有可聚合的 http(s) 标签页"
+  },
+  "toastGroupFailed": {
+    "message": "聚合失败：$1"
+  },
+  "toastGroupSuccess": {
+    "message": "✅ 整理完毕，已为您创建 $1 个标签组"
+  },
+  "toastGroupIncomplete": {
+    "message": "聚合未完成"
+  },
+  "toastNeedApiKey": {
+    "message": "请先在设置中配置 DeepSeek API Key"
+  },
+  "toastNetworkDeepSeek": {
+    "message": "网络无法连接 DeepSeek（api.deepseek.com）。请检查网络/代理，或在扩展页重新加载本扩展后再试。"
+  },
+  "toastAiParseError": {
+    "message": "AI 返回格式异常，请重试"
+  },
+  "toastNoGroupableTabs": {
+    "message": "没有可聚合的页面"
+  },
+  "themeModalNotReady": {
+    "message": "主题模式弹窗暂未就绪，请刷新页面后重试"
+  },
+  "themeModalTitle": {
+    "message": "🎨 主题模式"
+  },
+  "themeLight": {
+    "message": "白昼"
+  },
+  "themeSystem": {
+    "message": "跟随系统"
+  },
+  "themeDark": {
+    "message": "黑夜"
+  },
+  "themeCaption": {
+    "message": "明以察物，暗以观心。"
+  },
+  "languageModalTitle": {
+    "message": "🌐 界面语言"
+  },
+  "languageChinese": {
+    "message": "简体中文"
+  },
+  "languageEnglish": {
+    "message": "English"
+  },
+  "languageCaption": {
+    "message": "默认跟随浏览器语言，手动选择后立即生效。"
+  },
+  "menuModifierKeys": {
+    "message": "修饰键设置"
+  },
+  "menuApiKey": {
+    "message": "API Key 设置"
+  },
+  "menuTheme": {
+    "message": "主题模式"
+  },
+  "menuLanguage": {
+    "message": "界面语言"
+  },
+  "menuFloatingStatsOn": {
+    "message": "统计浮窗：开启"
+  },
+  "menuFloatingStatsOff": {
+    "message": "统计浮窗：关闭"
+  },
+  "menuRateExtension": {
+    "message": "我要好评"
+  },
+  "feedbackFlyoutNotReady": {
+    "message": "好评弹窗暂未就绪，请刷新页面后重试"
+  },
+  "footerPrevTab": {
+    "message": "上一个标签页："
+  },
+  "footerUntitled": {
+    "message": "(无标题)"
+  },
+  "footerQuickSwitch": {
+    "message": "$1 + E 快速切回"
+  },
+  "footerEmptyPrevTab": {
+    "message": "随便切换个网页，这里就会记录你的上一个标签页啦 👇"
+  },
+  "errorWebSearchFailed": {
+    "message": "网页搜索失败"
+  },
+  "listAiSwitchingToAiSearch": {
+    "message": "💡 未找到精确匹配结果，已自动切换至 AI 模糊搜索..."
+  },
+  "listBgUnreachable": {
+    "message": "无法连接扩展后台，请重试或重新加载扩展。"
+  },
+  "listNoMatchingTabs": {
+    "message": "未找到匹配的标签页"
+  },
+  "listNoMatchForKeyword": {
+    "message": "「🫡 YesSir」翻遍了所有角落，似乎没有关于「$1」的记录"
+  },
+  "aiSearchBannerLabel": {
+    "message": "✨ AI 搜索"
+  },
+  "webSuggestLoading": {
+    "message": "🕵️ 正在搜索边界巡逻中..."
+  },
+  "webSuggestNoSuggestionsFor": {
+    "message": "🙁 未找到「$1」相关建议，可直接按 Enter 搜索"
+  },
+  "webSuggestEnterHint": {
+    "message": "Enter 搜索"
+  },
+  "processingGroupingTabs": {
+    "message": "YesSir，正在整理 $1 个标签页，请稍作等待…"
+  },
+  "toastUsageRecorded": {
+    "message": "🫡 YesSir，已记录本次使用，累计 $1 次"
+  },
+  "modifierModalTitle": {
+    "message": "⌨️ 修饰键设置"
+  },
+  "modifierModalDesc": {
+    "message": "按住修饰键双击空白处关闭当前标签页 & 双击修饰键呼出标签页管理看板。"
+  },
+  "apiKeyModalTitle": {
+    "message": "🔑 API Key 设置"
+  },
+  "apiKeyModalBody": {
+    "message": "「🫡 YesSir」标签页管理的 AI 功能依托于大模型处理，当前版本仅支持配置 DeepSeek 提供的 API key。"
+  },
+  "apiKeyShowTitle": {
+    "message": "显示 API key"
+  },
+  "apiKeyHideTitle": {
+    "message": "隐藏 API key"
+  },
+  "btnCancel": {
+    "message": "取消"
+  },
+  "btnSave": {
+    "message": "确定"
+  },
+  "statsLoading": {
+    "message": "加载中…"
+  },
+  "statsTitle5d": {
+    "message": "「🫡 YesSir」近 5 天使用统计"
+  },
+  "statsDoubleTapPanel": {
+    "message": "双击 $1 呼出面板"
+  },
+  "statsToday": {
+    "message": "今日"
+  },
+  "statsFiveDaySum": {
+    "message": "五日合计"
+  },
+  "statsTimes": {
+    "message": "次"
+  },
+  "floatSettingsTitle": {
+    "message": "修饰键设置"
+  },
+  "floatSettingsDesc": {
+    "message": "双击关闭 & 双击修饰键切换<br>均使用此快捷键触发"
+  },
+  "feedbackFlyoutTitle": {
+    "message": "🫡 报告长官！"
+  },
+  "feedbackFlyoutBody1": {
+    "message": "看到您高频使用「🫡 YesSir」，希望它有帮到您。若觉得顺手，欢迎在商店赐予好评 ✨"
+  },
+  "feedbackFlyoutBody2": {
+    "message": "若有建议也欢迎直接反馈："
+  },
+  "feedbackReviewBtn": {
+    "message": "去商店好评"
+  },
+  "toastSwitchFailed": {
+    "message": "切换失败：$1"
+  },
+  "toastNoPrevTab": {
+    "message": "暂无上一个标签页可切换"
+  },
+  "toastPrevTabClosed": {
+    "message": "上一个标签页已关闭或不存在"
+  },
+  "toastPrevTabUnknown": {
+    "message": "😅 上一个标签页似乎已关闭或无记录"
+  },
+  "toastExtensionBusy": {
+    "message": "扩展暂时未响应，请轻点页面后再试或刷新本页（睡眠唤醒后较常见）。"
+  },
+  "bgNothingToRestore": {
+    "message": "没有可恢复的标签页"
+  },
+  "bgSwitchSuccess": {
+    "message": "🫡 YesSir，已切回上一个标签页"
+  },
+  "bgSearchNeedKeyword": {
+    "message": "请输入搜索关键词"
+  },
+  "bgSearchFailed": {
+    "message": "搜索失败"
+  },
+  "windowLabelCurrent": {
+    "message": "当前"
+  },
+  "windowLabelOther": {
+    "message": "其他窗口"
   }
 }

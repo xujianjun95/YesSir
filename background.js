@@ -3,6 +3,7 @@ importScripts('rules.js');
 importScripts('bg-core.js');
 importScripts('bg-telemetry.js');
 importScripts('bg-ai-network.js');
+importScripts('bg-i18n.js');
 importScripts('bg-messages.js');
 
 // 与拆分前单文件 background.js 一致：三个异步恢复按 1→2→3 触发（在全部脚本执行完之后）

@@ -126,6 +126,42 @@ function ensureYsThemeStylesInjected() {
         }
         `;
     document.head.appendChild(style);
+    ysEnsureSystemThemeMediaListener();
+}
+
+/**
+ * Storage 中为 system 时在 DOM 上映射成 dark/light。
+ * :root[data-ys-theme=dark] 不依赖宿主页的 @media，避免站点 color-scheme: light 导致系统深色下仍误判为浅色。
+ */
+function ysResolvedThemeFromStored(mode) {
+    const m = mode || 'system';
+    if (m === 'dark' || m === 'light') return m;
+    try {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch (_) {
+        return 'light';
+    }
+}
+
+function ysApplyDataThemeAttr(storedThemeMode) {
+    document.documentElement.setAttribute(
+        'data-ys-theme',
+        ysResolvedThemeFromStored(storedThemeMode != null ? storedThemeMode : 'system'),
+    );
+}
+
+function ysEnsureSystemThemeMediaListener() {
+    if (window.__ysSysThemeMqBound || !window.matchMedia) return;
+    window.__ysSysThemeMqBound = true;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => {
+        chrome.storage.local.get({ themeMode: 'system' }, (res) => {
+            if ((res.themeMode || 'system') !== 'system') return;
+            ysApplyDataThemeAttr('system');
+        });
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else if (mq.addListener) mq.addListener(onChange);
 }
 
 let modifierKey = defaultModifierKeyForPlatform();
@@ -152,7 +188,7 @@ function showToast(count) {
 
     const toast = document.createElement('div');
     toast.id = 'my-geek-toast';
-    toast.innerText = `🫡 Yes Sir，已记录本次使用，累计 ${count} 次`;
+    toast.innerText = typeof ysT === 'function' ? ysT('toastUsageRecorded', [String(count)]) : `🫡 YesSir，已记录本次使用，累计 ${count} 次`;
 
     Object.assign(toast.style, {
         position:           'fixed',
@@ -160,16 +196,16 @@ function showToast(count) {
         left:               '50%',
         transform:          'translateX(-50%)',
         padding:            '9px 18px',
-        background:         'rgba(250, 252, 255, 0.9)',
+        background:         'var(--ys-card-bg, rgba(250, 252, 255, 0.9))',
         backdropFilter:     'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border:             '1px solid rgba(255, 255, 255, 0.9)',
+        border:             '1px solid var(--ys-card-border, rgba(255, 255, 255, 0.52))',
         borderRadius:       '10px',
-        color:              'rgba(40, 50, 70, 0.95)',
+        color:              'var(--ys-text-primary, rgba(40, 50, 70, 0.95))',
         fontSize:           '13px',
         fontWeight:         '600',
         letterSpacing:      '0.01em',
-        boxShadow:          '0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8)',
+        boxShadow:          'var(--ys-card-shadow, 0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8))',
         zIndex:             '2147483647',
         pointerEvents:      'none',
         opacity:            '0',
@@ -203,16 +239,16 @@ function showYsMessageToast(message, durationMs = 3200) {
         transform:          'translateX(-50%)',
         padding:            '9px 18px',
         maxWidth:           'min(92vw, 420px)',
-        background:         'rgba(250, 252, 255, 0.9)',
+        background:         'var(--ys-card-bg, rgba(250, 252, 255, 0.9))',
         backdropFilter:     'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border:             '1px solid rgba(255, 255, 255, 0.9)',
+        border:             '1px solid var(--ys-card-border, rgba(255, 255, 255, 0.52))',
         borderRadius:       '10px',
-        color:              'rgba(40, 50, 70, 0.95)',
+        color:              'var(--ys-text-primary, rgba(40, 50, 70, 0.95))',
         fontSize:           '13px',
         fontWeight:         '600',
         letterSpacing:      '0.01em',
-        boxShadow:          '0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8)',
+        boxShadow:          'var(--ys-card-shadow, 0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8))',
         zIndex:             '2147483647',
         pointerEvents:      'none',
         opacity:            '0',
@@ -374,12 +410,12 @@ function openYsModal(title, renderContent) {
 
 // 1. 修饰键设置弹窗
 function showModifierSettingsModal() {
-    openYsModal('⌨️ 修饰键设置', (container) => {
+    openYsModal(ysT('modifierModalTitle'), (container) => {
         const render = () => {
             const keys = modifierKeysForPlatform();
             let html = `
                 <div style="font-size:12px;color:var(--ys-text-secondary, rgba(100,110,130,0.85));margin-bottom:12px;line-height:1.5;">
-                    按住修饰键双击空白处关闭当前标签页 & 双击修饰键呼出标签页管理看板。
+                    ${ysT('modifierModalDesc')}
                 </div>
                 <div style="display:flex;flex-direction:column;gap:6px;">
             `;
@@ -422,10 +458,10 @@ function showModifierSettingsModal() {
 
 // 2. API Key 设置弹窗
 function showApiKeyModal() {
-    openYsModal('🔑 API Key 设置', (container, close) => {
+    openYsModal(ysT('apiKeyModalTitle'), (container, close) => {
         container.innerHTML = `
             <div style="font-size:12px;color:var(--ys-text-secondary, rgba(100,110,130,0.85));line-height:1.5;margin-bottom:12px;">
-                「🫡 Yes Sir」标签页管理的 AI 功能依托于大模型处理，当前版本仅支持配置 DeepSeek 提供的 API key。
+                ${ysT('apiKeyModalBody')}
             </div>
             <div style="position:relative;margin-bottom:16px;">
                 <input type="password" id="ys-apikey-input" placeholder="sk-..." autocomplete="off" style="
@@ -434,7 +470,7 @@ function showApiKeyModal() {
                     color:var(--ys-text-primary, rgba(40,50,70,0.9)); font-size:13px; outline:none; box-sizing:border-box;
                     box-shadow:inset 0 1px 2px rgba(0,0,0,0.02); transition:border-color 0.2s;
                 ">
-                <button id="ys-apikey-visibility-toggle" type="button" title="显示/隐藏 API key" style="
+                <button id="ys-apikey-visibility-toggle" type="button" title="${ysT('apiKeyShowTitle')}" style="
                     position:absolute; right:8px; top:50%; transform:translateY(-50%);
                     width:28px; height:28px; border:none; border-radius:7px;
                     background:var(--ys-btn-bg, rgba(0,0,0,0.04)); cursor:pointer;
@@ -443,8 +479,8 @@ function showApiKeyModal() {
                 ">😎</button>
             </div>
             <div style="display:flex; justify-content:flex-end; gap:8px;">
-                <button id="ys-apikey-cancel" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-btn-border, rgba(0,0,0,0.1)); background:var(--ys-btn-bg, rgba(255,255,255,0.5)); cursor:pointer; font-size:13px; color:var(--ys-text-primary, rgba(60,70,80,0.9)); font-weight:500; transition:background 0.15s;">取消</button>
-                <button id="ys-apikey-save" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-accent-hover); background:var(--ys-accent); color:#ffffff; cursor:pointer; font-size:13px; font-weight:600; transition:background 0.15s, box-shadow 0.15s; box-shadow:0 2px 6px var(--ys-accent-bg);">确定</button>
+                <button id="ys-apikey-cancel" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-btn-border, rgba(0,0,0,0.1)); background:var(--ys-btn-bg, rgba(255,255,255,0.5)); cursor:pointer; font-size:13px; color:var(--ys-text-primary, rgba(60,70,80,0.9)); font-weight:500; transition:background 0.15s;">${ysT('btnCancel')}</button>
+                <button id="ys-apikey-save" style="padding:7px 16px; border-radius:8px; border:1px solid var(--ys-accent-hover); background:var(--ys-accent); color:#ffffff; cursor:pointer; font-size:13px; font-weight:600; transition:background 0.15s, box-shadow 0.15s; box-shadow:0 2px 6px var(--ys-accent-bg);">${ysT('btnSave')}</button>
             </div>
         `;
 
@@ -466,7 +502,7 @@ function showApiKeyModal() {
             const showing = input.type === 'text';
             input.type = showing ? 'password' : 'text';
             visibilityBtn.textContent = showing ? '😎' : '🙂';
-            visibilityBtn.title = showing ? '显示 API key' : '隐藏 API key';
+            visibilityBtn.title = showing ? ysT('apiKeyShowTitle') : ysT('apiKeyHideTitle');
         });
 
         chrome.storage.local.get(['deepseekApiKey'], (res) => {
@@ -505,7 +541,7 @@ let _ysFloatWidgetStorageHooked = false;
 function initFloatingWidget() {
     ensureYsThemeStylesInjected();
     chrome.storage.local.get({ themeMode: 'system' }, (res) => {
-        document.documentElement.setAttribute('data-ys-theme', res.themeMode || 'system');
+        ysApplyDataThemeAttr(res.themeMode);
     });
     if (!_ysFloatWidgetStorageHooked) {
         _ysFloatWidgetStorageHooked = true;
@@ -518,7 +554,7 @@ function initFloatingWidget() {
                 if (!show && panel) panel.style.display = 'none';
             }
             if (changes.themeMode) {
-                document.documentElement.setAttribute('data-ys-theme', changes.themeMode.newValue || 'system');
+                ysApplyDataThemeAttr(changes.themeMode.newValue);
             }
         });
     }
@@ -698,7 +734,7 @@ function initFloatingWidget() {
     }
 
     function renderChartView() {
-        panel.innerHTML = `<div style="font-size:11px;color:var(--ys-text-muted);text-align:center;padding:12px 0;">加载中…</div>`;
+        panel.innerHTML = `<div style="font-size:11px;color:var(--ys-text-muted);text-align:center;padding:12px 0;">${ysT('statsLoading')}</div>`;
         ysRuntimeSendMessageRetry({ action: 'get_daily_stats' }, {}, (response, err) => {
             const dailyStats = (!err && response && response.dailyStats) ? response.dailyStats : {};
             buildChartContent(dailyStats);
@@ -724,20 +760,20 @@ function initFloatingWidget() {
 
         panel.innerHTML = `
           <div style="display:flex;justify-content:center;align-items:center;margin-bottom:4px;">
-            <span style="font-size:12px;font-weight:600;color:var(--ys-text-title);letter-spacing:0.01em;">「🫡 Yes Sir」近 5 天使用统计</span>
+            <span style="font-size:12px;font-weight:600;color:var(--ys-text-title);letter-spacing:0.01em;">${ysT('statsTitle5d')}</span>
           </div>
           <div style="text-align:center;font-size:10px;color:var(--ys-text-secondary);line-height:1.45;margin-bottom:8px;padding:0 4px;word-break:keep-all;">
-            双击 ${modShort} 呼出面板
+            ${ysT('statsDoubleTapPanel', [modShort])}
           </div>
           <div style="display:flex;justify-content:center;align-items:center;width:100%;">
             ${buildSVGChart(days)}
           </div>
           <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:4px;">
-            <span style="font-size:10px;color:var(--ys-text-secondary);">今日 <b style="font-size:13px;font-weight:700;color:var(--ys-accent)">${todayCount}</b> 次</span>
+            <span style="font-size:10px;color:var(--ys-text-secondary);">${ysT('statsToday')} <b style="font-size:13px;font-weight:700;color:var(--ys-accent)">${todayCount}</b> ${ysT('statsTimes')}</span>
             <div style="display:flex;align-items:center;gap:4px;">
-              <span style="font-size:10px;color:var(--ys-text-secondary);">五日合计</span>
+              <span style="font-size:10px;color:var(--ys-text-secondary);">${ysT('statsFiveDaySum')}</span>
               <span style="font-size:13px;font-weight:700;color:var(--ys-accent);">${total5}</span>
-              <span style="font-size:10px;color:var(--ys-text-secondary);">次</span>
+              <span style="font-size:10px;color:var(--ys-text-secondary);">${ysT('statsTimes')}</span>
             </div>
           </div>`;
     }
@@ -756,10 +792,10 @@ function initFloatingWidget() {
                 <path d="M9 3L5 7L9 11" stroke="rgba(60,80,160,0.9)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
               </svg>
             </button>
-            <span style="font-size:12px;font-weight:600;color:rgba(60,70,110,0.85);">修饰键设置</span>
+            <span style="font-size:12px;font-weight:600;color:rgba(60,70,110,0.85);">${ysT('floatSettingsTitle')}</span>
           </div>
           <div style="font-size:10px;color:rgba(120,130,160,0.6);margin-bottom:8px;line-height:1.5;">
-            双击关闭 & 双击修饰键切换<br>均使用此快捷键触发
+            ${ysT('floatSettingsDesc')}
           </div>
           <div id="ys-key-options" style="display:flex;flex-direction:column;gap:5px;">
             ${keys.map(k => `
@@ -961,7 +997,7 @@ function renderFeedbackFlyout(id, dismissedKey) {
 
     flyout.innerHTML = `
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">
-        <div style="font-size:14px;font-weight:700;letter-spacing:0.01em;color:var(--ys-text-title, rgba(35,45,70,0.95));">🫡 报告长官！</div>
+        <div style="font-size:14px;font-weight:700;letter-spacing:0.01em;color:var(--ys-text-title, rgba(35,45,70,0.95));">${ysT('feedbackFlyoutTitle')}</div>
         <button id="ys-feedback-close" type="button" style="
           border:none;background:var(--ys-btn-bg, transparent);cursor:pointer;
           width:20px;height:20px;border-radius:6px;line-height:1;
@@ -970,8 +1006,8 @@ function renderFeedbackFlyout(id, dismissedKey) {
         ">×</button>
       </div>
       <div style="margin-top:8px;font-size:12px;line-height:1.62;color:var(--ys-text-secondary, rgba(58,68,90,0.86));">
-        看到您高频使用「🫡 Yes Sir」，希望它有帮到您。若觉得顺手，欢迎在商店赐予好评 ✨
-        <div style="margin-top:8px;">若有建议也欢迎直接反馈：</div>
+        ${ysT('feedbackFlyoutBody1')}
+        <div style="margin-top:8px;">${ysT('feedbackFlyoutBody2')}</div>
         <a href="mailto:xujianjun1995@gmail.com" style="margin-top:3px;display:inline-block;color:var(--ys-accent, rgba(80,110,220,0.95));text-decoration:none;font-weight:600;">xujianjun1995@gmail.com</a>
       </div>
       <div style="display:flex;gap:8px;margin-top:12px;">
@@ -980,7 +1016,7 @@ function renderFeedbackFlyout(id, dismissedKey) {
           background:var(--ys-accent, rgba(80,110,220,0.9));color:#ffffff;font-size:12px;font-weight:600;
           box-shadow:0 3px 10px var(--ys-accent-bg, rgba(80,110,220,0.22));
           transition:background 0.15s ease;
-        ">去商店好评</button>
+        ">${ysT('feedbackReviewBtn')}</button>
       </div>
     `;
 
@@ -1038,17 +1074,17 @@ document.addEventListener('keydown', function(event) {
         }
         ysRuntimeSendMessageRetry({ action: 'switch_to_last_tab' }, { maxRetries: 3 }, (res, err) => {
             if (err) {
-                showYsMessageToast('切换失败：' + err, SWITCH_TOAST_MS);
+                showYsMessageToast(ysT('toastSwitchFailed', [err]), SWITCH_TOAST_MS);
                 return;
             }
             if (res && res.success) {
                 // 成功提示已改为在目标标签页弹出（background -> show_message_toast）
             } else if (res && res.reason === 'no_last') {
-                showYsMessageToast('暂无上一个标签页可切换', SWITCH_TOAST_MS);
+                showYsMessageToast(ysT('toastNoPrevTab'), SWITCH_TOAST_MS);
             } else if (res && res.reason === 'gone') {
-                showYsMessageToast('上一个标签页已关闭或不存在', SWITCH_TOAST_MS);
+                showYsMessageToast(ysT('toastPrevTabClosed'), SWITCH_TOAST_MS);
             } else {
-                showYsMessageToast('😅 上一个标签页似乎已关闭或无记录', SWITCH_TOAST_MS);
+                showYsMessageToast(ysT('toastPrevTabUnknown'), SWITCH_TOAST_MS);
             }
         });
         return;
@@ -1070,7 +1106,7 @@ document.addEventListener('keydown', function(event) {
                 ysRuntimeSendMessageRetry({ action: 'get_tabs' }, {}, (res, err) => {
                     if (err) {
                         showYsMessageToast(
-                            '扩展暂时未响应，请轻点页面后再试或刷新本页（睡眠唤醒后较常见）。',
+                            ysT('toastExtensionBusy'),
                             4200,
                         );
                         return;
@@ -1095,7 +1131,7 @@ chrome.runtime.onMessage.addListener((request) => {
     if (request.action === 'show_toast') {
         showToast(request.count);
     } else if (request.action === 'show_message_toast') {
-        showYsMessageToast(request.message || '🫡 Yes Sir', Number(request.durationMs) || 2800);
+        showYsMessageToast(request.message || '🫡 YesSir', Number(request.durationMs) || 2800);
     } else if (request.action === 'force_hide_switcher') {
         if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
             hideSwitcher();
@@ -1114,5 +1150,6 @@ function bootstrap() {
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bootstrap);
 } else {
-    bootstrap();
+    // 其余 content script（含 00-i18n）在同一次注入序列中稍后执行，推迟到下一 macrotask
+    setTimeout(bootstrap, 0);
 }

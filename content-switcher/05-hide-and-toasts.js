@@ -1,6 +1,11 @@
 // ─── 05 关闭面板、初始高亮、聚合进度条与通用 Toast（依赖 02 的 updateSwitcherSelection）──────
 
-function hideSwitcher() {
+/**
+ * @param {{ immediate?: boolean }} [opts]
+ * immediate：立即从 DOM 移除（用于 showSwitcher 换肤/换语言等「马上建新面板」场景，避免与旧 DOM 共存的重复 id，导致 focus/Tab 绑到错误节点）
+ */
+function hideSwitcher(opts) {
+    const immediate = !!(opts && opts.immediate);
     switcherVisible = false;
     switcherTabs    = [];
     switcherCurrentWindowId = null;
@@ -17,6 +22,11 @@ function hideSwitcher() {
     const overlay = document.getElementById('ys-switcher-overlay');
     if (!overlay) return;
     const card = document.getElementById('ys-switcher-card');
+
+    if (immediate) {
+        overlay.remove();
+        return;
+    }
 
     overlay.style.opacity = '0';
     if (card) card.style.transform = 'scale(0.93) translateY(6px)';
@@ -49,16 +59,16 @@ function showProcessingToast(count) {
         transform: 'translateX(-50%)',
         padding: '9px 18px',
         maxWidth: 'min(92vw, 440px)',
-        background: 'rgba(250, 252, 255, 0.9)',
+        background: 'var(--ys-card-bg, rgba(250, 252, 255, 0.9))',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.9)',
+        border: '1px solid var(--ys-card-border, rgba(255, 255, 255, 0.52))',
         borderRadius: '10px',
-        color: 'rgba(40, 50, 70, 0.95)',
+        color: 'var(--ys-text-primary, rgba(40, 50, 70, 0.95))',
         fontSize: '13px',
         fontWeight: '600',
         letterSpacing: '0.01em',
-        boxShadow: '0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8)',
+        boxShadow: 'var(--ys-card-shadow, 0 8px 24px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8))',
         zIndex: '2147483647',
         pointerEvents: 'none',
         opacity: '0',
@@ -97,7 +107,7 @@ function showProcessingToast(count) {
     emojiSlot.appendChild(emojiSpan);
 
     const textSpan = document.createElement('span');
-    textSpan.textContent = `Yes Sir，正在整理 ${count} 个标签页，请稍作等待…`;
+    textSpan.textContent = ysT('processingGroupingTabs', [String(count)]);
 
     toast.appendChild(emojiSlot);
     toast.appendChild(textSpan);

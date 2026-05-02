@@ -1,8 +1,263 @@
 {
   "extensionName": {
-    "message": "AI Tab Groups, Semantic Search, Cross-Window, Double-Click Close-YesSir:"
+    "message": "AI Tab Groups, Semantic Search, Cross-Window, Double-Click to Close – YesSir"
   },
   "extensionDescription": {
-    "message": "YesSir: AI-powered cross-window tab organization. Featuring auto-grouping, instant switching, and smart semantic search in a sleek glassmorphism design. Say goodbye to tab chaos forever."
+    "message": "YesSir: AI-powered cross-window tab organization, auto-grouping, fast switching, double-click to close, semantic search, and a frosted-glass UI—so your tabs stay under control."
+  },
+  "panelTitle": {
+    "message": "\"🫡 YesSir\" Tab Manager"
+  },
+  "searchPlaceholder": {
+    "message": "Search titles, URLs, or domains..."
+  },
+  "webSearchPlaceholder": {
+    "message": "Type a query—YesSir will open results in a new tab."
+  },
+  "webSearchModeTabSwitch": {
+    "message": "Press Tab for"
+  },
+  "webSearchModeWordWeb": {
+    "message": "web search"
+  },
+  "webSearchModeWordMode": {
+    "message": "mode"
+  },
+  "webSearchEnterTitle": {
+    "message": "Click or press Enter to search the web"
+  },
+  "btnAiGroup": {
+    "message": "AI group"
+  },
+  "btnAiGroupTitle": {
+    "message": "Group tabs by topic with AI (this window only)"
+  },
+  "btnUndo": {
+    "message": "Restore"
+  },
+  "btnUndoTitle": {
+    "message": "Reopen the last 3 closed tabs"
+  },
+  "btnSettings": {
+    "message": "Settings"
+  },
+  "btnSettingsTitle": {
+    "message": "Settings"
+  },
+  "toastNoHttpTabs": {
+    "message": "No http(s) tabs in this window to group."
+  },
+  "toastGroupFailed": {
+    "message": "Couldn’t group tabs: $1"
+  },
+  "toastGroupSuccess": {
+    "message": "✅ Done—created $1 tab groups."
+  },
+  "toastGroupIncomplete": {
+    "message": "Grouping didn’t finish."
+  },
+  "toastNeedApiKey": {
+    "message": "Add a DeepSeek API key in Settings first."
+  },
+  "toastNetworkDeepSeek": {
+    "message": "Can’t reach DeepSeek (api.deepseek.com). Check your network or VPN, or reload the extension from chrome://extensions."
+  },
+  "toastAiParseError": {
+    "message": "The model returned an unexpected format. Try again."
+  },
+  "toastNoGroupableTabs": {
+    "message": "No tabs available to group."
+  },
+  "themeModalNotReady": {
+    "message": "Theme dialog isn’t ready. Refresh the page and try again."
+  },
+  "themeModalTitle": {
+    "message": "🎨 Theme"
+  },
+  "themeLight": {
+    "message": "Light"
+  },
+  "themeSystem": {
+    "message": "Match system"
+  },
+  "themeDark": {
+    "message": "Dark"
+  },
+  "themeCaption": {
+    "message": "Light for focus by day; dark for calm at night."
+  },
+  "languageModalTitle": {
+    "message": "🌐 Language"
+  },
+  "languageChinese": {
+    "message": "简体中文"
+  },
+  "languageEnglish": {
+    "message": "English"
+  },
+  "languageCaption": {
+    "message": "Defaults to your browser language. Manual changes apply instantly."
+  },
+  "menuModifierKeys": {
+    "message": "Modifier keys"
+  },
+  "menuApiKey": {
+    "message": "API key"
+  },
+  "menuTheme": {
+    "message": "Theme"
+  },
+  "menuLanguage": {
+    "message": "Language"
+  },
+  "menuFloatingStatsOn": {
+    "message": "Usage widget: On"
+  },
+  "menuFloatingStatsOff": {
+    "message": "Usage widget: Off"
+  },
+  "menuRateExtension": {
+    "message": "Rate on Chrome Web Store"
+  },
+  "feedbackFlyoutNotReady": {
+    "message": "Feedback card isn’t ready. Refresh the page and try again."
+  },
+  "footerPrevTab": {
+    "message": "Previous tab:"
+  },
+  "footerUntitled": {
+    "message": "(Untitled)"
+  },
+  "footerQuickSwitch": {
+    "message": "$1 + E to go back"
+  },
+  "footerEmptyPrevTab": {
+    "message": "Switch to another tab once—your previous tab will show up here 👇"
+  },
+  "errorWebSearchFailed": {
+    "message": "Web search failed"
+  },
+  "listAiSwitchingToAiSearch": {
+    "message": "💡 No exact matches—switching to AI-powered search..."
+  },
+  "listBgUnreachable": {
+    "message": "Can’t reach the extension background. Try again or reload the extension."
+  },
+  "listNoMatchingTabs": {
+    "message": "No matching tabs."
+  },
+  "listNoMatchForKeyword": {
+    "message": "YesSir couldn’t find anything for “$1”."
+  },
+  "aiSearchBannerLabel": {
+    "message": "✨ AI search"
+  },
+  "webSuggestLoading": {
+    "message": "🕵️ Fetching suggestions..."
+  },
+  "webSuggestNoSuggestionsFor": {
+    "message": "🙁 No suggestions for “$1”. Press Enter to search anyway."
+  },
+  "webSuggestEnterHint": {
+    "message": "Enter · Search"
+  },
+  "processingGroupingTabs": {
+    "message": "YesSir—organizing $1 tabs. Just a moment…"
+  },
+  "toastUsageRecorded": {
+    "message": "🫡 YesSir—logged. Total uses: $1."
+  },
+  "modifierModalTitle": {
+    "message": "⌨️ Modifier keys"
+  },
+  "modifierModalDesc": {
+    "message": "Hold a modifier and double-click empty space to close the tab. Double-tap the modifier to open the tab manager."
+  },
+  "apiKeyModalTitle": {
+    "message": "🔑 API key"
+  },
+  "apiKeyModalBody": {
+    "message": "AI features use a large language model. This build supports a DeepSeek API key only."
+  },
+  "apiKeyShowTitle": {
+    "message": "Show API key"
+  },
+  "apiKeyHideTitle": {
+    "message": "Hide API key"
+  },
+  "btnCancel": {
+    "message": "Cancel"
+  },
+  "btnSave": {
+    "message": "Save"
+  },
+  "statsLoading": {
+    "message": "Loading…"
+  },
+  "statsTitle5d": {
+    "message": "\"🫡 YesSir\" — last 5 days"
+  },
+  "statsDoubleTapPanel": {
+    "message": "Double-click $1 to open this panel"
+  },
+  "statsToday": {
+    "message": "Today"
+  },
+  "statsFiveDaySum": {
+    "message": "5-day total"
+  },
+  "statsTimes": {
+    "message": "uses"
+  },
+  "floatSettingsTitle": {
+    "message": "Modifier keys"
+  },
+  "floatSettingsDesc": {
+    "message": "Same shortcut for double-click close & double-tap to switch panels."
+  },
+  "feedbackFlyoutTitle": {
+    "message": "🫡 Thanks for using YesSir!"
+  },
+  "feedbackFlyoutBody1": {
+    "message": "You’ve been using YesSir a lot—we hope it helps. If it does, a quick review on the Chrome Web Store means a lot ✨"
+  },
+  "feedbackFlyoutBody2": {
+    "message": "Suggestions? Reach out:"
+  },
+  "feedbackReviewBtn": {
+    "message": "Leave a review"
+  },
+  "toastSwitchFailed": {
+    "message": "Couldn’t switch: $1"
+  },
+  "toastNoPrevTab": {
+    "message": "No previous tab to switch to."
+  },
+  "toastPrevTabClosed": {
+    "message": "That tab was closed or isn’t available anymore."
+  },
+  "toastPrevTabUnknown": {
+    "message": "😅 Can’t find that previous tab."
+  },
+  "toastExtensionBusy": {
+    "message": "Extension didn’t respond—click the page and try again, or refresh (common after the background wakes up)."
+  },
+  "bgNothingToRestore": {
+    "message": "Nothing to restore."
+  },
+  "bgSwitchSuccess": {
+    "message": "🫡 YesSir—back to your previous tab."
+  },
+  "bgSearchNeedKeyword": {
+    "message": "Enter a search query."
+  },
+  "bgSearchFailed": {
+    "message": "Search failed."
+  },
+  "windowLabelCurrent": {
+    "message": "This window"
+  },
+  "windowLabelOther": {
+    "message": "Other windows"
   }
 }

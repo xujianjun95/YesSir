@@ -3,7 +3,7 @@
  *
  * 功能：
  *  - 代替用户持有 DeepSeek API Key，新用户无需自己申请即可体验 AI 功能
- *  - 按设备 UUID + 功能分桶限流（聚合 / 搜索 / 页面标签）；分类、站点名等走 general 不占三档额度
+ *  - 按设备 UUID + 功能分桶限流（聚合 / 搜索）；页面标签与分类、站点名等不占每日额度
  *  - 限流维度同时认请求头 X-YesSir-Feature 与 JSON body._yessir_quota（防止网关丢弃自定义头导致误计为 general）
  *  - 透明转发请求到 DeepSeek，不修改任何 prompt / 响应内容
  *  - 429 / 部分 400 文案随 Accept-Language（首语言为 en 时用英文，否则中文）
@@ -13,7 +13,6 @@
  *  PORT=3001                          监听端口（Nginx 反代过来）
  *  DAILY_LIMIT_AGGREGATE=10           AI 聚合：每设备每天最多次数（默认 10）
  *  DAILY_LIMIT_SEARCH=10             AI 搜索：每设备每天最多次数（默认 10）
- *  DAILY_LIMIT_PAGE_LABEL_TABS=100    页面标签：每设备每天最多计数的标签页数（默认 100）
  */
 
 const http = require('http');
@@ -26,7 +25,6 @@ const DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY || '';
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const LIMIT_AGGREGATE = parseInt(process.env.DAILY_LIMIT_AGGREGATE || '10', 10);
 const LIMIT_SEARCH = parseInt(process.env.DAILY_LIMIT_SEARCH || '10', 10);
-const LIMIT_PAGE_LABEL_TABS = parseInt(process.env.DAILY_LIMIT_PAGE_LABEL_TABS || '100', 10);
 
 if (!DEEPSEEK_API_KEY) {
     console.error('[YesSir Proxy] 错误：未配置 DEEPSEEK_API_KEY 环境变量，服务无法启动');
@@ -52,7 +50,7 @@ function getOrCreateEntry(uuid) {
 
 /**
  * @param {string} feature - aggregate | search | page_labels | general
- * @param {number} units - page_labels 时为本批标签页数量
+ * @param {number} units - page_labels 时为本批标签页数量；当前仅计数，不限额
  */
 function checkQuota(uuid, feature, units) {
     const f = String(feature || 'general').toLowerCase().trim();
@@ -306,7 +304,7 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
     console.log(`[YesSir Proxy] 服务已启动，监听端口 ${PORT}`);
     console.log(
-        `[YesSir Proxy] 限额：聚合 ${LIMIT_AGGREGATE}/天 · 搜索 ${LIMIT_SEARCH}/天 · 页面标签 ${LIMIT_PAGE_LABEL_TABS} tab/天 · general 不占额`,
+        `[YesSir Proxy] 限额：聚合 ${LIMIT_AGGREGATE}/天 · 搜索 ${LIMIT_SEARCH}/天 · 页面标签不设上限 · general 不占额`,
     );
 });
 

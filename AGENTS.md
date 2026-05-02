@@ -24,10 +24,13 @@ YesSir/
 ├── background.js             # Service Worker 入口：importScripts 与启动恢复
 ├── rules.js                  # 分组 / 域名等共享规则（被 SW import）
 ├── bg-core.js                # 标签轨迹、favicon 缓存、设备 UUID 等
+├── bg-telemetry.js           # 安装/更新/日活上报（依赖 bg-core 设备标识）
 ├── bg-ai-network.js          # DeepSeek、AI 快照/聚类、搜索建议等网络逻辑
+├── bg-i18n.js                # Service Worker 文案 `bgT`（chrome.i18n + storage `uiLanguage`）
 ├── bg-messages.js            # chrome.runtime.onMessage 唯一路由
 ├── content.js                # 页面内入口：消息重试封装、快捷键、与后台通信
 ├── content-switcher/         # 标签切换面板（按 manifest 顺序加载）
+│   ├── 00-i18n.js            # 前台 `ysT`、语言/主题相关辅助（须紧接 content.js 之后）
 │   ├── 01-utils-and-state.js
 │   ├── 02-selection-and-scroll.js
 │   ├── 03-build-tab-item.js
@@ -44,15 +47,15 @@ YesSir/
 └── .github/workflows/deploy.yml
 ```
 
-`manifest.json` 中声明的 `web_accessible_resources` 含 `_favicon/*`；代码中通过 `chrome-extension://…/_favicon/?pageUrl=…` 使用浏览器提供的 favicon 能力（见 `content-switcher/01-utils-and-state.js`），**仓库内未必存在物理 `_favicon/` 目录**。
+`manifest.json` 中声明的 `web_accessible_resources` 含 `_favicon/*` 与 `_locales/*/messages.json`：前者供 favicon 能力（见 `01-utils-and-state.js`），后者供 `00-i18n.js` 在 content 中 `fetch` 英文/中文扁平文案；**仓库内未必存在物理 `_favicon/` 目录**。
 
 ---
 
 ## 3. 项目是什么（技术要点）
 
 - **Chrome 扩展（Manifest V3）**，名称与描述走 i18n：`manifest.json` 中 `__MSG_extensionName__` 等，默认语言 `zh_CN`（见 `_locales/zh_CN/messages.json`、`en`）。
-- **当前版本号**：见 `manifest.json` 的 `"version"` 字段（编写时为 `1.4`）。
-- **根目录 `proxy-server/`**：独立的 **Node.js 中转服务**，用于 DeepSeek 代理与限流；**不属于**扩展打包进 `.crx` 的部分，需单独部署。
+- **当前版本号**：见 `manifest.json` 的 `"version"` 字段（当前为 `1.5.1`）。
+- **根目录 `proxy-server/`**：独立的 **Node.js 中转服务**，用于 DeepSeek 代理与限流；当前仅对 AI 聚合与 AI 搜索设置每日限额，页面标签不设每日上限；**不属于**扩展打包进 `.crx` 的部分，需单独部署。
 
 ---
 
@@ -61,6 +64,7 @@ YesSir/
 - **后台**：`manifest.json` → `"background": { "service_worker": "background.js" }`。
 - **内容脚本**：`manifest.json` → `content_scripts[0].js` 数组，**顺序敏感**（同一页面共享全局作用域，见下节）。
 - **权限 / 主机权限**：以 `manifest.json` 中 `permissions`、`host_permissions` 为准（含 `tabs`、`storage`、`sessions`、`tabGroups`、`windows`、`favicon`、`search` 及 DeepSeek/中转/搜索建议域名）。
+- **`web_accessible_resources`**：`_favicon/*`、`_locales/en|zh_CN/messages.json`（与前台 i18n `fetch` 一致，勿删）。
 
 ---
 
@@ -70,8 +74,10 @@ YesSir/
 
 1. `rules.js` — 与分组/域名/分类规范化等相关的共享函数（被 `bg-ai-network.js` 等使用）。
 2. `bg-core.js` — 全局标签轨迹（Mod+E「上一个标签」）、favicon 缓存、设备 UUID 等。
-3. `bg-ai-network.js` — DeepSeek 调用、AI 快照/聚类、搜索建议 `fetch` 等。
-4. `bg-messages.js` — **唯一**注册 `chrome.runtime.onMessage` 的消息路由。
+3. `bg-telemetry.js` — 安装/更新/日活上报（`api.pmtools.com.cn/yessir/telemetry`，依赖设备 UUID 等）。
+4. `bg-ai-network.js` — DeepSeek 调用、AI 快照/聚类、搜索建议 `fetch` 等。
+5. `bg-i18n.js` — Service Worker 侧 `bgT`（`chrome.i18n` + `storage.uiLanguage` 覆盖）。
+6. `bg-messages.js` — **唯一**注册 `chrome.runtime.onMessage` 的消息路由（依赖上述模块中的处理函数与工具）。
 
 `background.js` 在全部 `importScripts` 执行完毕后，依次调用（与历史单文件行为对齐）：
 
@@ -87,16 +93,17 @@ YesSir/
 
 `manifest.json` 中 `js` 数组**从上到下**执行，须满足：
 
-1. **`content.js` 必须第一个** — 提供 `ysRuntimeSendMessageRetry`、`window.__ysRuntimeSendMessageRetry`、弹窗/浮窗等；`content-switcher` 内通过 `ysSendToBg` 依赖该封装。
-2. 随后为 `content-switcher/` 下模块，**数字与 04b 顺序固定**：
+1. **`content.js` 必须第一个** — 提供 `ysRuntimeSendMessageRetry`、`window.__ysRuntimeSendMessageRetry`、弹窗/浮窗、主题 CSS 注入等；`content-switcher` 内通过 `ysSendToBg` 依赖该封装。
+2. **`content-switcher/00-i18n.js` 必须第二个** — `ysT`、`ysRefreshI18nFromStorage`、`ysGetResolvedLanguage`、`ysIsEnglishPageLabelsPreferred` 等；后续模块及列表渲染依赖其先于 `bootstrap` 类逻辑执行（见 `content.js` 中非 `loading` 分支的 `setTimeout(…, 0)` 约定）。
+3. 随后为 `content-switcher/` 下模块，**数字与 04b 顺序固定**：
    - `01-utils-and-state.js`
    - `02-selection-and-scroll.js`
    - `03-build-tab-item.js`
    - `04b-switcher-list-bundle.js` — `ysSwitcherAttachListRenderBundle`（列表渲染与网页建议等）
    - `04-show-switcher.js` — `showSwitcher` 主流程
-   - `05-hide-and-toasts.js` — `hideSwitcher`、处理中 Toast 等
+   - `05-hide-and-toasts.js` — `hideSwitcher`（支持 `{ immediate: true }` 立即移除旧 overlay，避免重复 id）、处理中 Toast 等
 
-新增 `content-switcher` 文件时：**不要**破坏「`04b` 在 `04` 之前」的依赖关系；大段逻辑应放在新文件并在 `manifest` 中插入到正确位置。
+新增 `content-switcher` 文件时：**不要**破坏「`00-i18n` 紧接 `content.js`」与「`04b` 在 `04` 之前」的依赖关系；大段逻辑应放在新文件并在 `manifest` 中插入到正确位置。
 
 ---
 
@@ -162,10 +169,11 @@ YesSir/
 
 ---
 
-## 11. 与 AI 相关的网络路径
+## 11. 与 AI / 遥测相关的网络路径
 
 - 扩展内直连：`api.deepseek.com`（用户自填 Key 等逻辑见 `bg-ai-network.js`）。
-- 中转：`api.pmtools.com.cn`（与 manifest `host_permissions` 一致）。
+- 中转：`api.pmtools.com.cn`（与 manifest `host_permissions` 一致；含错误文案、代理调用等）。
+- 遥测：`api.pmtools.com.cn/yessir/telemetry`（`bg-telemetry.js`，POST JSON，非用户可配开关逻辑以代码为准）。
 - 搜索建议：`suggestqueries.google.com`（见 `bg-ai-network.js` 中 `fetchSearchSuggestions`）。
 
 ---
@@ -173,7 +181,7 @@ YesSir/
 ## 12. `proxy-server/`
 
 - Node HTTP(S) 服务，入口 `proxy-server/server.js`。
-- 用途与限流说明见该文件头部注释；环境变量（如 `DEEPSEEK_API_KEY`、`PORT`、每日限额）以注释为准。
+- 用途与限流说明见该文件头部注释；环境变量（如 `DEEPSEEK_API_KEY`、`PORT`、AI 聚合/搜索每日限额）以注释为准；页面标签当前不设每日上限。
 - **不**随扩展自动运行；本地开发需自行 `npm`/`node` 启动。
 
 ---

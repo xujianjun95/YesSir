@@ -87,8 +87,14 @@ function matchesAiKeywordInString(haystack, kw) {
 }
 
 const TAB_ROW_ICON_VISIBLE_OPACITY = '0.7';
-const SWITCHER_DEFAULT_PLACEHOLDER = '搜索标题、URL 或域名...';
-const SWITCHER_WEB_SEARCH_PLACEHOLDER = '您可直接输入搜索内容，「🫡 Yes Sir」会在新标签页内展示搜索结果';
+
+/** 需在 00-i18n 加载后调用（面板打开时） */
+function ysSwitcherPlaceholderDefault() {
+    return typeof ysT === 'function' ? ysT('searchPlaceholder') : 'Search titles, URLs, or domains...';
+}
+function ysSwitcherPlaceholderWeb() {
+    return typeof ysT === 'function' ? ysT('webSearchPlaceholder') : '';
+}
 const WEB_SUGGESTION_SELECTED_BG = 'rgba(80, 110, 220, 0.1)';
 
 /** 键盘/鼠标共用的「选中行」背景（与当前页蓝底区分） */

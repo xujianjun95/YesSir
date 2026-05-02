@@ -2,26 +2,9 @@
 
 function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     chrome.storage.local.get({ themeMode: 'system' }, (res) => {
-        document.documentElement.setAttribute('data-ys-theme', res.themeMode);
+        if (typeof ysApplyDataThemeAttr === 'function') ysApplyDataThemeAttr(res.themeMode);
+        else document.documentElement.setAttribute('data-ys-theme', res.themeMode || 'system');
     });
-    // 单例监听系统主题变化：仅在跟随系统时触发实时同步
-    if (window.matchMedia && !window.__ysThemeSystemListenerBound) {
-        const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-        const onSystemThemeChange = () => {
-            chrome.storage.local.get({ themeMode: 'system' }, (res) => {
-                if (res.themeMode === 'system') {
-                    document.documentElement.setAttribute('data-ys-theme', 'system');
-                }
-            });
-        };
-        if (typeof mediaQuery.addEventListener === 'function') {
-            mediaQuery.addEventListener('change', onSystemThemeChange);
-        } else if (typeof mediaQuery.addListener === 'function') {
-            mediaQuery.addListener(onSystemThemeChange);
-        }
-        window.__ysThemeSystemListenerBound = true;
-    }
-
     ensureYsThemeStylesInjected();
 
     const mode = { isWebSearchMode: false, isTabAnimating: false };
@@ -33,7 +16,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         savedScrollTop = oldList.scrollTop;
     }
 
-    hideSwitcher();
+    hideSwitcher({ immediate: true });
     // 接管成本地可变数组：后续关闭单个标签时可直接 splice + 重绘，无需整块重建面板
     tabs = tabs.slice();
     switcherCurrentWindowId = currentWindowId;
@@ -106,7 +89,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     header.innerHTML = `
       <div style="display:flex; justify-content:space-between; align-items:center; min-height:28px;">
-        <span style="font-size:14px;font-weight:700;color:var(--ys-text-title);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;user-select:none;-webkit-user-select:none;">「🫡 Yes Sir」标签页管理</span>
+        <span style="font-size:14px;font-weight:700;color:var(--ys-text-title);letter-spacing:0.02em;white-space:nowrap;flex-shrink:0;user-select:none;-webkit-user-select:none;">${ysT('panelTitle')}</span>
         
         <div id="ys-top-actions" style="display:flex; gap:8px; position:relative; align-items:center;"></div>
       </div>
@@ -122,7 +105,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
           <circle cx="7" cy="7" r="5" stroke="var(--ys-search-icon)" stroke-width="1.5"/>
           <path d="M11 11L14 14" stroke="var(--ys-search-icon)" stroke-width="1.5" stroke-linecap="round"/>
         </svg>
-        <input id="ys-search-input" type="text" placeholder="${SWITCHER_DEFAULT_PLACEHOLDER}" style="
+        <input id="ys-search-input" type="text" placeholder="${ysSwitcherPlaceholderDefault()}" style="
           width:100%; padding:9px 12px 9px 34px;
           border:none; background:transparent;
           font-size:13px; color:var(--ys-text-primary); outline:none;
@@ -134,8 +117,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
           z-index:2; color:var(--ys-text-secondary); font-size:12px;
           pointer-events:none; white-space:nowrap;
           transition:opacity 0.2s ease; opacity:1;
-        "><span>(按 Tab 切换</span><span id="ys-web-mode-word" style="display:inline-flex;"><span id="ys-web-mode-highlight" style="color:var(--ys-accent);font-weight:700;text-shadow:0 0 6px var(--ys-accent-glow);">网页搜索</span><span style="color:var(--ys-text-secondary);font-weight:400;">模式</span></span><span>)</span></div>
-        <button id="ys-web-search-enter-btn" type="button" title="点击或按回车执行网页搜索" style="
+        "><span>(</span><span>${ysT('webSearchModeTabSwitch')} </span><span id="ys-web-mode-word" style="display:inline-flex;"><span id="ys-web-mode-highlight" style="color:var(--ys-accent);font-weight:700;text-shadow:0 0 6px var(--ys-accent-glow);">${ysT('webSearchModeWordWeb')}</span><span style="color:var(--ys-text-secondary);font-weight:400;"> ${ysT('webSearchModeWordMode')}</span></span><span>)</span></div>
+        <button id="ys-web-search-enter-btn" type="button" title="${ysT('webSearchEnterTitle')}" style="
           position:absolute; right:6px; top:50%;
           transform:translateY(-50%) scale(0.5) translateX(10px);
           opacity:0; pointer-events:none;
@@ -245,26 +228,26 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     }
 
     // 1. AI 聚合 (核心功能：🤖 全息青绿)
-    const aiGroupBtn = createFluidButton('ys-ai-group-btn', '🤖', 'AI 聚合', {
+    const aiGroupBtn = createFluidButton('ys-ai-group-btn', '🤖', ysT('btnAiGroup'), {
         defaultBg: '--ys-ai-bg',
         hoverBg: '--ys-ai-hover',
         border: '--ys-ai-border',
         text: '--ys-ai-text',
-    }, 'AI 智能聚类：仅在当前窗口内按子主题创建标签组', { lockExpanded: true });
+    }, ysT('btnAiGroupTitle'), { lockExpanded: true });
 
-    const regretBtn = createFluidButton('ys-regret-btn', '💊', '后悔药', {
+    const regretBtn = createFluidButton('ys-regret-btn', '💊', ysT('btnUndo'), {
         defaultBg: '--ys-btn-bg',
         hoverBg: '--ys-btn-hover',
         border: '--ys-btn-border',
         text: '--ys-btn-text',
-    }, '重新打开最近关闭的3个标签页');
+    }, ysT('btnUndoTitle'));
 
-    const settingsBtn = createFluidButton('ys-main-settings-btn', '⚙️', '设置', {
+    const settingsBtn = createFluidButton('ys-main-settings-btn', '⚙️', ysT('btnSettings'), {
         defaultBg: '--ys-btn-bg',
         hoverBg: '--ys-btn-hover',
         border: '--ys-btn-border',
         text: '--ys-btn-text',
-    }, '设置');
+    }, ysT('btnSettingsTitle'));
 
     topActions.appendChild(aiGroupBtn);
     topActions.appendChild(regretBtn);
@@ -290,7 +273,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             tabsToProcess = tabsToProcess.filter((t) => Number(t.windowId) === wid);
         }
         if (tabsToProcess.length === 0) {
-            showYsMessageToast('当前窗口没有可聚合的 http(s) 标签页', 2800);
+            showYsMessageToast(ysT('toastNoHttpTabs'), 2800);
             return;
         }
 
@@ -303,25 +286,25 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             finishProcessing();
 
             if (err) {
-                showCustomToast('聚合失败：' + err, 4000);
+                showCustomToast(ysT('toastGroupFailed', [err]), 4000);
                 return;
             }
             if (res && res.success) {
-                showCustomToast(`✅ 整理完毕，已为您创建 ${res.groupCount} 个标签组`, 3200);
+                showCustomToast(ysT('toastGroupSuccess', [String(res.groupCount)]), 3200);
                 setTimeout(() => hideSwitcher(), 1500);
             } else {
-                let hint = '聚合未完成';
-                if (res && res.error === 'no_api_key') hint = '请先在设置中配置 DeepSeek API Key';
+                let hint = ysT('toastGroupIncomplete');
+                if (res && res.error === 'no_api_key') hint = ysT('toastNeedApiKey');
                 else if (res && res.error === 'rate_limit' && res.message) {
                     showCustomToast(res.message, 5200);
                     return;
                 } else if (res && res.message) {
                     hint = res.message;
                     if (/failed to fetch|networkerror|load failed/i.test(hint)) {
-                        hint = '网络无法连接 DeepSeek（api.deepseek.com）。请检查网络/代理，或在扩展页重新加载本扩展后再试。';
+                        hint = ysT('toastNetworkDeepSeek');
                     }
-                } else if (res && res.error === 'parse_failed') hint = 'AI 返回格式异常，请重试';
-                else if (res && res.error === 'no_http_tabs') hint = '没有可聚合的页面';
+                } else if (res && res.error === 'parse_failed') hint = ysT('toastAiParseError');
+                else if (res && res.error === 'no_http_tabs') hint = ysT('toastNoGroupableTabs');
                 showCustomToast('⚠️ ' + hint, 5500);
             }
         });
@@ -380,15 +363,15 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
         const showThemeModeModal = () => {
             if (typeof openYsModal !== 'function') {
-                showCustomToast('主题模式弹窗暂未就绪，请刷新页面后重试', 2200);
+                showCustomToast(ysT('themeModalNotReady'), 2200);
                 return;
             }
-            openYsModal('🎨 主题模式', (container) => {
+            openYsModal(ysT('themeModalTitle'), (container) => {
                 chrome.storage.local.get({ themeMode: 'system' }, (resTheme) => {
                     const modes = [
-                        { val: 'light', icon: '☀️', title: '白昼' },
-                        { val: 'system', icon: '💻', title: '跟随系统' },
-                        { val: 'dark', icon: '🌙', title: '黑夜' },
+                        { val: 'light', icon: '☀️', title: ysT('themeLight') },
+                        { val: 'system', icon: '💻', title: ysT('themeSystem') },
+                        { val: 'dark', icon: '🌙', title: ysT('themeDark') },
                     ];
                     let currentThemeMode = resTheme.themeMode;
 
@@ -450,7 +433,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                         btn.addEventListener('click', () => {
                             currentThemeMode = m.val;
                             chrome.storage.local.set({ themeMode: currentThemeMode });
-                            document.documentElement.setAttribute('data-ys-theme', currentThemeMode);
+                            if (typeof ysApplyDataThemeAttr === 'function') ysApplyDataThemeAttr(currentThemeMode);
+                            else document.documentElement.setAttribute('data-ys-theme', currentThemeMode);
                             renderSegmentState();
                         });
                         segmentCtrl.appendChild(btn);
@@ -458,7 +442,120 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     renderSegmentState();
 
                     const caption = document.createElement('div');
-                    caption.textContent = '明以察物，暗以观心。';
+                    caption.textContent = ysT('themeCaption');
+                    Object.assign(caption.style, {
+                        marginTop: '2px',
+                        paddingTop: '2px',
+                        textAlign: 'center',
+                        fontSize: '11px',
+                        color: 'var(--ys-text-muted)',
+                        letterSpacing: '0.03em',
+                        lineHeight: '1.6',
+                    });
+
+                    segmentWrap.appendChild(segmentCtrl);
+                    root.appendChild(segmentWrap);
+                    root.appendChild(caption);
+                    container.replaceChildren(root);
+                });
+            });
+        };
+
+        const showLanguageModeModal = () => {
+            if (typeof openYsModal !== 'function') {
+                showCustomToast(ysT('themeModalNotReady'), 2200);
+                return;
+            }
+            openYsModal(ysT('languageModalTitle'), (container) => {
+                chrome.storage.local.get({ uiLanguage: 'auto' }, (resLang) => {
+                    const modes = [
+                        { val: 'zh_CN', icon: '🇨🇳', title: ysT('languageChinese') },
+                        { val: 'en', icon: '🇬🇧', title: ysT('languageEnglish') },
+                    ];
+                    let currentLang = resLang.uiLanguage || 'auto';
+                    if (currentLang === 'system') currentLang = 'auto';
+                    // auto 视为浏览器语言对应的那一个
+                    const resolved = (typeof ysGetResolvedLanguage === 'function') ? ysGetResolvedLanguage() : 'zh_CN';
+
+                    const root = document.createElement('div');
+                    Object.assign(root.style, {
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '14px',
+                    });
+
+                    const segmentWrap = document.createElement('div');
+                    Object.assign(segmentWrap.style, {
+                        display: 'flex',
+                        justifyContent: 'center',
+                    });
+
+                    const segmentCtrl = document.createElement('div');
+                    Object.assign(segmentCtrl.style, {
+                        display: 'flex',
+                        background: 'var(--ys-btn-bg)',
+                        borderRadius: '10px',
+                        padding: '4px',
+                        gap: '6px',
+                    });
+
+                    const renderSegmentState = () => {
+                        // auto 时高亮浏览器语言对应的按钮；手动选择后直接高亮选中项
+                        const activeLang = currentLang === 'auto' ? resolved : currentLang;
+                        Array.from(segmentCtrl.children).forEach((c, idx) => {
+                            const active = activeLang === modes[idx].val;
+                            c.style.background = active ? 'var(--ys-accent-bg)' : 'transparent';
+                            c.style.border = active ? '1px solid var(--ys-accent-hover)' : '1px solid transparent';
+                            c.style.boxShadow = active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none';
+                            c.style.opacity = active ? '1' : '0.65';
+                        });
+                    };
+
+                    modes.forEach((m) => {
+                        const btn = document.createElement('div');
+                        btn.textContent = m.icon;
+                        btn.title = m.title;
+                        Object.assign(btn.style, {
+                            minWidth: '52px',
+                            height: '34px',
+                            padding: '0 14px',
+                            fontSize: '18px',
+                            cursor: 'pointer',
+                            borderRadius: '8px',
+                            border: '1px solid transparent',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            transition: 'background 0.2s, box-shadow 0.2s, opacity 0.2s',
+                        });
+                        btn.addEventListener('mouseenter', () => {
+                            if (currentLang !== m.val) btn.style.background = 'var(--ys-btn-hover)';
+                        });
+                        btn.addEventListener('mouseleave', () => {
+                            if (currentLang !== m.val) btn.style.background = 'transparent';
+                        });
+                        btn.addEventListener('click', () => {
+                            currentLang = m.val;
+                            chrome.storage.local.set({ uiLanguage: currentLang }, () => {
+                                ysRefreshI18nFromStorage(() => {
+                                    // 关闭设置菜单和所有 openYsModal 模态框，整体刷新面板
+                                    const oldMenu = document.getElementById('ys-settings-dropdown');
+                                    if (oldMenu) oldMenu.remove();
+                                    // openYsModal 创建的 overlay 挂在 document.body 上
+                                    document.querySelectorAll('body > div').forEach((el) => {
+                                        if (el.style.zIndex === '2147483648') el.remove();
+                                    });
+                                    showSwitcher(switcherTabs, true, switcherCurrentWindowId);
+                                });
+                            });
+                            renderSegmentState();
+                        });
+                        segmentCtrl.appendChild(btn);
+                    });
+                    renderSegmentState();
+
+                    const caption = document.createElement('div');
+                    caption.textContent = ysT('languageCaption');
                     Object.assign(caption.style, {
                         marginTop: '2px',
                         paddingTop: '2px',
@@ -479,25 +576,30 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
         chrome.storage.local.get({ showFloatingWidget: true }, (res) => {
             // 1. 修饰键设置
-            menu.appendChild(createItem('⌨️', '修饰键设置', showModifierSettingsModal));
+            menu.appendChild(createItem('⌨️', ysT('menuModifierKeys'), showModifierSettingsModal));
 
             // 2. API Key 设置
-            menu.appendChild(createItem('🔑', 'API Key 设置', showApiKeyModal));
+            menu.appendChild(createItem('🔑', ysT('menuApiKey'), showApiKeyModal));
 
             // 3. 主题模式（弹窗内三段式）
-            menu.appendChild(createItem('🎨', '主题模式', showThemeModeModal));
+            menu.appendChild(createItem('🎨', ysT('menuTheme'), showThemeModeModal));
 
-            // 4. 统计浮窗开关
+            // 4. 界面语言
+            menu.appendChild(createItem('🌐', ysT('menuLanguage'), showLanguageModeModal));
+
+            // 5. 统计浮窗开关
             const isEnabled = res.showFloatingWidget !== false;
             const floatToggle = createItem(
                 isEnabled ? '🟢' : '⚪',
-                `统计浮窗：${isEnabled ? '开启' : '关闭'}`,
+                isEnabled ? ysT('menuFloatingStatsOn') : ysT('menuFloatingStatsOff'),
                 (itemEl) => {
                     chrome.storage.local.get({ showFloatingWidget: true }, (r) => {
                         const nextState = r.showFloatingWidget === false;
                         chrome.storage.local.set({ showFloatingWidget: nextState }, () => {
                             itemEl.querySelector('span:first-child').innerText = nextState ? '🟢' : '⚪';
-                            itemEl.querySelector('span:last-child').innerText = `统计浮窗：${nextState ? '开启' : '关闭'}`;
+                            itemEl.querySelector('span:last-child').innerText = nextState
+                                ? ysT('menuFloatingStatsOn')
+                                : ysT('menuFloatingStatsOff');
                         });
                     });
                 },
@@ -505,14 +607,14 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             );
             menu.appendChild(floatToggle);
 
-            // 5. 主动呼出好评/反馈弹窗（放到统计浮窗下面）
-            menu.appendChild(createItem('👏', '我要好评', () => {
+            // 6. 主动呼出好评/反馈弹窗（放到统计浮窗下面）
+            menu.appendChild(createItem('👏', ysT('menuRateExtension'), () => {
                 const flyoutId = 'ys-feedback-flyout';
                 if (typeof renderFeedbackFlyout === 'function') {
                     if (document.getElementById(flyoutId)) return;
                     renderFeedbackFlyout(flyoutId, 'ysFeedbackDismissed');
                 } else {
-                    showCustomToast('好评弹窗暂未就绪，请刷新页面后重试', 2200);
+                    showCustomToast(ysT('feedbackFlyoutNotReady'), 2200);
                 }
             }));
         });
@@ -627,17 +729,21 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
         e.stopPropagation();
         const winIdRaw = item.dataset.windowId;
+        const switchPayload = { action: 'switch_tab', tabId };
         if (winIdRaw) {
             const windowId = Number(winIdRaw);
             if (Number.isFinite(windowId)) {
-                chrome.runtime.sendMessage({ action: 'switch_tab_global', tabId, windowId });
-            } else {
-                chrome.runtime.sendMessage({ action: 'switch_tab', tabId });
+                switchPayload.action = 'switch_tab_global';
+                switchPayload.windowId = windowId;
             }
-        } else {
-            chrome.runtime.sendMessage({ action: 'switch_tab', tabId });
         }
         hideSwitcher();
+        ysSendToBg(switchPayload, { maxRetries: 3 }, (res, err) => {
+            if (err || !res || !res.success) {
+                const msg = err || (res && res.error) || ysT('toastPrevTabUnknown');
+                showYsMessageToast(ysT('toastSwitchFailed', [String(msg)]), 2800);
+            }
+        });
     });
 
 
@@ -648,6 +754,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         renderWebSuggestions,
         requestWebSuggestions,
         moveWebSuggestionSelection,
+        getSelectedWebSuggestion,
+        isWebSuggestionKeyboardNavActive,
+        clearWebSuggestionKeyboardNavActive,
         invalidateAiSearch,
         invalidateWebSuggestions,
     } = listApi;
@@ -683,7 +792,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 flex: '1',
             });
             const lab = document.createElement('span');
-            lab.textContent = '上一个标签页：';
+            lab.textContent = ysT('footerPrevTab');
             Object.assign(lab.style, {
                 fontSize: '11px',
                 color: 'var(--ys-text-muted)',
@@ -711,7 +820,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             }
 
             const titleEl = document.createElement('span');
-            titleEl.textContent = lt.title || '(无标题)';
+            titleEl.textContent = lt.title || ysT('footerUntitled');
             Object.assign(titleEl.style, {
                 fontSize: '12px',
                 color: 'var(--ys-text-secondary)',
@@ -727,7 +836,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             const modRaw = MOD_LABELS[modifierKey] || '';
             const modParts = String(modRaw).split(/\s+/);
             const modLabel = modParts.length > 1 ? modParts[modParts.length - 1] : modRaw;
-            hint.textContent = `${modLabel} + E 快速切回`;
+            hint.textContent = ysT('footerQuickSwitch', [modLabel]);
             Object.assign(hint.style, {
                 fontSize: '11px',
                 color: 'var(--ys-accent)',
@@ -741,7 +850,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             footer.appendChild(hint);
         } else {
             const empty = document.createElement('div');
-            empty.textContent = '随便切换个网页，这里就会记录你的上一个标签页啦 👇';
+            empty.textContent = ysT('footerEmptyPrevTab');
             Object.assign(empty.style, { fontSize: '11px', color: 'var(--ys-text-muted)' });
             footer.appendChild(empty);
         }
@@ -787,7 +896,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         if (!keyword) return;
         ysSendToBg({ action: 'search_web', keyword }, {}, (res, err) => {
             if (err || !res || !res.success) {
-                const errMsg = (res && res.error) ? String(res.error) : (err || '网页搜索失败');
+                const errMsg = (res && res.error) ? String(res.error) : (err || ysT('errorWebSearchFailed'));
                 showCustomToast(`⚠️ ${errMsg}`, 2600);
                 return;
             }
@@ -802,7 +911,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             invalidateAiSearch();
             // 先清场，避免上一模式结果残留；再按当前输入拉建议
             renderWebSuggestions([], '', { animate: true });
-            searchInput.placeholder = SWITCHER_WEB_SEARCH_PLACEHOLDER;
+            searchInput.placeholder = ysSwitcherPlaceholderWeb();
             searchInput.style.paddingRight = '88px';
             if (webSearchEnterBtn) {
                 webSearchEnterBtn.style.opacity = '1';
@@ -816,9 +925,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             requestWebSuggestions(searchInput.value, true);
         } else {
             invalidateWebSuggestions();
-            currentWebSuggestions = [];
-            webSuggestionSelIdx = -1;
-            searchInput.placeholder = SWITCHER_DEFAULT_PLACEHOLDER;
+            searchInput.placeholder = ysSwitcherPlaceholderDefault();
             searchInput.style.paddingRight = '12px';
             if (webSearchEnterBtn) {
                 webSearchEnterBtn.style.opacity = '0';
@@ -925,8 +1032,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 if (mode.isWebSearchMode) {
-                    if (webSuggestionSelIdx >= 0 && currentWebSuggestions[webSuggestionSelIdx]) {
-                        searchInput.value = currentWebSuggestions[webSuggestionSelIdx];
+                    const selectedSuggestion = getSelectedWebSuggestion();
+                    if (selectedSuggestion) {
+                        searchInput.value = selectedSuggestion;
                     }
                     submitWebSearch();
                     return;
@@ -962,8 +1070,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (e.key === 'Enter') {
                 if (e.isComposing) return;
                 e.preventDefault();
-                if (webSuggestionSelIdx >= 0 && currentWebSuggestions[webSuggestionSelIdx] && searchInput) {
-                    searchInput.value = currentWebSuggestions[webSuggestionSelIdx];
+                const selectedSuggestion = getSelectedWebSuggestion();
+                if (selectedSuggestion && searchInput) {
+                    searchInput.value = selectedSuggestion;
                 }
                 submitWebSearch();
                 return;
@@ -997,8 +1106,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     switcherMouseMoveHandler = (e) => {
         if (lastMX === e.clientX && lastMY === e.clientY) return;
         lastMX = e.clientX; lastMY = e.clientY;
-        if (mode.isWebSearchMode && webSuggestionKeyboardNavActive) {
-            webSuggestionKeyboardNavActive = false;
+        if (mode.isWebSearchMode && isWebSuggestionKeyboardNavActive()) {
+            clearWebSuggestionKeyboardNavActive();
         }
         if (!switcherKeyboardNavActive) return;
         switcherKeyboardNavActive = false;
@@ -1085,7 +1194,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
         if (res.labels) {
             Object.entries(res.labels).forEach(([tabId, label]) => {
-                if (label && tabPageLabelMap[tabId] !== label) {
+                if (!label || (typeof label !== 'object' && typeof label !== 'string')) return;
+                const prev = tabPageLabelMap[tabId];
+                const changed = JSON.stringify(prev) !== JSON.stringify(label);
+                if (changed) {
                     tabPageLabelMap[tabId] = label;
                     shouldRerender = true;
                 }

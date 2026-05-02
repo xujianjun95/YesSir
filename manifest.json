@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "__MSG_extensionName__",
-    "version": "1.5",
+    "version": "1.5.1",
     "description": "__MSG_extensionDescription__",
     "default_locale": "zh_CN",
     "permissions": [
@@ -20,7 +20,11 @@
     ],
     "web_accessible_resources": [
       {
-        "resources": ["_favicon/*"],
+        "resources": [
+          "_favicon/*",
+          "_locales/en/messages.json",
+          "_locales/zh_CN/messages.json"
+        ],
         "matches": ["<all_urls>"]
       }
     ],
@@ -37,6 +41,7 @@
         "matches": ["<all_urls>"],
         "js": [
           "content.js",
+          "content-switcher/00-i18n.js",
           "content-switcher/01-utils-and-state.js",
           "content-switcher/02-selection-and-scroll.js",
           "content-switcher/03-build-tab-item.js",

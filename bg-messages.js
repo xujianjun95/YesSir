@@ -52,7 +52,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // ── 切换标签页 ──
     else if (request.action === "switch_tab") {
         recordUsage();
-        chrome.tabs.update(request.tabId, { active: true });
+        chrome.tabs.update(request.tabId, { active: true }, () => {
+            const err = chrome.runtime.lastError;
+            sendResponse({ success: !err, error: err ? err.message : undefined });
+        });
+        return true;
     }
 
     // ── 全局切换标签页（支持跨窗口） ──
@@ -83,12 +87,12 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 return;
             }
             if (!sessions || sessions.length === 0) {
-                sendResponse({ success: false, message: "没有可恢复的标签页" });
+                sendResponse({ success: false, message: bgT('bgNothingToRestore') });
                 return;
             }
             const toRestore = sessions.filter((s) => s.tab || s.window);
             if (toRestore.length === 0) {
-                sendResponse({ success: false, message: "没有可恢复的标签页" });
+                sendResponse({ success: false, message: bgT('bgNothingToRestore') });
                 return;
             }
             let pending = toRestore.length;
@@ -130,9 +134,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
             uniqueWindowIds.forEach((id) => {
                 if (currentWindowId !== null && id === currentWindowId) {
-                    windowMap[id] = '当前';
+                    windowMap[id] = bgT('windowLabelCurrent');
                 } else {
-                    windowMap[id] = '其他窗口';
+                    windowMap[id] = bgT('windowLabelOther');
                 }
             });
 
@@ -146,7 +150,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         windowId:   t.windowId,
                         windowName: windowMap[t.windowId] || '',
                         index:      t.index,
-                        title:      t.title || '(无标题)',
+                        title:      t.title || bgT('footerUntitled'),
                         url:        t.url   || '',
                         active:     t.active,
                         favIconUrl: t.favIconUrl || fallbackIcon,
@@ -167,13 +171,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // ── 对指定 tabs 做 AI 预热并返回结果 ──
     else if (request.action === 'prewarm_ai_snapshot') {
         (async () => {
-            const tabList = Array.isArray(request.tabs) ? request.tabs : [];
-            if (tabList.length === 0) {
-                sendResponse({ classification: {}, siteNames: {}, labels: {} });
-                return;
+            try {
+                const tabList = Array.isArray(request.tabs) ? request.tabs : [];
+                if (tabList.length === 0) {
+                    sendResponse({ classification: {}, siteNames: {}, labels: {} });
+                    return;
+                }
+                const snapshot = await computeAiSnapshotForTabs(tabList);
+                sendResponse(snapshot);
+            } catch (err) {
+                console.error('prewarm_ai_snapshot:', err);
+                sendResponse({
+                    classification: {}, siteNames: {}, labels: {},
+                    error: err && err.message ? String(err.message) : String(err),
+                });
             }
-            const snapshot = await computeAiSnapshotForTabs(tabList);
-            sendResponse(snapshot);
         })();
         return true;
     }
@@ -186,21 +198,29 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                 : null;
             const query = sourceWindowId === null ? {} : { windowId: sourceWindowId };
             chrome.tabs.query(query, async (tabs) => {
-                if (chrome.runtime.lastError) {
-                    sendResponse({ success: false, error: chrome.runtime.lastError.message });
-                    return;
+                try {
+                    if (chrome.runtime.lastError) {
+                        sendResponse({ success: false, error: chrome.runtime.lastError.message });
+                        return;
+                    }
+                    const tabList = (tabs || []).map((t) => ({
+                        id: t.id,
+                        title: t.title || '',
+                        url: t.url || '',
+                    }));
+                    if (tabList.length === 0) {
+                        sendResponse({ success: true, skipped: true });
+                        return;
+                    }
+                    await computeAiSnapshotForTabs(tabList);
+                    sendResponse({ success: true });
+                } catch (err) {
+                    console.error('prewarm_ai_current_window:', err);
+                    sendResponse({
+                        success: false,
+                        error: err && err.message ? String(err.message) : String(err),
+                    });
                 }
-                const tabList = (tabs || []).map((t) => ({
-                    id: t.id,
-                    title: t.title || '',
-                    url: t.url || '',
-                }));
-                if (tabList.length === 0) {
-                    sendResponse({ success: true, skipped: true });
-                    return;
-                }
-                await computeAiSnapshotForTabs(tabList);
-                sendResponse({ success: true });
             });
         })();
         return true;
@@ -209,56 +229,71 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // ── DeepSeek：按标签页标题智能分类（带缓存） ──
     else if (request.action === 'classify_tabs') {
         (async () => {
-            const results = {};
-            const siteNames = {};
-            const apiKey = await getDeepSeekApiKey();
-            const tabList = Array.isArray(request.tabs) ? request.tabs : [];
-            const domainNameMemo = new Map();
+            try {
+                const results = {};
+                const siteNames = {};
+                const apiKey = await getDeepSeekApiKey();
+                const tabList = Array.isArray(request.tabs) ? request.tabs : [];
+                const domainNameMemo = new Map();
 
-            await Promise.all(tabList.map(async (tab) => {
-                results[tab.id] = await getSmartCategory(tab.title, tab.url, apiKey);
+                await Promise.all(tabList.map(async (tab) => {
+                    results[tab.id] = await getSmartCategory(tab.title, tab.url, apiKey);
 
-                const domain = getDomainFromUrl(tab.url);
-                if (!domain) {
-                    siteNames[tab.id] = null;
-                    return;
-                }
+                    const domain = getDomainFromUrl(tab.url);
+                    if (!domain) {
+                        siteNames[tab.id] = null;
+                        return;
+                    }
 
-                let pendingSiteName = domainNameMemo.get(domain);
-                if (!pendingSiteName) {
-                    pendingSiteName = getSmartSiteName(tab.title, tab.url, apiKey)
-                        .then((name) => name ?? null)
-                        .catch(() => null);
-                    domainNameMemo.set(domain, pendingSiteName);
-                }
-                siteNames[tab.id] = await pendingSiteName;
-            }));
+                    let pendingSiteName = domainNameMemo.get(domain);
+                    if (!pendingSiteName) {
+                        pendingSiteName = getSmartSiteName(tab.title, tab.url, apiKey)
+                            .then((name) => name ?? null)
+                            .catch(() => null);
+                        domainNameMemo.set(domain, pendingSiteName);
+                    }
+                    siteNames[tab.id] = await pendingSiteName;
+                }));
 
-            sendResponse({ classification: results, siteNames });
+                sendResponse({ classification: results, siteNames });
+            } catch (err) {
+                console.error('classify_tabs:', err);
+                sendResponse({ classification: {}, siteNames: {}, error: err && err.message ? String(err.message) : String(err) });
+            }
         })();
         return true;
     }
 
     else if (request.action === 'get_tab_page_labels') {
         (async () => {
-            const apiKey = await getDeepSeekApiKey();
+            try {
+                const apiKey = await getDeepSeekApiKey();
 
-            const tabList = Array.isArray(request.tabs) ? request.tabs : [];
-            if (tabList.length === 0) { sendResponse({ labels: {} }); return; }
-            const labels = await fetchPageLabelsForTabs(tabList, apiKey);
-            Object.entries(labels).forEach(([id, label]) => {
-                const tab = tabList.find((t) => String(t.id) === String(id));
-                if (!tab) return;
-                const safeLabel = toStablePageLabel(label, tab);
-                aiSnapshotCache.entries[String(id)] = {
-                    ...(aiSnapshotCache.entries[String(id)] || {}),
-                    sig: buildTabSignature(tab),
-                    pageLabel: safeLabel,
-                    updatedAt: Date.now(),
-                };
-            });
-            await persistAiSnapshotCache();
-            sendResponse({ labels });
+                const tabList = Array.isArray(request.tabs) ? request.tabs : [];
+                if (tabList.length === 0) {
+                    sendResponse({ labels: {} });
+                    return;
+                }
+                const fetchedLabels = await fetchPageLabelsForTabs(tabList, apiKey);
+                const labels = {};
+                Object.entries(fetchedLabels).forEach(([id, labelPair]) => {
+                    const tab = tabList.find((t) => String(t.id) === String(id));
+                    if (!tab) return;
+                    const safePair = coerceAndFinalizePageLabel(labelPair, tab);
+                    labels[id] = safePair;
+                    aiSnapshotCache.entries[String(id)] = {
+                        ...(aiSnapshotCache.entries[String(id)] || {}),
+                        sig: buildTabSignature(tab),
+                        pageLabel: safePair,
+                        updatedAt: Date.now(),
+                    };
+                });
+                await persistAiSnapshotCache();
+                sendResponse({ labels });
+            } catch (err) {
+                console.error('get_tab_page_labels:', err);
+                sendResponse({ labels: {}, error: err && err.message ? String(err.message) : String(err) });
+            }
         })();
         return true;
     }
@@ -266,23 +301,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // ── 批量 AI 聚类并创建 Chrome 标签组（需 tabGroups 权限） ──
     else if (request.action === 'ai_batch_group') {
         (async () => {
-            const apiKey = await getDeepSeekApiKey();
-            const tabs = Array.isArray(request.tabs) ? request.tabs : [];
-            let restrictWindowId = request.windowId;
-            if (
-                (restrictWindowId === null || restrictWindowId === undefined)
-                && sender.tab && sender.tab.windowId !== undefined
-            ) {
-                restrictWindowId = sender.tab.windowId;
+            try {
+                const apiKey = await getDeepSeekApiKey();
+                const tabs = Array.isArray(request.tabs) ? request.tabs : [];
+                let restrictWindowId = request.windowId;
+                if (
+                    (restrictWindowId === null || restrictWindowId === undefined)
+                    && sender.tab && sender.tab.windowId !== undefined
+                ) {
+                    restrictWindowId = sender.tab.windowId;
+                }
+                const activeTabId = sender.tab && sender.tab.id !== undefined ? sender.tab.id : null;
+                const result = await performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTabId);
+                sendResponse({
+                    success: !result.error,
+                    groupCount: result.groupCount,
+                    error: result.error,
+                    message: result.message,
+                });
+            } catch (err) {
+                console.error('ai_batch_group:', err);
+                sendResponse({
+                    success: false,
+                    error: 'exception',
+                    message: err && err.message ? String(err.message) : String(err),
+                });
             }
-            const activeTabId = sender.tab && sender.tab.id !== undefined ? sender.tab.id : null;
-            const result = await performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTabId);
-            sendResponse({
-                success: !result.error,
-                groupCount: result.groupCount,
-                error: result.error,
-                message: result.message,
-            });
         })();
         return true;
     }
@@ -290,7 +334,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // ── 切回全局「上一个看过的」标签页（先聚焦窗口再激活标签，需 windows 权限） ──
     else if (request.action === 'switch_to_last_tab') {
         (async () => {
-            await tabHistoryReady;
+            try {
+                await tabHistoryReady;
+            } catch (err) {
+                console.error('switch_to_last_tab (tabHistoryReady):', err);
+                sendResponse({ success: false, reason: 'history_error', error: String(err && err.message || err) });
+                return;
+            }
             const last = globalTabHistory.last;
             if (!last || !last.tabId) {
                 sendResponse({ success: false, reason: 'no_last' });
@@ -326,7 +376,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                         chrome.tabs.sendMessage(tid, { action: 'force_hide_switcher' }).catch(() => {});
                         chrome.tabs.sendMessage(tid, {
                             action: 'show_message_toast',
-                            message: '🫡 Yes Sir，已切回上一个标签页',
+                            message: bgT('bgSwitchSuccess'),
                             durationMs: 2800,
                         }).catch(() => {});
                         sendResponse({ success: true });
@@ -339,16 +389,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     else if (request.action === 'get_last_context') {
         (async () => {
-            await tabHistoryReady;
-            sendResponse({ lastTab: globalTabHistory.last });
+            try {
+                await tabHistoryReady;
+                sendResponse({ lastTab: globalTabHistory.last });
+            } catch (err) {
+                console.error('get_last_context:', err);
+                sendResponse({ lastTab: null, error: err && err.message ? String(err.message) : String(err) });
+            }
         })();
         return true;
     }
 
     else if (request.action === 'get_search_suggestions') {
         (async () => {
-            const suggestions = await fetchSearchSuggestions(request.query);
-            sendResponse({ suggestions });
+            try {
+                const suggestions = await fetchSearchSuggestions(request.query);
+                sendResponse({ suggestions });
+            } catch (err) {
+                console.error('get_search_suggestions:', err);
+                sendResponse({ suggestions: [], error: err && err.message ? String(err.message) : String(err) });
+            }
         })();
         return true;
     }
@@ -357,13 +417,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     else if (request.action === 'search_web') {
         const keyword = String(request.keyword || '').trim();
         if (!keyword) {
-            sendResponse({ success: false, error: '请输入搜索关键词' });
+            sendResponse({ success: false, error: bgT('bgSearchNeedKeyword') });
             return false;
         }
         chrome.search.query({ text: keyword, disposition: 'NEW_TAB' }, () => {
             const err = chrome.runtime.lastError;
             if (err) {
-                sendResponse({ success: false, error: err.message || '搜索失败' });
+                sendResponse({ success: false, error: err.message || bgT('bgSearchFailed') });
                 return;
             }
             sendResponse({ success: true });
@@ -374,14 +434,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // ── AI 自然语言搜索：将用户输入转为匹配关键词 ──
     else if (request.action === 'ai_search_tabs') {
         (async () => {
+            try {
             const apiKey = await getDeepSeekApiKey();
             const query = String(request.query || '').trim();
-            if (!query) { sendResponse({ keywords: [] }); return; }
+            if (!query) {
+                sendResponse({ keywords: [] });
+                return;
+            }
 
             const cacheKey = query.toLowerCase();
             const cachedHit = aiSearchKeywordCache.get(cacheKey);
             if (cachedHit) {
-                // LRU：命中时搬到尾部
+                /* LRU：命中时搬到尾部 */
                 aiSearchKeywordCache.delete(cacheKey);
                 aiSearchKeywordCache.set(cacheKey, cachedHit);
                 sendResponse({ keywords: cachedHit.slice(), cached: true });
@@ -440,6 +504,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             } catch (err) {
                 console.error('AI 搜索失败:', err);
                 let message = String(err && err.message ? err.message : err);
+                if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
+                    message = '网络无法连接 AI 服务。未配置 Key 时需访问中转 api.pmtools.com.cn；请检查网络、在 chrome://extensions 重新加载本扩展（以应用中转域名权限），或直接在设置中填入 DeepSeek API Key。';
+                }
+                sendResponse({ keywords: [], error: 'exception', message });
+            }
+            } catch (outerErr) {
+                console.error('ai_search_tabs:', outerErr);
+                let message = String(outerErr && outerErr.message ? outerErr.message : outerErr);
                 if (/failed to fetch|networkerror|load failed|network request failed/i.test(message)) {
                     message = '网络无法连接 AI 服务。未配置 Key 时需访问中转 api.pmtools.com.cn；请检查网络、在 chrome://extensions 重新加载本扩展（以应用中转域名权限），或直接在设置中填入 DeepSeek API Key。';
                 }

@@ -66,18 +66,77 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
 
 const CATEGORY_CACHE_VERSION = 'v3';
 const SITE_NAME_CACHE_VERSION = 'v2';
-const PAGE_LABEL_CACHE_VERSION = 'v5';
+const PAGE_LABEL_CACHE_VERSION = 'v7';
 
-/** 面板右侧主题词统一为 2~5 字。用 Array.from 而非 .length，兼容代理对。 */
+/** 面板右侧中文主题词 2～5 字（grapheme） */
 function isValidThemeWordLabel(raw) {
     const s = String(raw || '').trim();
     const len = Array.from(s).length;
     return len >= 2 && len <= 5;
 }
 
-function normalizeAllowedPageLabel(raw) {
+/** 英文归纳标签：短句、尽量不撑爆右侧占位（仅 ASCII） */
+function isValidEnglishPageLabel(raw) {
+    const s = String(raw || '').trim().replace(/\s+/g, ' ');
+    const n = s.length;
+    if (n < 3 || n > 22) return false;
+    return /^[\x20-\x7E]+$/.test(s);
+}
+
+function normalizeZhPageLabel(raw) {
     const s = String(raw || '').trim();
     return isValidThemeWordLabel(s) ? s : '';
+}
+
+/** 英文标签泛指黑名单：这些词单独或仅含这些词的标签无信息量，应退化为 fallback */
+const EN_LABEL_BLACKLIST = new Set([
+    'page', 'article', 'website', 'other', 'tab', 'content', 'info', 'online',
+    'web', 'site', 'link', 'home', 'default', 'unknown', 'misc', 'general',
+    'new tab', 'new page', 'blank', 'empty', 'loading',
+]);
+
+function isBlacklistedEnLabel(s) {
+    const lower = String(s).trim().toLowerCase();
+    if (EN_LABEL_BLACKLIST.has(lower)) return true;
+    // "X Page", "X Article" 等以泛指词结尾的也拒绝
+    const lastWord = lower.split(/\s+/).pop();
+    if (['page', 'article', 'website', 'tab', 'content', 'site'].includes(lastWord) && lower.split(/\s+/).length <= 2) return true;
+    return false;
+}
+
+function normalizeEnPageLabel(raw) {
+    const s = String(raw || '').trim().replace(/\s+/g, ' ');
+    if (!isValidEnglishPageLabel(s)) return '';
+    if (isBlacklistedEnLabel(s)) return '';
+    return s;
+}
+
+function normalizeAllowedPageLabel(raw) {
+    return normalizeZhPageLabel(raw);
+}
+
+/** inferFallback 中文与各中文标签对应的简短英文兜底（与 bilingual 补齐共用） */
+const ZH_FALLBACK_LABEL_TO_EN = {
+    '本地页面': 'Local',
+    '报错提示': 'Error',
+    '登录注册': 'Sign-in',
+    '搜索结果': 'Search',
+    '系统设置': 'Settings',
+    '管理后台': 'Admin',
+    '个人主页': 'Profile',
+    '交易结算': 'Checkout',
+    '在线编辑': 'Editor',
+    '媒体播放': 'Media',
+    '商品详情': 'Product',
+    '信息瀑布': 'Feed',
+    '内容列表': 'List',
+    '内容详情': 'Reading',
+};
+
+function zhFallbackEnForLabel(zh) {
+    const z = String(zh || '').trim();
+    /* 兜底勿用 Article/Page — 会与 EN_LABEL_BLACKLIST 冲突被清空 */
+    return ZH_FALLBACK_LABEL_TO_EN[z] || (z ? 'Browse' : '');
 }
 
 function inferFallbackPageLabel(title, url) {
@@ -99,10 +158,77 @@ function inferFallbackPageLabel(title, url) {
     return '内容详情';
 }
 
+/** 兼容旧快照 / storage（纯字符串 zh 或 { zh, en }），统一成中英对 */
+function coerceRawPageLabelPair(raw) {
+    if (raw == null || raw === '') return { zh: '', en: '' };
+    if (typeof raw === 'object') {
+        return {
+            zh: normalizeZhPageLabel(raw.zh),
+            en: normalizeEnPageLabel(raw.en),
+        };
+    }
+    if (typeof raw === 'string') {
+        const zs = normalizeZhPageLabel(raw);
+        if (zs) return { zh: zs, en: '' };
+        const en = normalizeEnPageLabel(raw);
+        return { zh: '', en: en };
+    }
+    return { zh: '', en: '' };
+}
+
+/** 规整并保证英文侧可读：缺一边时用规则或兜底补上 */
+function finalizePageLabelPair(pair, tab) {
+    let zh = normalizeZhPageLabel(pair && pair.zh);
+    let en = normalizeEnPageLabel(pair && pair.en);
+    const fb = inferFallbackPageLabelsBilingual(tab);
+    if (!zh && !en) return fb;
+    if (zh && !en) en = zhFallbackEnForLabel(zh);
+    if (!zh && en) zh = fb.zh;
+    return { zh, en };
+}
+
+function inferFallbackPageLabelsBilingual(tab) {
+    const zh = inferFallbackPageLabel(tab && tab.title, tab && tab.url);
+    return { zh, en: zhFallbackEnForLabel(zh) };
+}
+
+function coerceAndFinalizePageLabel(raw, tab) {
+    return finalizePageLabelPair(coerceRawPageLabelPair(raw), tab);
+}
+
+async function runWithConcurrency(items, limit, worker) {
+    const list = Array.isArray(items) ? items : [];
+    const max = Math.max(1, Number(limit) || 1);
+    let nextIndex = 0;
+    const runners = Array.from({ length: Math.min(max, list.length) }, async () => {
+        for (;;) {
+            const idx = nextIndex++;
+            if (idx >= list.length) return;
+            await worker(list[idx], idx);
+        }
+    });
+    await Promise.all(runners);
+}
+
+/** @deprecated 仅遗留调用；返回值取中文侧 */
 function toStablePageLabel(raw, tab) {
-    const strict = normalizeAllowedPageLabel(raw);
-    if (strict) return strict;
-    return inferFallbackPageLabel(tab && tab.title, tab && tab.url);
+    const p = coerceAndFinalizePageLabel(raw, tab);
+    return p.zh || p.en || inferFallbackPageLabel(tab && tab.title, tab && tab.url);
+}
+
+function pairFromLlmValue(v, tab) {
+    if (v === null || v === undefined) return inferFallbackPageLabelsBilingual(tab);
+    if (typeof v === 'string') {
+        const s = String(v).trim();
+        const zh = normalizeZhPageLabel(s);
+        if (zh) return finalizePageLabelPair({ zh, en: '' }, tab);
+        const enOnly = normalizeEnPageLabel(s);
+        return finalizePageLabelPair({ zh: '', en: enOnly }, tab);
+    }
+    if (typeof v === 'object') {
+        return finalizePageLabelPair({ zh: v.zh, en: v.en }, tab);
+    }
+    return inferFallbackPageLabelsBilingual(tab);
 }
 const AI_SNAPSHOT_STORAGE_KEY = 'aiSnapshotV1';
 const AI_SNAPSHOT_MAX_ENTRIES = 600;
@@ -274,8 +400,9 @@ function buildAiSnapshotFromCache(tabs) {
         if (cached.sig !== buildTabSignature(tab)) return;
         if (cached.category) classification[id] = cached.category;
         if (cached.siteName) siteNames[id] = cached.siteName;
-        const safeLabel = normalizeAllowedPageLabel(cached.pageLabel);
-        if (safeLabel) labels[id] = safeLabel;
+        /* 尚无 pageLabel 字段的旧条目不强行兜底，等与 prewarm/recompute */
+        if (cached.pageLabel === undefined || cached.pageLabel === null) return;
+        labels[id] = coerceAndFinalizePageLabel(cached.pageLabel, tab);
     });
     return { classification, siteNames, labels };
 }
@@ -283,10 +410,14 @@ function buildAiSnapshotFromCache(tabs) {
 async function fetchPageLabelsForTabs(tabList, apiKey) {
     if (!Array.isArray(tabList) || tabList.length === 0) return {};
     const tabDescriptions = tabList.map((t) => {
-        const path = (() => {
-            try { return new URL(t.url).pathname; } catch (_) { return ''; }
-        })();
-        return `ID:${t.id} 标题:${t.title || '(无)'} PATH:${path}`;
+        let host = '';
+        let path = '';
+        try {
+            const u = new URL(t.url);
+            host = u.hostname;
+            path = u.pathname;
+        } catch (_) {}
+        return `ID:${t.id} 标题:${t.title || '(无)'} HOST:${host} PATH:${path}`;
     }).join('\n');
 
     try {
@@ -295,15 +426,23 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
                 messages: [
                     {
                         role: 'system',
-                        content: `你是网页主题词提取专家。给你一组来自同一网站的标签页，请为每个页面提取一个最核心的主题词。
+                        content: `你是网页归纳标签提取专家。给你一组同一网站下的标签页，请为每个页面同时给出「中文」「英文」两个侧边展示用短标签。
 
-【硬性要求】
-- 主题词必须精准描述网页内容（例如：投资调研、项目方案、UI设计、API文档、财报分析）。
-- 每个主题词长度必须在 2～5 个字之间，严禁超过 5 个字。
-- 必须为每个输入 ID 都返回结果，不允许缺失。
-- 禁止解释、禁止多余文本，只返回 JSON。
+【中文 zh】精准概括页面意图，2～5 个汉字，禁止超过 5 字。
 
-返回纯 JSON，格式示例：{"123":"投资调研","456":"接口文档"}。键必须是传入的真实 ID，不要使用字面量 "tabId"。`,
+【英文 en】总结页面核心功能，生成高度具体的 1～2 个英文词的名词短语（Title Case）。
+严格规则：
+1. 只用 ASCII 字母、空格、数字与常见标点；长度 3～22 字符。
+2. 禁止使用 Page、Article、Website、Other、Tab、Content、Info、Online、Web、Site 等无信息量的泛指词。
+3. 优先聚焦页面的功能或内容的精确形态。如：AI Chat、API Docs、Design Tool、Code Editor、Dashboard、Search Engine、Video Player、Shopping Cart、News Feed、Settings。
+4. 若是知名 SaaS / 平台 / 产品页，直接输出它的垂直领域或核心功能类别。如：Notion → Notes、Figma → Design Tool、GitHub → Code Repo、YouTube → Video、Gmail → Email、Slack → Team Chat。
+5. 不要以冠词（A/An/The）开头。
+6. 禁止直接照搬页面标题中的专有名词或产品名作为标签，必须抽象到功能/领域类别。例如：标题含"Liquid Ether"不要输出"Liquid Ether"，应输出"Component"或"Design Tool"；标题含"Linear"不要输出"Linear"，应输出"Project Mgmt"。
+
+必须为每个传入的 ID 都返回一条，禁止缺失。
+只返回合法 JSON；禁止 Markdown、注释或多余文字。
+
+示例格式（键为真实 Tab ID）：{"8842":{"zh":"投资调研","en":"Equity Research"},"9171":{"zh":"接口文档","en":"API Docs"},"1002":{"zh":"在线协作","en":"Team Chat"}}`,
                     },
                     { role: 'user', content: tabDescriptions },
                 ],
@@ -321,11 +460,12 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
 
         const labels = {};
         const validIds = new Set(tabList.map((t) => String(t.id)));
+        const tabById = new Map(tabList.map((t) => [String(t.id), t]));
         Object.entries(parsed).forEach(([k, v]) => {
-            const clean = String(v || '').trim();
             const idKey = String(k);
             if (!validIds.has(idKey)) return;
-            if (isValidThemeWordLabel(clean)) labels[idKey] = clean;
+            const tabRef = tabById.get(idKey);
+            labels[idKey] = pairFromLlmValue(v, tabRef);
         });
         return labels;
     } catch (error) {
@@ -342,8 +482,9 @@ async function computeAiSnapshotForTabs(tabs) {
     const labels = {};
     const updates = {};
     const entries = aiSnapshotCache.entries || {};
+    const domainNameMemo = new Map();
 
-    await Promise.all(tabList.map(async (tab) => {
+    await runWithConcurrency(tabList, 4, async (tab) => {
         const id = String(tab.id);
         const sig = buildTabSignature(tab);
         const cached = entries[id];
@@ -358,20 +499,28 @@ async function computeAiSnapshotForTabs(tabs) {
         let siteName = isSigMatch ? cached.siteName : '';
         if (siteName === undefined || siteName === null) siteName = '';
         if (!siteName) {
-            siteName = await getSmartSiteName(tab.title, tab.url, apiKey);
+            const domain = getDomainFromUrl(tab.url);
+            if (domain) {
+                let pendingSiteName = domainNameMemo.get(domain);
+                if (!pendingSiteName) {
+                    pendingSiteName = getSmartSiteName(tab.title, tab.url, apiKey)
+                        .then((name) => name || '')
+                        .catch(() => '');
+                    domainNameMemo.set(domain, pendingSiteName);
+                }
+                siteName = await pendingSiteName;
+            }
         }
         if (siteName) siteNames[id] = siteName;
 
-        const cachedLabel = isSigMatch ? normalizeAllowedPageLabel(cached.pageLabel) : '';
         updates[id] = {
             ...(cached || {}),
             sig,
             category: category || '',
             siteName: siteName || '',
-            pageLabel: cachedLabel,
             updatedAt: Date.now(),
         };
-    }));
+    });
 
     const domainGroups = new Map();
     tabList.forEach((tab) => {
@@ -385,22 +534,31 @@ async function computeAiSnapshotForTabs(tabs) {
         for (const tab of group) {
             const id = String(tab.id);
             const cacheKey = pageLabelCacheKey(tab.title, tab.url);
-            const cachedLabel = await chrome.storage.local.get(cacheKey);
-            const fromStorage = normalizeAllowedPageLabel(cachedLabel[cacheKey]);
-            if (fromStorage) {
-                labels[id] = fromStorage;
+            const labelRow = await chrome.storage.local.get(cacheKey);
+            const rawStored = labelRow[cacheKey];
+            if (rawStored !== undefined && rawStored !== null) {
+                const pair = coerceAndFinalizePageLabel(rawStored, tab);
+                labels[id] = pair;
                 const current = updates[id] || {};
                 updates[id] = {
                     ...current,
                     sig: buildTabSignature(tab),
-                    pageLabel: fromStorage,
+                    pageLabel: pair,
                     updatedAt: Date.now(),
                 };
                 continue;
             }
-            const existing = updates[id] ? normalizeAllowedPageLabel(updates[id].pageLabel) : '';
-            if (existing) {
-                labels[id] = existing;
+            const snapRaw = updates[id] && updates[id].pageLabel;
+            if (snapRaw !== undefined && snapRaw !== null) {
+                const pair = coerceAndFinalizePageLabel(snapRaw, tab);
+                labels[id] = pair;
+                const current = updates[id] || {};
+                updates[id] = {
+                    ...current,
+                    sig: buildTabSignature(tab),
+                    pageLabel: pair,
+                    updatedAt: Date.now(),
+                };
                 continue;
             }
             missingForBatch.push(tab);
@@ -412,15 +570,15 @@ async function computeAiSnapshotForTabs(tabs) {
             );
             for (const tab of missingForBatch) {
                 const id = String(tab.id);
-                const label = toStablePageLabel(fetched[id], tab);
-                labels[id] = label;
+                const pair = coerceAndFinalizePageLabel(fetched[id], tab);
+                labels[id] = pair;
                 const cacheKey = pageLabelCacheKey(tab.title, tab.url);
-                await chrome.storage.local.set({ [cacheKey]: label });
+                await chrome.storage.local.set({ [cacheKey]: pair });
                 const current = updates[id] || {};
                 updates[id] = {
                     ...current,
                     sig: buildTabSignature(tab),
-                    pageLabel: label,
+                    pageLabel: pair,
                     updatedAt: Date.now(),
                 };
             }

@@ -1,5 +1,52 @@
 // ─── 03 单行标签 DOM（依赖 01 图标工具与 02 背景色）────────────────────────────────
 
+/** 中英双语归纳标签中取当前界面应展示的一条（含字符串旧数据兼容） */
+function ysResolveDisplayedPageLabel(raw) {
+    const preferEn = typeof ysIsEnglishPageLabelsPreferred === 'function' && ysIsEnglishPageLabelsPreferred();
+    let text = '';
+    if (raw && typeof raw === 'object') {
+        text = preferEn ? String(raw.en || '').trim() : String(raw.zh || '').trim();
+        if (!text) text = preferEn ? String(raw.zh || '').trim() : String(raw.en || '').trim();
+    } else if (typeof raw === 'string') {
+        text = raw.trim();
+    }
+    if (!text) return '';
+
+    // 英文泛指词黑名单（与后台 EN_LABEL_BLACKLIST 保持一致）
+    const _enBlacklist = new Set([
+        'page', 'article', 'website', 'other', 'tab', 'content', 'info',
+        'online', 'web', 'site', 'link', 'home', 'default', 'unknown',
+        'misc', 'general', 'new tab', 'new page', 'blank', 'empty', 'loading',
+    ]);
+    const isEnBlacklisted = (s) => {
+        const lower = s.toLowerCase();
+        if (_enBlacklist.has(lower)) return true;
+        const words = lower.split(/\s+/);
+        const last = words[words.length - 1];
+        if (words.length <= 2 && ['page', 'article', 'website', 'tab', 'content', 'site'].includes(last)) return true;
+        return false;
+    };
+
+    const latinish = (s) => /^[\x20-\x7E]+$/.test(s);
+    const asciiLabelOk = (s) => {
+        const t = String(s).replace(/\s+/g, ' ');
+        return t.length >= 3 && t.length <= 26 && latinish(t) && !isEnBlacklisted(t);
+    };
+    const zhLabelOk = (s) => {
+        const n = Array.from(s).length;
+        return n >= 2 && n <= 5;
+    };
+
+    if (preferEn) {
+        if (asciiLabelOk(text)) return text.replace(/\s+/g, ' ');
+        if (zhLabelOk(text)) return text;
+        return '';
+    }
+    if (zhLabelOk(text)) return text;
+    if (asciiLabelOk(text)) return text.replace(/\s+/g, ' ');
+    return '';
+}
+
 function buildTabItem(tab, globalIdx, container) {
     const item = document.createElement('div');
     item.id    = `ys-tab-item-${globalIdx}`;
@@ -100,9 +147,9 @@ function buildTabItem(tab, globalIdx, container) {
         minWidth:       '0',
         transition:     'color 0.12s ease',
     });
-    const rawTitle = tab.title || '(无标题)';
+    const rawTitle = tab.title || (typeof ysT === 'function' ? ysT('footerUntitled') : '(Untitled)');
     let displayTitle = /^📍\s*/u.test(rawTitle) ? rawTitle.replace(/^📍\s*/u, '').trim() : rawTitle;
-    if (!displayTitle) displayTitle = '(无标题)';
+    if (!displayTitle) displayTitle = (typeof ysT === 'function' ? ysT('footerUntitled') : '(Untitled)');
     title.textContent = displayTitle;
 
     const closeBtn = document.createElement('div');
@@ -132,12 +179,9 @@ function buildTabItem(tab, globalIdx, container) {
         cursor:          'pointer',
     });
 
-    // 页面主题词标签（AI；单标签分组也会请求）。渲染 2~5 字结果，
-    // 兼容新版主题词提取，同时过滤掉超长噪声文案。
+    // 页面归纳标签（中英双语 + 旧版纯字符串）
     const rawPageLabel = tabPageLabelMap[tab.id] ?? tabPageLabelMap[String(tab.id)];
-    const pageLabelText = typeof rawPageLabel === 'string' ? rawPageLabel.trim() : '';
-    const pageLabelLen = Array.from(pageLabelText).length;
-    const pageLabel = pageLabelLen >= 2 && pageLabelLen <= 5 ? pageLabelText : '';
+    const pageLabel = ysResolveDisplayedPageLabel(rawPageLabel);
 
     if (tab.active) {
         const isSourceWindowActive = switcherCurrentWindowId === null || tab.windowId === switcherCurrentWindowId;
@@ -161,8 +205,8 @@ function buildTabItem(tab, globalIdx, container) {
 
         const labelSlot = document.createElement('div');
         Object.assign(labelSlot.style, {
-            width: '85px',
-            minWidth: '85px',
+            width: '100px',
+            minWidth: '100px',
             flexShrink: '0',
             display: 'flex',
             alignItems: 'center',
