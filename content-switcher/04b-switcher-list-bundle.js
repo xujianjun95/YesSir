@@ -459,7 +459,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     Object.assign(empty.style, {
                         padding: '24px 20px',
                         textAlign: 'center',
-                        color: 'rgba(100,110,130,0.6)',
+                        color: 'var(--ys-text-muted)',
                         fontSize: '12px',
                     });
                     empty.textContent = '🕵️ 正在搜索边界巡逻中...';
@@ -472,7 +472,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     Object.assign(empty.style, {
                         padding: '24px 20px',
                         textAlign: 'center',
-                        color: 'rgba(100,110,130,0.6)',
+                        color: 'var(--ys-text-muted)',
                         fontSize: '12px',
                     });
                     empty.textContent = loading
@@ -523,14 +523,14 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         fontSize: '13px',
-                        color: 'rgba(40,50,70,0.9)',
+                        color: 'var(--ys-text-primary)',
                     });
     
                     const actionHint = document.createElement('div');
                     actionHint.textContent = 'Enter 搜索';
                     Object.assign(actionHint.style, {
                         fontSize: '11px',
-                        color: 'rgba(120,130,150,0.55)',
+                        color: 'var(--ys-text-secondary)',
                         whiteSpace: 'nowrap',
                         flexShrink: '0',
                     });

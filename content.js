@@ -32,6 +32,102 @@ function normalizeStoredModifierKey(stored) {
     return defaultModifierKeyForPlatform();
 }
 
+/** 与标签面板共用：浮动统计等未打开面板时也能使用 --ys-text-* / --ys-accent */
+function ensureYsThemeStylesInjected() {
+    if (document.getElementById('ys-theme-vars')) return;
+    const style = document.createElement('style');
+    style.id = 'ys-theme-vars';
+    const darkVars = `
+          --ys-overlay-bg: rgba(0, 0, 0, 0.4);
+          --ys-card-bg: rgba(30, 30, 30, 0.75);
+          --ys-card-border: rgba(255, 255, 255, 0.12);
+          --ys-card-shadow: 0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
+          --ys-divider: rgba(255, 255, 255, 0.08);
+          --ys-text-title: rgba(255, 255, 255, 0.9);
+          --ys-text-primary: rgba(255, 255, 255, 0.85);
+          --ys-text-secondary: rgba(255, 255, 255, 0.55);
+          --ys-text-muted: rgba(255, 255, 255, 0.4);
+          --ys-search-bg: rgba(0, 0, 0, 0.2);
+          --ys-search-border: rgba(255, 255, 255, 0.15);
+          --ys-search-icon: rgba(255, 255, 255, 0.4);
+          --ys-search-shadow: inset 0 1px 3px rgba(0,0,0,0.2);
+          --ys-search-focus-bg: rgba(0, 0, 0, 0.4);
+          --ys-search-focus-border: #FBBF24;
+          --ys-search-focus-shadow: 0 0 0 3px rgba(251, 191, 36, 0.24), inset 0 1px 2px rgba(0,0,0,0.2);
+          --ys-accent: #FBBF24;
+          --ys-accent-text: #FFFFFF;
+          --ys-accent-bg: rgba(251, 191, 36, 0.16);
+          --ys-accent-hover: rgba(251, 191, 36, 0.15);
+          --ys-accent-glow: rgba(251, 191, 36, 0.35);
+          --ys-btn-bg: rgba(255, 255, 255, 0.06);
+          --ys-btn-hover: rgba(255, 255, 255, 0.08);
+          --ys-btn-border: rgba(255, 255, 255, 0.08);
+          --ys-btn-text: rgba(255, 255, 255, 0.75);
+          --ys-footer-bg: rgba(255, 255, 255, 0.03);
+          --ys-settings-bg: rgba(40, 40, 40, 0.85);
+          --ys-settings-border: rgba(255, 255, 255, 0.12);
+          --ys-settings-shadow: 0 8px 24px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+          --ys-settings-item-hover: rgba(255, 255, 255, 0.08);
+          --ys-ai-bg: rgba(94, 156, 255, 0.16);
+          --ys-ai-hover: rgba(94, 156, 255, 0.24);
+          --ys-ai-border: rgba(94, 156, 255, 0.36);
+          --ys-ai-text: rgba(142, 196, 255, 0.96);
+          --ys-ai-hover-deep-bg: rgba(94, 156, 255, 0.3);
+          --ys-ai-hover-deep-border: rgba(94, 156, 255, 0.46);
+        `;
+    style.textContent = `
+        :root {
+          --ys-overlay-bg: rgba(160, 175, 200, 0.16);
+          --ys-card-bg: rgba(248, 248, 246, 0.46);
+          --ys-card-border: rgba(255, 255, 255, 0.52);
+          --ys-card-shadow: 0 24px 64px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
+          --ys-divider: rgba(0, 0, 0, 0.05);
+          --ys-text-title: rgba(40, 50, 70, 0.95);
+          --ys-text-primary: rgba(40, 50, 70, 0.9);
+          --ys-text-secondary: rgba(80, 92, 120, 0.72);
+          --ys-text-muted: rgba(100, 110, 130, 0.6);
+          --ys-search-bg: rgba(255, 255, 255, 0.25);
+          --ys-search-border: rgba(255, 255, 255, 0.65);
+          --ys-search-icon: rgba(120, 130, 150, 0.6);
+          --ys-search-shadow: inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02);
+          --ys-search-focus-bg: rgba(255, 255, 255, 0.45);
+          --ys-search-focus-border: rgba(80, 110, 220, 0.4);
+          --ys-search-focus-shadow: 0 0 0 3px rgba(80, 110, 220, 0.12), inset 0 1px 2px rgba(0,0,0,0.01);
+          --ys-accent: rgba(80, 110, 220, 0.9);
+          --ys-accent-text: rgba(50, 70, 160, 0.95);
+          --ys-accent-bg: rgba(80, 110, 220, 0.16);
+          --ys-accent-hover: rgba(80, 110, 220, 0.15);
+          --ys-accent-glow: rgba(80, 110, 220, 0.16);
+          --ys-footer-bg: rgba(0, 0, 0, 0.02);
+          --ys-btn-bg: rgba(0, 0, 0, 0.04);
+          --ys-btn-hover: rgba(0, 0, 0, 0.08);
+          --ys-btn-border: rgba(0, 0, 0, 0.06);
+          --ys-btn-text: rgba(80, 90, 110, 0.9);
+          --ys-settings-bg: rgba(255, 255, 255, 0.85);
+          --ys-settings-border: rgba(255, 255, 255, 0.8);
+          --ys-settings-shadow: 0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.5);
+          --ys-settings-item-hover: rgba(80, 110, 220, 0.08);
+          --ys-ai-bg: rgba(0, 180, 200, 0.12);
+          --ys-ai-hover: rgba(0, 180, 200, 0.18);
+          --ys-ai-border: rgba(0, 180, 200, 0.25);
+          --ys-ai-text: rgba(10, 150, 170, 0.95);
+          --ys-ai-hover-deep-bg: rgba(0, 180, 200, 0.24);
+          --ys-ai-hover-deep-border: rgba(0, 180, 200, 0.35);
+        }
+
+        :root[data-ys-theme="dark"] {
+          ${darkVars}
+        }
+
+        @media (prefers-color-scheme: dark) {
+          :root:not([data-ys-theme="light"]) {
+            ${darkVars}
+          }
+        }
+        `;
+    document.head.appendChild(style);
+}
+
 let modifierKey = defaultModifierKeyForPlatform();
 
 function isModHeld(e) {
@@ -407,6 +503,10 @@ function showApiKeyModal() {
 let _ysFloatWidgetStorageHooked = false;
 
 function initFloatingWidget() {
+    ensureYsThemeStylesInjected();
+    chrome.storage.local.get({ themeMode: 'system' }, (res) => {
+        document.documentElement.setAttribute('data-ys-theme', res.themeMode || 'system');
+    });
     if (!_ysFloatWidgetStorageHooked) {
         _ysFloatWidgetStorageHooked = true;
         chrome.storage.onChanged.addListener((changes) => {
@@ -416,6 +516,9 @@ function initFloatingWidget() {
                 const panel = document.getElementById('geek-float-panel');
                 if (btn) btn.style.display = show ? 'flex' : 'none';
                 if (!show && panel) panel.style.display = 'none';
+            }
+            if (changes.themeMode) {
+                document.documentElement.setAttribute('data-ys-theme', changes.themeMode.newValue || 'system');
             }
         });
     }
@@ -487,6 +590,9 @@ function initFloatingWidget() {
         transition:     'opacity 0.18s ease, transform 0.18s cubic-bezier(0.34,1.4,0.64,1)',
         fontFamily:     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         pointerEvents:  'auto',
+        /* 比毛玻璃 card 更不透明，避免浅色主题叠在深色网页上时正文与背景糊成一团 */
+        background:     'var(--ys-settings-bg, var(--ys-card-bg))',
+        boxShadow:      'var(--ys-settings-shadow, var(--ys-card-shadow))',
         border:         '1px solid var(--ys-accent-hover, rgba(110, 150, 235, 0.4))',
     }));
 
@@ -592,7 +698,7 @@ function initFloatingWidget() {
     }
 
     function renderChartView() {
-        panel.innerHTML = `<div style="font-size:11px;color:rgba(100,100,120,0.7);text-align:center;padding:12px 0;">加载中…</div>`;
+        panel.innerHTML = `<div style="font-size:11px;color:var(--ys-text-muted);text-align:center;padding:12px 0;">加载中…</div>`;
         ysRuntimeSendMessageRetry({ action: 'get_daily_stats' }, {}, (response, err) => {
             const dailyStats = (!err && response && response.dailyStats) ? response.dailyStats : {};
             buildChartContent(dailyStats);
@@ -618,20 +724,20 @@ function initFloatingWidget() {
 
         panel.innerHTML = `
           <div style="display:flex;justify-content:center;align-items:center;margin-bottom:4px;">
-            <span style="font-size:12px;font-weight:600;color:rgba(60,70,110,0.85);letter-spacing:0.01em;">「🫡 Yes Sir」近 5 天使用统计</span>
+            <span style="font-size:12px;font-weight:600;color:var(--ys-text-title);letter-spacing:0.01em;">「🫡 Yes Sir」近 5 天使用统计</span>
           </div>
-          <div style="text-align:center;font-size:10px;color:rgba(100,110,130,0.78);line-height:1.45;margin-bottom:8px;padding:0 4px;word-break:keep-all;">
+          <div style="text-align:center;font-size:10px;color:var(--ys-text-secondary);line-height:1.45;margin-bottom:8px;padding:0 4px;word-break:keep-all;">
             双击 ${modShort} 呼出面板
           </div>
           <div style="display:flex;justify-content:center;align-items:center;width:100%;">
             ${buildSVGChart(days)}
           </div>
           <div style="display:flex;justify-content:center;align-items:center;gap:14px;margin-top:4px;">
-            <span style="font-size:10px;color:rgba(120,130,160,0.7);">今日 <b style="font-size:13px;font-weight:700;color:rgba(80,110,200,0.85)">${todayCount}</b> 次</span>
+            <span style="font-size:10px;color:var(--ys-text-secondary);">今日 <b style="font-size:13px;font-weight:700;color:var(--ys-accent)">${todayCount}</b> 次</span>
             <div style="display:flex;align-items:center;gap:4px;">
-              <span style="font-size:10px;color:rgba(120,130,160,0.7);">五日合计</span>
-              <span style="font-size:13px;font-weight:700;color:rgba(80,110,200,0.85);">${total5}</span>
-              <span style="font-size:10px;color:rgba(120,130,160,0.7);">次</span>
+              <span style="font-size:10px;color:var(--ys-text-secondary);">五日合计</span>
+              <span style="font-size:13px;font-weight:700;color:var(--ys-accent);">${total5}</span>
+              <span style="font-size:10px;color:var(--ys-text-secondary);">次</span>
             </div>
           </div>`;
     }
@@ -729,8 +835,8 @@ function initFloatingWidget() {
         const dots = pts.map((p, i) => {
             const today = i === pts.length - 1;
             return `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${today ? 3.5 : 2.5}"
-              fill="${today ? 'rgba(80,110,220,0.9)' : 'rgba(100,130,220,0.65)'}"
-              stroke="rgba(255,255,255,0.85)" stroke-width="1.5"/>`;
+              fill="var(--ys-accent)" opacity="${today ? '0.95' : '0.65'}"
+              stroke="var(--ys-settings-bg, var(--ys-card-bg))" stroke-width="1.5"/>`;
         }).join('');
 
         const labels = pts.map((p, i) => {
@@ -738,39 +844,39 @@ function initFloatingWidget() {
             const isMax = p.count === maxCount && maxCount > 0;
             if (!today && !isMax) return '';
             return `<text x="${p.x.toFixed(1)}" y="${(p.y - 7).toFixed(1)}" text-anchor="middle"
-              font-size="8.5" font-weight="600" fill="rgba(70,100,200,0.8)">${p.count}</text>`;
+              font-size="8.5" font-weight="600" fill="var(--ys-text-primary)">${p.count}</text>`;
         }).join('');
 
         const xLabels = pts.map((p, i) => {
             const today = i === pts.length - 1;
             return `<text x="${p.x.toFixed(1)}" y="${H - 4}" text-anchor="middle"
-              font-size="9" fill="${today ? 'rgba(80,110,200,0.85)' : 'rgba(130,140,160,0.75)'}"
+              font-size="9" fill="${today ? 'var(--ys-accent)' : 'var(--ys-text-secondary)'}"
               font-weight="${today ? '600' : '400'}">${p.label}</text>`;
         }).join('');
 
         const yTicks = [0, 0.5, 1].map(t => {
             const y = padT + (1 - t) * cH;
-            return `<line x1="${padL - 3}" y1="${y.toFixed(1)}" x2="${padL}" y2="${y.toFixed(1)}" stroke="rgba(150,160,180,0.3)" stroke-width="1"/>
-                    <text x="${padL - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="rgba(140,150,170,0.6)">${Math.round(t * maxVal)}</text>`;
+            return `<line x1="${padL - 3}" y1="${y.toFixed(1)}" x2="${padL}" y2="${y.toFixed(1)}" stroke="var(--ys-divider)" stroke-width="1"/>
+                    <text x="${padL - 5}" y="${(y + 3).toFixed(1)}" text-anchor="end" font-size="8" fill="var(--ys-text-muted)">${Math.round(t * maxVal)}</text>`;
         }).join('');
 
         return `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg" style="overflow:visible;display:block;margin:0 auto;max-width:100%;">
           <defs>
             <linearGradient id="gkAreaGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="rgba(90,120,230,0.28)"/>
-              <stop offset="100%" stop-color="rgba(90,120,230,0.0)"/>
+              <stop offset="0%" stop-color="var(--ys-accent)" stop-opacity="0.28"/>
+              <stop offset="100%" stop-color="var(--ys-accent)" stop-opacity="0"/>
             </linearGradient>
             <filter id="gkGlow"><feGaussianBlur stdDeviation="1.5" result="blur"/>
               <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
             </filter>
           </defs>
-          <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + cH}" stroke="rgba(150,160,190,0.2)" stroke-width="1"/>
-          <line x1="${padL}" y1="${padT + cH}" x2="${W - padR}" y2="${padT + cH}" stroke="rgba(150,160,190,0.2)" stroke-width="1"/>
+          <line x1="${padL}" y1="${padT}" x2="${padL}" y2="${padT + cH}" stroke="var(--ys-divider)" stroke-width="1"/>
+          <line x1="${padL}" y1="${padT + cH}" x2="${W - padR}" y2="${padT + cH}" stroke="var(--ys-divider)" stroke-width="1"/>
           <line x1="${padL}" y1="${(padT + cH * 0.5).toFixed(1)}" x2="${W - padR}" y2="${(padT + cH * 0.5).toFixed(1)}"
-            stroke="rgba(150,160,190,0.1)" stroke-width="1" stroke-dasharray="3,3"/>
+            stroke="var(--ys-divider)" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>
           ${yTicks}
           <path d="${areaPath}" fill="url(#gkAreaGrad)"/>
-          <path d="${linePath}" fill="none" stroke="rgba(85,115,225,0.75)" stroke-width="1.8"
+          <path d="${linePath}" fill="none" stroke="var(--ys-accent)" stroke-opacity="0.9" stroke-width="1.8"
             stroke-linecap="round" stroke-linejoin="round" filter="url(#gkGlow)"/>
           ${labels}${dots}${xLabels}
         </svg>`;
