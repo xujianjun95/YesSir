@@ -461,7 +461,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             });
         };
 
+        let langHoverReady = true;
+
         const showLanguageModeModal = () => {
+            langHoverReady = false;
             if (typeof openYsModal !== 'function') {
                 showCustomToast(ysT('themeModalNotReady'), 2200);
                 return;
@@ -469,8 +472,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             openYsModal(ysT('languageModalTitle'), (container) => {
                 chrome.storage.local.get({ uiLanguage: 'auto' }, (resLang) => {
                     const modes = [
-                        { val: 'zh_CN', icon: '🇨🇳', title: ysT('languageChinese') },
-                        { val: 'en', icon: '🇬🇧', title: ysT('languageEnglish') },
+                        { val: 'zh_CN', label: '中文' },
+                        { val: 'en', label: 'English' },
                     ];
                     let currentLang = resLang.uiLanguage || 'auto';
                     if (currentLang === 'system') currentLang = 'auto';
@@ -492,6 +495,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
                     const segmentCtrl = document.createElement('div');
                     Object.assign(segmentCtrl.style, {
+                        position: 'relative',
                         display: 'flex',
                         background: 'var(--ys-btn-bg)',
                         borderRadius: '10px',
@@ -499,60 +503,113 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                         gap: '6px',
                     });
 
-                    const renderSegmentState = () => {
+                    const segmentHighlight = document.createElement('div');
+                    Object.assign(segmentHighlight.style, {
+                        position: 'absolute',
+                        top: '4px',
+                        bottom: '4px',
+                        left: '0',
+                        width: '72px',
+                        borderRadius: '8px',
+                        background: 'var(--ys-accent-bg)',
+                        border: '1px solid var(--ys-accent-hover)',
+                        boxShadow: '0 1px 4px rgba(0,0,0,0.08), 0 0 0 0.5px rgba(0,0,0,0.04)',
+                        transition: 'transform 0.42s cubic-bezier(0.34, 1.56, 0.64, 1), width 0.42s cubic-bezier(0.34, 1.56, 0.64, 1)',
+                        pointerEvents: 'none',
+                        zIndex: '0',
+                        willChange: 'transform',
+                    });
+                    segmentCtrl.appendChild(segmentHighlight);
+
+                    const syncLangSegment = () => {
                         // auto 时高亮浏览器语言对应的按钮；手动选择后直接高亮选中项
                         const activeLang = currentLang === 'auto' ? resolved : currentLang;
-                        Array.from(segmentCtrl.children).forEach((c, idx) => {
-                            const active = activeLang === modes[idx].val;
-                            c.style.background = active ? 'var(--ys-accent-bg)' : 'transparent';
-                            c.style.border = active ? '1px solid var(--ys-accent-hover)' : '1px solid transparent';
-                            c.style.boxShadow = active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none';
-                            c.style.opacity = active ? '1' : '0.65';
+                        const idx = Math.max(0, modes.findIndex((x) => x.val === activeLang));
+                        const btn = segmentCtrl.children[idx + 1];
+                        if (btn && btn !== segmentHighlight) {
+                            segmentHighlight.style.width = btn.offsetWidth + 'px';
+                            segmentHighlight.style.transform = 'translateX(' + btn.offsetLeft + 'px)';
+                        }
+                        Array.from(segmentCtrl.children).forEach((c, i) => {
+                            if (i === 0) return;
+                            const modeIdx = i - 1;
+                            const active = activeLang === modes[modeIdx].val;
+                            c.style.opacity = active ? '1' : '0.6';
+                            c.style.fontWeight = active ? '700' : '500';
+                            c.style.transform = active ? 'scale(1.05)' : 'scale(1)';
                         });
                     };
 
                     modes.forEach((m) => {
                         const btn = document.createElement('div');
-                        btn.textContent = m.icon;
-                        btn.title = m.title;
+                        btn.textContent = m.label;
                         Object.assign(btn.style, {
-                            minWidth: '52px',
+                            position: 'relative',
+                            zIndex: '1',
+                            minWidth: '72px',
                             height: '34px',
                             padding: '0 14px',
-                            fontSize: '18px',
+                            fontSize: '14px',
+                            fontWeight: '500',
+                            color: 'var(--ys-text-primary)',
                             cursor: 'pointer',
                             borderRadius: '8px',
                             border: '1px solid transparent',
                             display: 'flex',
                             alignItems: 'center',
                             justifyContent: 'center',
-                            transition: 'background 0.2s, box-shadow 0.2s, opacity 0.2s',
+                            transition: 'opacity 0.3s ease, background 0.2s ease, transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1), font-weight 0.15s ease',
+                            background: 'transparent',
+                            willChange: 'transform, opacity',
                         });
                         btn.addEventListener('mouseenter', () => {
-                            if (currentLang !== m.val) btn.style.background = 'var(--ys-btn-hover)';
+                            if (!langHoverReady) return;
+                            const on = currentLang === 'auto' ? resolved : currentLang;
+                            if (on !== m.val) btn.style.background = 'var(--ys-btn-hover)';
                         });
                         btn.addEventListener('mouseleave', () => {
-                            if (currentLang !== m.val) btn.style.background = 'transparent';
+                            const on = currentLang === 'auto' ? resolved : currentLang;
+                            if (on !== m.val) btn.style.background = 'transparent';
                         });
                         btn.addEventListener('click', () => {
                             currentLang = m.val;
+                            langHoverReady = false;
                             chrome.storage.local.set({ uiLanguage: currentLang }, () => {
-                                ysRefreshI18nFromStorage(() => {
-                                    // 关闭设置菜单和所有 openYsModal 模态框，整体刷新面板
-                                    const oldMenu = document.getElementById('ys-settings-dropdown');
-                                    if (oldMenu) oldMenu.remove();
-                                    // openYsModal 创建的 overlay 挂在 document.body 上
-                                    document.querySelectorAll('body > div').forEach((el) => {
-                                        if (el.style.zIndex === '2147483648') el.remove();
+                                // 平滑过渡：先淡出模态框，再重建面板
+                                const modalOverlay = Array.from(document.querySelectorAll('body > div')).find(
+                                    (el) => el.style.zIndex === '2147483648'
+                                );
+                                const switcherOverlay = document.getElementById('ys-switcher-overlay');
+
+                                const rebuild = () => {
+                                    ysRefreshI18nFromStorage(() => {
+                                        const oldMenu = document.getElementById('ys-settings-dropdown');
+                                        if (oldMenu) oldMenu.remove();
+                                        showSwitcher(switcherTabs, true, switcherCurrentWindowId);
                                     });
-                                    showSwitcher(switcherTabs, true, switcherCurrentWindowId);
-                                });
+                                };
+
+                                if (modalOverlay) {
+                                    modalOverlay.style.transition = 'opacity 0.2s ease';
+                                    modalOverlay.style.opacity = '0';
+                                    setTimeout(() => {
+                                        modalOverlay.remove();
+                                        rebuild();
+                                    }, 200);
+                                } else {
+                                    rebuild();
+                                }
                             });
-                            renderSegmentState();
+                            syncLangSegment();
                         });
                         segmentCtrl.appendChild(btn);
                     });
-                    renderSegmentState();
+                    segmentCtrl.addEventListener('mousemove', () => {
+                        langHoverReady = true;
+                    }, { once: true });
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(syncLangSegment);
+                    });
 
                     const caption = document.createElement('div');
                     caption.textContent = ysT('languageCaption');
