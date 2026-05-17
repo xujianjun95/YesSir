@@ -259,5 +259,17 @@
   },
   "windowLabelOther": {
     "message": "其他窗口"
+  },
+  "onboardingTitle": {
+    "message": "🫡 YesSir 使用指引"
+  },
+  "onboardingOpen": {
+    "message": "快速双击 $1 → 呼出标签管理面板"
+  },
+  "onboardingClose": {
+    "message": "按住 $1 + 双击空白处 → 关闭当前标签"
+  },
+  "onboardingHint": {
+    "message": "✨ 成功触发任意手势后，提示自动消失"
   }
 }

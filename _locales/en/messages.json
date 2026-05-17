@@ -259,5 +259,17 @@
   },
   "windowLabelOther": {
     "message": "Other windows"
+  },
+  "onboardingTitle": {
+    "message": "🫡 YesSir — Quick Start"
+  },
+  "onboardingOpen": {
+    "message": "Double-tap $1 → open the tab panel"
+  },
+  "onboardingClose": {
+    "message": "Hold $1 + double-click blank area → close tab"
+  },
+  "onboardingHint": {
+    "message": "✨ This tip auto-hides once you try a gesture."
   }
 }

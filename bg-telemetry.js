@@ -128,6 +128,8 @@ async function trackFirstUse(feature) {
 chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
         void sendTelemetry('install');
+        // 标记「待展示新手引导」，content script 在下次 http 页访问时读取并展示
+        chrome.storage.local.set({ ysOnboardingPending: true });
     } else if (details.reason === 'update') {
         void sendTelemetry('update');
     }

@@ -1168,11 +1168,124 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 });
 
 
+// ─── 新手引导 ──────────────────────────────────────────────────────────────────
+
+/**
+ * 安装后首次访问 http 页面时触发引导；background 在 install 事件里写入 ysOnboardingPending。
+ * 永久消除：用户点击 × 或成功触发任意手势（storage onChanged 监听 ysFirstUseReported）。
+ */
+function checkAndShowOnboarding() {
+    if (window.top !== window.self) return;
+    if (!/^https?:$/.test(location.protocol)) return;
+    const PENDING_KEY = 'ysOnboardingPending';
+    const DISMISSED_KEY = 'ysOnboardingDismissed';
+    chrome.storage.local.get([PENDING_KEY, DISMISSED_KEY, 'modifierKey'], (res) => {
+        if (!res[PENDING_KEY] || res[DISMISSED_KEY]) return;
+        // 消费待展示标记（只展示一次）
+        chrome.storage.local.set({ [PENDING_KEY]: false });
+        const modKey = normalizeStoredModifierKey(res.modifierKey);
+        const modLabel = MOD_LABELS[modKey] || modKey;
+        showYsOnboarding(modLabel, DISMISSED_KEY);
+    });
+}
+
+function showYsOnboarding(modLabel, dismissedKey) {
+    if (document.getElementById('ys-onboarding')) return;
+    ensureYsThemeStylesInjected();
+
+    if (!document.getElementById('ys-onboarding-kf')) {
+        const kfStyle = document.createElement('style');
+        kfStyle.id = 'ys-onboarding-kf';
+        kfStyle.textContent = `
+            @keyframes ys-ob-in {
+                0%   { opacity: 0; transform: translateY(20px); }
+                45%  { opacity: 1; transform: translateY(-5px); }
+                60%  { transform: translateY(1px); }
+                75%  { transform: translateY(-3px); }
+                88%  { transform: translateY(1px); }
+                100% { opacity: 1; transform: translateY(0); }
+            }
+        `;
+        document.head.appendChild(kfStyle);
+    }
+
+    const widget = document.createElement('div');
+    widget.id = 'ys-onboarding';
+    Object.assign(widget.style, {
+        position:             'fixed',
+        right:                '20px',
+        bottom:               '80px',
+        zIndex:               '2147483647',
+        width:                '276px',
+        padding:              '14px 14px 12px',
+        borderRadius:         '14px',
+        background:           'var(--ys-card-bg, rgba(252,252,254,0.92))',
+        backdropFilter:       'saturate(180%) blur(24px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(24px)',
+        border:               '1px solid var(--ys-accent-hover, rgba(80,110,220,0.3))',
+        boxShadow:            'var(--ys-card-shadow, 0 12px 32px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.52))',
+        color:                'var(--ys-text-primary, rgba(40,50,70,0.9))',
+        fontFamily:           '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        boxSizing:            'border-box',
+        animation:            'ys-ob-in 0.85s cubic-bezier(0.22,1,0.36,1) forwards',
+    });
+
+    widget.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:10px;">
+            <div style="font-size:13px;font-weight:700;letter-spacing:0.01em;color:var(--ys-text-title,rgba(35,45,70,0.95));">${ysT('onboardingTitle')}</div>
+            <button id="ys-ob-x" type="button" style="border:none;background:var(--ys-btn-bg,rgba(0,0,0,0.04));cursor:pointer;width:20px;height:20px;border-radius:6px;line-height:1;color:var(--ys-text-muted,rgba(95,105,125,0.55));font-size:16px;padding:0;flex-shrink:0;transition:background 0.15s;">×</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:7px;">
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;background:var(--ys-btn-bg,rgba(0,0,0,0.04));">
+                <span style="font-size:16px;flex-shrink:0;">⌨️</span>
+                <div style="font-size:12px;color:var(--ys-text-primary);line-height:1.5;">${ysT('onboardingOpen', [modLabel])}</div>
+            </div>
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;background:var(--ys-btn-bg,rgba(0,0,0,0.04));">
+                <span style="font-size:16px;flex-shrink:0;">🖱️</span>
+                <div style="font-size:12px;color:var(--ys-text-primary);line-height:1.5;">${ysT('onboardingClose', [modLabel])}</div>
+            </div>
+        </div>
+        <div style="margin-top:9px;font-size:11px;color:var(--ys-text-muted,rgba(100,110,130,0.6));text-align:center;line-height:1.4;">${ysT('onboardingHint')}</div>
+    `;
+
+    document.body.appendChild(widget);
+
+    const dismiss = () => {
+        chrome.storage.local.set({ [dismissedKey]: true });
+        chrome.storage.onChanged.removeListener(storageWatcher);
+        // 先冻结动画，建立当前可见状态为 inline 样式，再做退出过渡
+        widget.style.animation = 'none';
+        widget.style.opacity = '1';
+        widget.style.transform = 'translateY(0)';
+        void widget.offsetHeight; // force reflow
+        widget.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+        widget.style.opacity = '0';
+        widget.style.transform = 'translateY(10px)';
+        setTimeout(() => { if (widget.isConnected) widget.remove(); }, 260);
+    };
+
+    const closeBtn = widget.querySelector('#ys-ob-x');
+    if (closeBtn) {
+        closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'var(--ys-btn-hover,rgba(0,0,0,0.08))'; });
+        closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'var(--ys-btn-bg,rgba(0,0,0,0.04))'; });
+        closeBtn.addEventListener('click', dismiss);
+    }
+
+    // 任意手势首次成功触发后自动消除
+    const storageWatcher = (changes) => {
+        if (!changes.ysFirstUseReported) return;
+        const reported = changes.ysFirstUseReported.newValue || {};
+        if (reported.first_close || reported.first_switcher_open) dismiss();
+    };
+    chrome.storage.onChanged.addListener(storageWatcher);
+}
+
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 function bootstrap() {
     initFloatingWidget();
     setTimeout(trySilentAiPrewarm, 1200);
+    checkAndShowOnboarding();
 }
 
 if (document.readyState === 'loading') {
