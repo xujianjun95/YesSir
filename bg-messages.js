@@ -244,6 +244,50 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
+    // ── 用户手动改变某 tab 的 topic（拖拽分类）──
+    else if (request.action === 'update_tab_topic') {
+        const tabIdNum = Number(request.tabId);
+        const tabIdStr = String(request.tabId);
+        const newTopic = request.topic || null;
+
+        // 更新内存缓存并持久化，防止下次 AI 分组覆盖
+        const existing = (aiSnapshotCache.entries || {})[tabIdStr] || {};
+        if (newTopic) {
+            aiSnapshotCache.entries[tabIdStr] = { ...existing, topic: newTopic };
+        } else {
+            delete aiSnapshotCache.entries[tabIdStr];
+        }
+        persistAiSnapshotCache();
+
+        // 移动 Chrome 原生标签组
+        (async () => {
+            try {
+                const tab = await chrome.tabs.get(tabIdNum).catch(() => null);
+                if (!tab) return;
+                if (!newTopic) {
+                    await chrome.tabs.ungroup([tabIdNum]).catch(() => {});
+                    return;
+                }
+                const groups = await chrome.tabGroups.query({ windowId: tab.windowId });
+                const target = groups.find((g) => g.title === newTopic);
+                if (target) {
+                    await chrome.tabs.group({ tabIds: [tabIdNum], groupId: target.id });
+                } else {
+                    const newGroupId = await chrome.tabs.group({ tabIds: [tabIdNum] });
+                    await chrome.tabGroups.update(newGroupId, {
+                        title: newTopic,
+                        color: TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
+                    });
+                }
+            } catch (err) {
+                console.error('update_tab_topic: 移动标签组失败', err);
+            }
+        })();
+
+        sendResponse({ ok: true });
+        return true;
+    }
+
     // ── 对指定 tabs 做 AI 预热并返回结果 ──
     else if (request.action === 'prewarm_ai_snapshot') {
         (async () => {

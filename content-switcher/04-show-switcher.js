@@ -1055,25 +1055,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     }
 
     function persistTopicChange(tabId, tab, newTopic) {
-        chrome.storage.local.get('aiSnapshotV1', (res) => {
-            const raw = (res && res.aiSnapshotV1) || { entries: {} };
-            if (!raw.entries) raw.entries = {};
-            if (newTopic === null) {
-                delete raw.entries[tabId];
-            } else {
-                raw.entries[tabId] = { ...(raw.entries[tabId] || {}), topic: newTopic };
-            }
-            chrome.storage.local.set({ aiSnapshotV1: raw });
-        });
-        // 同步保存 domain → topic 偏好，供下次 AI 分组时复用
+        // 让 background 更新内存缓存 + storage + 移动 Chrome 原生标签组
+        ysSendToBg({ action: 'update_tab_topic', tabId, topic: newTopic }, {}, () => {});
+
+        // domain 级偏好只影响 ysUserTopicPrefs，不走 aiSnapshotCache，可直接写
         if (newTopic && tab && tab.url) {
             try {
                 const { hostname } = new URL(tab.url);
                 const parts = hostname.split('.');
                 const domain = parts.length > 2 ? parts.slice(-2).join('.') : hostname;
                 if (domain) {
-                    chrome.storage.local.get('ysUserTopicPrefs', (res2) => {
-                        const prefs = (res2 && res2.ysUserTopicPrefs) || {};
+                    chrome.storage.local.get('ysUserTopicPrefs', (res) => {
+                        const prefs = (res && res.ysUserTopicPrefs) || {};
                         prefs[domain] = newTopic;
                         chrome.storage.local.set({ ysUserTopicPrefs: prefs });
                     });
