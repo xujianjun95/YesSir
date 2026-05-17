@@ -260,6 +260,9 @@
   "windowLabelOther": {
     "message": "Other windows"
   },
+  "menuOnboarding": {
+    "message": "Quick Start"
+  },
   "onboardingTitle": {
     "message": "🫡 YesSir — Quick Start"
   },

@@ -1248,7 +1248,7 @@ function showYsOnboarding(modLabel, dismissedKey) {
     });
 
     const dismiss = () => {
-        chrome.storage.local.set({ [dismissedKey]: true });
+        if (dismissedKey) chrome.storage.local.set({ [dismissedKey]: true });
         widget.style.opacity = '0';
         widget.style.transform = 'translateY(14px)';
         setTimeout(() => { if (widget.isConnected) widget.remove(); }, 360);

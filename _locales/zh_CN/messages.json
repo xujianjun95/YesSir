@@ -260,6 +260,9 @@
   "windowLabelOther": {
     "message": "其他窗口"
   },
+  "menuOnboarding": {
+    "message": "使用指引"
+  },
   "onboardingTitle": {
     "message": "🫡 YesSir 使用指引"
   },

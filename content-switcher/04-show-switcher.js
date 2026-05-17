@@ -679,6 +679,15 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     showCustomToast(ysT('feedbackFlyoutNotReady'), 2200);
                 }
             }));
+
+            // 7. 使用指引（手动呼出，不写永久消除标记）
+            menu.appendChild(createItem('📖', ysT('menuOnboarding'), () => {
+                if (document.getElementById('ys-onboarding')) return;
+                if (typeof showYsOnboarding !== 'function') return;
+                const mk = typeof modifierKey !== 'undefined' ? modifierKey : 'meta';
+                const ml = (typeof MOD_LABELS !== 'undefined' && MOD_LABELS[mk]) || mk;
+                showYsOnboarding(ml, null);
+            }));
         });
 
         document.getElementById('ys-top-actions').appendChild(menu);
