@@ -243,7 +243,7 @@
     "message": "Extension didn’t respond—click the page and try again, or refresh (common after the background wakes up)."
   },
   "toastTopicLearned": {
-    "message": "🫡 YesSir, your grouping preference has been saved — the next AI sort will follow the new rules."
+    "message": "🫡 YesSir, preference saved — next AI grouping will follow new rules."
   },
   "bgNothingToRestore": {
     "message": "Nothing to restore."
