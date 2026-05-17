@@ -259,32 +259,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         persistAiSnapshotCache();
 
-        // 移动 Chrome 原生标签组
+        // 移动 Chrome 原生标签组（sendResponse 在 IIFE 内部调用，保持 SW 存活直到完成）
         (async () => {
             try {
                 const tab = await chrome.tabs.get(tabIdNum).catch(() => null);
-                if (!tab) return;
-                if (!newTopic) {
-                    await chrome.tabs.ungroup([tabIdNum]).catch(() => {});
-                    return;
-                }
-                const groups = await chrome.tabGroups.query({ windowId: tab.windowId });
-                const target = groups.find((g) => g.title === newTopic);
-                if (target) {
-                    await chrome.tabs.group({ tabIds: [tabIdNum], groupId: target.id });
-                } else {
-                    const newGroupId = await chrome.tabs.group({ tabIds: [tabIdNum] });
-                    await chrome.tabGroups.update(newGroupId, {
-                        title: newTopic,
-                        color: TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
-                    });
+                if (tab) {
+                    if (!newTopic) {
+                        await chrome.tabs.ungroup([tabIdNum]).catch(() => {});
+                    } else {
+                        const groups = await chrome.tabGroups.query({ windowId: tab.windowId });
+                        const target = groups.find((g) => g.title === newTopic);
+                        if (target) {
+                            await chrome.tabs.group({ tabIds: [tabIdNum], groupId: target.id });
+                        } else {
+                            const newGroupId = await chrome.tabs.group({ tabIds: [tabIdNum] });
+                            await chrome.tabGroups.update(newGroupId, {
+                                title: newTopic,
+                                color: TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
+                            });
+                        }
+                    }
                 }
             } catch (err) {
                 console.error('update_tab_topic: 移动标签组失败', err);
             }
+            sendResponse({ ok: true });
         })();
-
-        sendResponse({ ok: true });
         return true;
     }
 
