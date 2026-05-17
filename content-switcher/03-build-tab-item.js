@@ -59,7 +59,7 @@ function buildTabItem(tab, globalIdx, container) {
         padding:        '8px 12px',
         borderRadius:   '8px',
         cursor:         'pointer',
-        transition:     'background 0.12s ease',
+        transition:     'background 0.12s ease, opacity 0.15s ease',
         background:     'transparent',
         userSelect:     'none',
         pointerEvents:  'auto',
@@ -282,4 +282,6 @@ function buildTabItem(tab, globalIdx, container) {
 
     // hover / click / 关闭 均由 listContainer 上的事件委托统一处理，行内不再绑定监听
     refreshTabRowIconVis(item);
+    // 非活跃行初始渲染为淡态，hover/选中时由事件委托恢复到 1
+    item.style.opacity = item.dataset.activeInSourceWindow === 'true' ? '1' : '0.55';
 }

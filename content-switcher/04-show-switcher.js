@@ -727,6 +727,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     };
 
     const setRowHoverOn = (item) => {
+        item.style.opacity = '1';
         const closeBtn = item.querySelector('.ys-close-btn');
         if (closeBtn) {
             const showClose = !switcherKeyboardNavActive || item.dataset.selected === 'true';
@@ -741,6 +742,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     };
 
     const setRowHoverOff = (item) => {
+        if (item.dataset.selected !== 'true' && item.dataset.activeInSourceWindow !== 'true') {
+            item.style.opacity = '0.55';
+        }
         const closeBtn = item.querySelector('.ys-close-btn');
         if (closeBtn) {
             closeBtn.style.opacity = '0';

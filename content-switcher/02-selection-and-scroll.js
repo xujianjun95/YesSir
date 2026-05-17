@@ -22,6 +22,7 @@ function updateSwitcherSelection(newIdx) {
     if (oldItem) {
         oldItem.dataset.selected = 'false';
         oldItem.style.background = getUnselectedItemBackground(oldItem);
+        oldItem.style.opacity = oldItem.dataset.activeInSourceWindow === 'true' ? '1' : '0.55';
         const title = oldItem.querySelector('.ys-tab-title');
         if (title) {
             title.style.color = getTabTitleColor(oldItem, title);
@@ -41,6 +42,7 @@ function updateSwitcherSelection(newIdx) {
     const newItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
     if (newItem) {
         newItem.dataset.selected = 'true';
+        newItem.style.opacity = '1';
         const isAnyActive = isSourceWindowActiveTabItem(newItem) || newItem.dataset.isActiveInItsWindow === 'true';
         newItem.style.background = isAnyActive
             ? TAB_ROW_ACTIVE_BG
