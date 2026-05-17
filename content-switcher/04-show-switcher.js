@@ -637,17 +637,17 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         };
 
         chrome.storage.local.get({ showFloatingWidget: true }, (res) => {
-            // 1. 修饰键设置
-            menu.appendChild(createItem('⌨️', ysT('menuModifierKeys'), showModifierSettingsModal));
+            // 1. 界面语言
+            menu.appendChild(createItem('🌐', ysT('menuLanguage'), showLanguageModeModal));
 
-            // 2. API Key 设置
-            menu.appendChild(createItem('🔑', ysT('menuApiKey'), showApiKeyModal));
+            // 2. 修饰键设置
+            menu.appendChild(createItem('⌨️', ysT('menuModifierKeys'), showModifierSettingsModal));
 
             // 3. 主题模式（弹窗内三段式）
             menu.appendChild(createItem('🎨', ysT('menuTheme'), showThemeModeModal));
 
-            // 4. 界面语言
-            menu.appendChild(createItem('🌐', ysT('menuLanguage'), showLanguageModeModal));
+            // 4. API Key 设置
+            menu.appendChild(createItem('🔑', ysT('menuApiKey'), showApiKeyModal));
 
             // 5. 统计浮窗开关
             const isEnabled = res.showFloatingWidget !== false;
@@ -669,7 +669,16 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             );
             menu.appendChild(floatToggle);
 
-            // 6. 主动呼出好评/反馈弹窗（放到统计浮窗下面）
+            // 6. 使用指引（手动呼出，不写永久消除标记）
+            menu.appendChild(createItem('📖', ysT('menuOnboarding'), () => {
+                if (document.getElementById('ys-onboarding')) return;
+                if (typeof showYsOnboarding !== 'function') return;
+                const mk = typeof modifierKey !== 'undefined' ? modifierKey : 'meta';
+                const ml = (typeof MOD_LABELS !== 'undefined' && MOD_LABELS[mk]) || mk;
+                showYsOnboarding(ml, null);
+            }));
+
+            // 7. 主动呼出好评/反馈弹窗
             menu.appendChild(createItem('👏', ysT('menuRateExtension'), () => {
                 const flyoutId = 'ys-feedback-flyout';
                 if (typeof renderFeedbackFlyout === 'function') {
@@ -680,14 +689,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 }
             }));
 
-            // 7. 使用指引（手动呼出，不写永久消除标记）
-            menu.appendChild(createItem('📖', ysT('menuOnboarding'), () => {
-                if (document.getElementById('ys-onboarding')) return;
-                if (typeof showYsOnboarding !== 'function') return;
-                const mk = typeof modifierKey !== 'undefined' ? modifierKey : 'meta';
-                const ml = (typeof MOD_LABELS !== 'undefined' && MOD_LABELS[mk]) || mk;
-                showYsOnboarding(ml, null);
-            }));
         });
 
         document.getElementById('ys-top-actions').appendChild(menu);
