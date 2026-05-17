@@ -700,7 +700,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
     // —— 缓存分流：签名匹配且已写过 topic 的跳过 LLM，其余走 LLM ——
     const entries = aiSnapshotCache.entries || {};
     const results = []; // 最终参与分组的 { id, topic }
-    const toQuery = []; // 未命中缓存、需要送 LLM 的原始 tab
+    let toQuery = []; // 未命中缓存、需要送 LLM 的原始 tab
     for (const t of httpTabs) {
         const idStr = String(t.id);
         const sig = buildTabSignature(t);
@@ -712,8 +712,38 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
         }
     }
 
-    // 把缓存命中的 topic 透给 LLM，鼓励跨请求复用完全一致的字符串
-    const existingTopics = Array.from(new Set(results.map((x) => x.topic).filter(Boolean)));
+    // —— 用户偏好预分配：domain 命中用户手动设置的分类，直接赋值跳过 LLM ——
+    const userPrefs = await new Promise((resolve) => {
+        chrome.storage.local.get('ysUserTopicPrefs', (res) => {
+            resolve((res && res.ysUserTopicPrefs) || {});
+        });
+    });
+    const nowTs = Date.now();
+    const prefFiltered = [];
+    for (const t of toQuery) {
+        const domain = getDomainFromUrl(t.url);
+        const prefTopic = domain && userPrefs[domain];
+        if (prefTopic) {
+            results.push({ id: t.id, topic: prefTopic });
+            const idStr = String(t.id);
+            aiSnapshotCache.entries[idStr] = {
+                ...(aiSnapshotCache.entries[idStr] || {}),
+                sig: buildTabSignature(t),
+                topic: prefTopic,
+                updatedAt: nowTs,
+            };
+        } else {
+            prefFiltered.push(t);
+        }
+    }
+    if (prefFiltered.length < toQuery.length) persistAiSnapshotCache();
+    toQuery = prefFiltered;
+
+    // 把缓存命中 + 用户偏好的全量 topic 透给 LLM，强制复用一致字符串
+    const existingTopics = Array.from(new Set([
+        ...results.map((x) => x.topic).filter(Boolean),
+        ...Object.values(userPrefs).filter(Boolean),
+    ]));
 
     try {
         if (toQuery.length > 0) {
@@ -728,7 +758,10 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
             }).join('\n');
 
             const existingSection = existingTopics.length > 0
-                ? `\n\n【已有 topic（新标签若语义相同请复用完全一致的字符串）】\n${existingTopics.map((s) => `- ${s}`).join('\n')}`
+                ? `\n\n【已有 topic — 必须优先复用，禁止改字】\n${existingTopics.map((s) => `- ${s}`).join('\n')}\n新标签能归入以上任意一条就直接用，字符串完全一致（含 Emoji）；仅在确实无法归类时才创造新 topic。`
+                : '';
+            const userPrefSection = Object.keys(userPrefs).length > 0
+                ? `\n\n【用户手动设定的网站分类 — 必须严格遵守】\n${Object.entries(userPrefs).map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
                 : '';
 
             const systemPrompt = `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
@@ -749,7 +782,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
 - 首要目标是合并同类项：尽最大努力发现网页之间的共性，把尽可能多的页面归入**相同**的 topic 字符串。
 - 模型默认倾向于发散描述；你必须主动做收敛归纳（Convergence），禁止「一页一个冷门 topic」。
 - 绝不允许「一页一类」。例如：关于「华夏银行分红」「紫金矿业财报」「东方财富」的页面必须统一归入 "📈 投资调研"；关于 Cursor、GitHub、Claude 的页面应统一归入 "💻 研发工具"。
-- 同一批标签里，不同 topic 的种数尽量控制在 3～5 个以内；能共用同一个 topic 就不要拆。${existingSection}`;
+- 同一批标签里，不同 topic 的种数尽量控制在 3～5 个以内；能共用同一个 topic 就不要拆。${existingSection}${userPrefSection}`;
 
             const response = await callDeepSeekApi({
                     model: 'deepseek-chat',

@@ -81,7 +81,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     const header = document.createElement('div');
     Object.assign(header.style, {
-        padding:        '16px 20px',
+        padding:        '16px 20px 14px',
         display:        'flex',
         flexDirection:  'column',
         gap:            '14px',
@@ -138,12 +138,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const categoryBar = document.createElement('div');
     categoryBar.id = 'ys-category-bar';
     Object.assign(categoryBar.style, {
-        display:         'none',
-        gap:             '6px',
-        overflowX:       'auto',
-        scrollbarWidth:  'none',
-        flexShrink:      '0',
-        paddingBottom:   '2px',
+        display:        'none',
+        gap:            '6px',
+        overflowX:      'auto',
+        scrollbarWidth: 'none',
+        flexShrink:     '0',
     });
     header.appendChild(categoryBar);
 
@@ -917,6 +916,270 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         if (switcherActiveCategory !== null) {
             renderList('', { restoreScroll: false, preferActive: true, animate: false });
         }
+    });
+
+    // ── 拖拽到分类 ──────────────────────────────────────────────────────────────
+    // 上次面板可能留下残影，先清掉
+    document.getElementById('ys-drag-thumbnail')?.remove();
+
+    let dragState = null;    // { tabId, tab, floatEl, originEl, started }
+    let dragPending = null;  // { tabId, tab, originEl, startX, startY }
+
+    function createDragThumbnail(tab) {
+        const el = document.createElement('div');
+        el.id = 'ys-drag-thumbnail';
+        Object.assign(el.style, {
+            position:           'fixed',
+            zIndex:             '2147483647',
+            width:              '180px',
+            borderRadius:       '10px',
+            overflow:           'hidden',
+            boxShadow:          '0 12px 40px rgba(0,0,0,0.28), 0 4px 12px rgba(0,0,0,0.14)',
+            border:             '1px solid var(--ys-card-border)',
+            background:         'var(--ys-card-bg)',
+            backdropFilter:     'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+            transform:          'rotate(2deg) scale(1.03)',
+            pointerEvents:      'none',
+            userSelect:         'none',
+            opacity:            '0',
+            transition:         'opacity 0.12s ease, transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1)',
+        });
+
+        // 仿浏览器顶栏
+        const topBar = document.createElement('div');
+        Object.assign(topBar.style, {
+            padding:         '6px 8px',
+            background:      'var(--ys-search-bg)',
+            borderBottom:    '1px solid var(--ys-divider)',
+            display:         'flex',
+            alignItems:      'center',
+            gap:             '5px',
+        });
+        const dots = document.createElement('div');
+        dots.style.cssText = 'display:flex;gap:3px;flex-shrink:0;';
+        ['#ff5f57', '#febc2e', '#28c840'].forEach((c) => {
+            const d = document.createElement('div');
+            d.style.cssText = `width:6px;height:6px;border-radius:50%;background:${c};flex-shrink:0;`;
+            dots.appendChild(d);
+        });
+        topBar.appendChild(dots);
+
+        const iconUrl = typeof resolveTabIconUrl === 'function' ? resolveTabIconUrl(tab, 32) : '';
+        if (iconUrl) {
+            const img = document.createElement('img');
+            img.src = iconUrl;
+            Object.assign(img.style, { width: '12px', height: '12px', flexShrink: '0', borderRadius: '2px' });
+            img.onerror = () => img.remove();
+            topBar.appendChild(img);
+        }
+        const domain = document.createElement('span');
+        try { domain.textContent = new URL(tab.url || '').hostname.replace(/^www\./, ''); }
+        catch { domain.textContent = ''; }
+        Object.assign(domain.style, {
+            fontSize: '9px', color: 'var(--ys-text-secondary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            flex: '1', minWidth: '0',
+        });
+        topBar.appendChild(domain);
+        el.appendChild(topBar);
+
+        // 内容区
+        const body = document.createElement('div');
+        Object.assign(body.style, { padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: '5px' });
+
+        const titleEl = document.createElement('div');
+        titleEl.textContent = tab.title || '';
+        Object.assign(titleEl.style, {
+            fontSize: '10px', fontWeight: '600', color: 'var(--ys-text-primary)',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            lineHeight: '1.3', marginBottom: '3px',
+        });
+        body.appendChild(titleEl);
+
+        [72, 52, 84, 44].forEach((w) => {
+            const line = document.createElement('div');
+            Object.assign(line.style, {
+                height: '4px', width: `${w}%`, borderRadius: '3px',
+                background: 'var(--ys-text-secondary)', opacity: '0.15',
+            });
+            body.appendChild(line);
+        });
+        el.appendChild(body);
+        return el;
+    }
+
+    function getDragOverPill(x, y) {
+        for (const pill of categoryBar.querySelectorAll('button')) {
+            const r = pill.getBoundingClientRect();
+            if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return pill;
+        }
+        return null;
+    }
+
+    function applyDragPillHighlight(hoveredPill) {
+        // 缩略图：悬停 pill 时缩到极小，离开时恢复
+        if (dragState && dragState.floatEl) {
+            dragState.floatEl.style.transform = hoveredPill
+                ? 'scale(0.12)'
+                : 'rotate(2deg) scale(1.03)';
+        }
+        categoryBar.querySelectorAll('button').forEach((pill) => {
+            if (pill === hoveredPill) {
+                Object.assign(pill.style, {
+                    background: 'var(--ys-accent)',
+                    color:      '#fff',
+                    border:     '1px solid var(--ys-accent)',
+                    fontWeight: '600',
+                });
+            } else {
+                const cat = pill.textContent.trim();
+                const isActive = cat === '全部' ? switcherActiveCategory === null : switcherActiveCategory === cat;
+                Object.assign(pill.style, {
+                    background: isActive ? 'var(--ys-accent-bg)' : 'transparent',
+                    color:      isActive ? 'var(--ys-accent)' : 'var(--ys-text-secondary)',
+                    border:     `1px solid ${isActive ? 'var(--ys-accent-hover)' : 'var(--ys-divider)'}`,
+                    fontWeight: isActive ? '600' : '400',
+                });
+            }
+        });
+    }
+
+    function flashDropPill(pill) {
+        pill.style.transition = 'all 0.1s ease';
+        Object.assign(pill.style, { background: 'var(--ys-accent)', color: '#fff', transform: 'scale(1.14)' });
+        setTimeout(() => {
+            pill.style.transform = 'scale(1.0)';
+            setTimeout(() => renderCategoryPills(), 150);
+        }, 120);
+    }
+
+    function persistTopicChange(tabId, tab, newTopic) {
+        chrome.storage.local.get('aiSnapshotV1', (res) => {
+            const raw = (res && res.aiSnapshotV1) || { entries: {} };
+            if (!raw.entries) raw.entries = {};
+            if (newTopic === null) {
+                delete raw.entries[tabId];
+            } else {
+                raw.entries[tabId] = { ...(raw.entries[tabId] || {}), topic: newTopic };
+            }
+            chrome.storage.local.set({ aiSnapshotV1: raw });
+        });
+        // 同步保存 domain → topic 偏好，供下次 AI 分组时复用
+        if (newTopic && tab && tab.url) {
+            try {
+                const { hostname } = new URL(tab.url);
+                const parts = hostname.split('.');
+                const domain = parts.length > 2 ? parts.slice(-2).join('.') : hostname;
+                if (domain) {
+                    chrome.storage.local.get('ysUserTopicPrefs', (res2) => {
+                        const prefs = (res2 && res2.ysUserTopicPrefs) || {};
+                        prefs[domain] = newTopic;
+                        chrome.storage.local.set({ ysUserTopicPrefs: prefs });
+                    });
+                }
+            } catch {}
+        }
+    }
+
+    const onDragMouseMove = (e) => {
+        if (!dragState) {
+            if (!dragPending) return;
+            const dx = e.clientX - dragPending.startX;
+            const dy = e.clientY - dragPending.startY;
+            if (dx * dx + dy * dy < 25) return; // 5px 阈值
+
+            // 达到阈值，正式开始拖拽
+            const { tab, originEl } = dragPending;
+            const floatEl = createDragThumbnail(tab);
+            floatEl.style.left = `${e.clientX - 90}px`;
+            floatEl.style.top  = `${e.clientY - 30}px`;
+            document.body.appendChild(floatEl);
+            requestAnimationFrame(() => { floatEl.style.opacity = '1'; });
+
+            originEl.style.transition  = 'opacity 0.15s ease';
+            originEl.style.opacity     = '0';
+            originEl.style.pointerEvents = 'none';
+
+            dragState  = { ...dragPending, floatEl, started: true };
+            dragPending = null;
+            return;
+        }
+
+        // 移动缩略图
+        dragState.floatEl.style.left = `${e.clientX - 90}px`;
+        dragState.floatEl.style.top  = `${e.clientY - 30}px`;
+        applyDragPillHighlight(getDragOverPill(e.clientX, e.clientY));
+    };
+
+    const onDragMouseUp = (e) => {
+        document.removeEventListener('mousemove', onDragMouseMove);
+        document.removeEventListener('mouseup',   onDragMouseUp);
+
+        if (!dragState || !dragState.started) {
+            dragPending = null;
+            dragState   = null;
+            return;
+        }
+
+        const { tabId, tab: dragTab, floatEl, originEl } = dragState;
+        dragState   = null;
+        dragPending = null;
+
+        const targetPill = getDragOverPill(e.clientX, e.clientY);
+        if (targetPill) {
+            // 飞入 pill 动画：计算缩略图中心到 pill 中心的位移，animate 过去再消失
+            const pillRect  = targetPill.getBoundingClientRect();
+            const thumbLeft = parseFloat(floatEl.style.left) || 0;
+            const thumbTop  = parseFloat(floatEl.style.top)  || 0;
+            const dx = (pillRect.left + pillRect.width  / 2) - (thumbLeft + 90);
+            const dy = (pillRect.top  + pillRect.height / 2) - (thumbTop  + 50);
+
+            floatEl.style.transition = 'transform 0.28s cubic-bezier(0.4, 0, 1, 1), opacity 0.18s ease 0.12s';
+            floatEl.style.transform  = `translate(${dx}px, ${dy}px) scale(0.05)`;
+            floatEl.style.opacity    = '0';
+            setTimeout(() => floatEl.remove(), 320);
+
+            const cat = targetPill.textContent.trim();
+            const newTopic = (cat === '全部' || cat === '其他') ? null : cat;
+            const tabIdStr = String(tabId);
+
+            if (newTopic === null) delete switcherAiTopicMap[tabIdStr];
+            else switcherAiTopicMap[tabIdStr] = newTopic;
+
+            persistTopicChange(tabIdStr, dragTab, newTopic);
+            flashDropPill(targetPill);
+
+            if (switcherActiveCategory !== null) {
+                renderList('', { restoreScroll: false, preferActive: false, animate: true });
+            } else {
+                originEl.style.opacity       = '';
+                originEl.style.pointerEvents = '';
+                renderCategoryPills();
+            }
+        } else {
+            // 取消：缩略图淡出，恢复行
+            floatEl.style.opacity = '0';
+            setTimeout(() => floatEl.remove(), 150);
+            originEl.style.opacity       = '';
+            originEl.style.pointerEvents = '';
+            renderCategoryPills();
+        }
+    };
+
+    listContainer.addEventListener('mousedown', (e) => {
+        if (categoryBar.style.display === 'none') return;
+        const item = e.target.closest('[data-tab-id]');
+        if (!item) return;
+
+        const tabId = item.dataset.tabId;
+        const tab   = tabs.find((t) => String(t.id) === tabId);
+        if (!tab) return;
+
+        dragPending = { tabId, tab, originEl: item, startX: e.clientX, startY: e.clientY };
+        dragState   = null;
+        document.addEventListener('mousemove', onDragMouseMove);
+        document.addEventListener('mouseup',   onDragMouseUp);
     });
 
     card.appendChild(header);
