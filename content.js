@@ -657,7 +657,7 @@ function initFloatingWidget() {
     applyPosition(false);
 
     chrome.storage.local.get(
-        { showFloatingWidget: true, widgetPosY: null, widgetSnapEdge: null },
+        { showFloatingWidget: false, widgetPosY: null, widgetSnapEdge: null },
         (res) => {
             const isShow = res.showFloatingWidget !== false;
             btn.style.display = isShow ? 'flex' : 'none';
@@ -1147,6 +1147,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'force_hide_switcher') {
         if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
             hideSwitcher();
+        }
+    } else if (request.action === 'toggle_switcher') {
+        if (typeof switcherVisible !== 'undefined' && switcherVisible) {
+            if (typeof hideSwitcher === 'function') hideSwitcher();
+        } else if (request.tabs && request.tabs.length > 0) {
+            showSwitcher(request.tabs, false, request.currentWindowId);
+            if (typeof initSwitcherHighlight === 'function') initSwitcherHighlight();
         }
     } else if (request.action === 'get_page_meta') {
         // 仅在 AI 分组遇到「模糊标题」时被调用，返回 meta 描述辅助 LLM 判断

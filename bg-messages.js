@@ -564,3 +564,32 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
 });
+
+// ── 点击扩展栏图标 → 在当前标签页呼出/关闭切换面板 ──────────────────────────────
+chrome.action.onClicked.addListener(async (tab) => {
+    if (!tab || !tab.id) return;
+    try {
+        const allTabs = await chrome.tabs.query({});
+        const currentWindowId = tab.windowId;
+        allTabs.forEach((t) => saveFaviconToCache(t.url, t.favIconUrl));
+        const sortedTabs = allTabs.slice().sort((a, b) => {
+            if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+            return a.index - b.index;
+        });
+        const uniqueWindowIds = [...new Set(sortedTabs.map((t) => t.windowId))];
+        const windowMap = {};
+        uniqueWindowIds.forEach((id) => {
+            windowMap[id] = id === currentWindowId ? bgT('windowLabelCurrent') : bgT('windowLabelOther');
+        });
+        const tabs = sortedTabs.map((t) => {
+            const domain = getDomainFromUrl(t.url);
+            const fallbackIcon = domain ? String(faviconCache[domain] || '') : '';
+            return {
+                id: t.id, windowId: t.windowId, windowName: windowMap[t.windowId] || '',
+                index: t.index, title: t.title || bgT('footerUntitled'),
+                url: t.url || '', active: t.active, favIconUrl: t.favIconUrl || fallbackIcon,
+            };
+        });
+        await chrome.tabs.sendMessage(tab.id, { action: 'toggle_switcher', tabs, currentWindowId });
+    } catch (_) {}
+});
