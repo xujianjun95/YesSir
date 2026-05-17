@@ -54,7 +54,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     
     overlay.addEventListener('wheel', (e) => {
         const listContainer = document.getElementById('ys-switcher-list');
-        if (!listContainer || !listContainer.contains(e.target)) {
+        const catBar = document.getElementById('ys-category-bar');
+        if ((!listContainer || !listContainer.contains(e.target)) &&
+            (!catBar || !catBar.contains(e.target))) {
             e.preventDefault();
         }
     }, { passive: false });
@@ -132,6 +134,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
           z-index:3;
         "><span style="font-size:12px;">↵</span><span>Enter</span></button>
       </div>`;
+
+    const categoryBar = document.createElement('div');
+    categoryBar.id = 'ys-category-bar';
+    Object.assign(categoryBar.style, {
+        display:         'none',
+        gap:             '6px',
+        overflowX:       'auto',
+        scrollbarWidth:  'none',
+        flexShrink:      '0',
+        paddingBottom:   '2px',
+    });
+    header.appendChild(categoryBar);
 
     const topActions = header.querySelector('#ys-top-actions');
 
@@ -837,6 +851,74 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         invalidateWebSuggestions,
     } = listApi;
 
+    // ── 分类 Bar ────────────────────────────────────────────────────────────────
+    let catBarTopics = [];
+    let catBarHasOther = false;
+
+    function renderCategoryPills() {
+        categoryBar.innerHTML = '';
+        const allCats = ['全部', ...catBarTopics, ...(catBarHasOther ? ['其他'] : [])];
+        allCats.forEach((cat) => {
+            const isActive = cat === '全部' ? switcherActiveCategory === null : switcherActiveCategory === cat;
+            const pill = document.createElement('button');
+            pill.type = 'button';
+            pill.textContent = cat;
+            Object.assign(pill.style, {
+                flexShrink:   '0',
+                padding:      '3px 10px',
+                borderRadius: '20px',
+                fontSize:     '12px',
+                fontWeight:   isActive ? '600' : '400',
+                cursor:       'pointer',
+                border:       `1px solid ${isActive ? 'var(--ys-accent-hover)' : 'var(--ys-divider)'}`,
+                background:   isActive ? 'var(--ys-accent-bg)' : 'transparent',
+                color:        isActive ? 'var(--ys-accent)' : 'var(--ys-text-secondary)',
+                transition:   'all 0.15s ease',
+                outline:      'none',
+                whiteSpace:   'nowrap',
+                lineHeight:   '1.6',
+                userSelect:   'none',
+                WebkitUserSelect: 'none',
+            });
+            pill.addEventListener('click', () => {
+                switcherActiveCategory = cat === '全部' ? null : cat;
+                const si = document.getElementById('ys-search-input');
+                if (si) si.value = '';
+                renderCategoryPills();
+                renderList('', { restoreScroll: false, preferActive: true, animate: true });
+            });
+            categoryBar.appendChild(pill);
+        });
+    }
+
+    if (!isRefresh) switcherActiveCategory = null;
+
+    chrome.storage.local.get('aiSnapshotV1', (storageRes) => {
+        const raw = storageRes && storageRes.aiSnapshotV1;
+        if (!raw || !raw.entries) return;
+        const tabIds = new Set(tabs.map((t) => String(t.id)));
+        switcherAiTopicMap = {};
+        for (const [tabId, entry] of Object.entries(raw.entries)) {
+            if (tabIds.has(tabId) && entry.topic) {
+                switcherAiTopicMap[tabId] = entry.topic;
+            }
+        }
+        const seen = new Set();
+        const topics = [];
+        tabs.forEach((t) => {
+            const topic = switcherAiTopicMap[String(t.id)];
+            if (topic && !seen.has(topic)) { seen.add(topic); topics.push(topic); }
+        });
+        if (topics.length === 0) return;
+        catBarTopics = topics;
+        catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
+        categoryBar.style.display = 'flex';
+        renderCategoryPills();
+        if (switcherActiveCategory !== null) {
+            renderList('', { restoreScroll: false, preferActive: true, animate: false });
+        }
+    });
+
     card.appendChild(header);
     card.appendChild(listContainer);
 
@@ -1049,6 +1131,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (mode.isWebSearchMode) {
                 requestWebSuggestions(e.target.value, false);
                 return;
+            }
+            if (switcherActiveCategory !== null) {
+                switcherActiveCategory = null;
+                renderCategoryPills();
             }
             invalidateAiSearch();
             switcherSelIdx = 0;

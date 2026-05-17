@@ -27,7 +27,10 @@ let switcherMouseMoveHandler = null;
 let switcherKeyboardNavActive = false;
 /** 当前面板会话：暴露给委托事件用来「原地删行」，避免关一个标签就整块重建面板 */
 let currentSwitcherSession = null;
-/** tabId -> AI 分类文案 */
+/** 分类 Bar 当前选中的分类；null 表示「全部」 */
+let switcherActiveCategory = null;
+/** tabId（字符串）→ AI topic 字符串；由 aiSnapshotV1 在面板打开时构建 */
+let switcherAiTopicMap = {};
 /** domain -> AI 提取的网站名称 */
 let domainToSiteNameMap = {};
 /** tabId -> AI 生成的页面功能标签 */

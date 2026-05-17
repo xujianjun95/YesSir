@@ -154,7 +154,16 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
             } else {
                 filteredTabs = tabs.slice();
             }
-    
+
+            // ── 分类 Bar 过滤（与文字搜索互斥，switcherActiveCategory 非 null 时生效）──
+            if (switcherActiveCategory !== null) {
+                if (switcherActiveCategory === '其他') {
+                    filteredTabs = tabs.filter((t) => !switcherAiTopicMap[String(t.id)]);
+                } else {
+                    filteredTabs = tabs.filter((t) => switcherAiTopicMap[String(t.id)] === switcherActiveCategory);
+                }
+            }
+
             // ── 零结果处理 ────────────────────────────────────────────────────────
             if (filteredTabs.length === 0) {
                 switcherTabs = [];
