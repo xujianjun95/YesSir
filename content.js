@@ -933,7 +933,6 @@ document.addEventListener('dblclick', function(event) {
     if (isModHeld(event)) {
         event.preventDefault();
         chrome.runtime.sendMessage({ action: "close_and_toast" });
-        if (typeof window.__ysOnboardingDismiss === 'function') window.__ysOnboardingDismiss();
         // 埋点：用户首次成功触发「修饰键 + 双击关闭」手势 → 只上报一次，用于算激活率
         ysRuntimeSendMessageRetry(
             { action: 'track_event', feature: 'first_close', kind: 'first_use' },
@@ -1122,7 +1121,6 @@ document.addEventListener('keydown', function(event) {
                     showSwitcher(res.tabs, false, res.currentWindowId);
                     if (typeof initSwitcherHighlight === 'function') initSwitcherHighlight();
                     checkAndShowFeedbackFlyout();
-                    if (typeof window.__ysOnboardingDismiss === 'function') window.__ysOnboardingDismiss();
                     // 埋点：用户首次成功双击修饰键唤出面板 → 只上报一次，用于算激活率
                     ysRuntimeSendMessageRetry(
                         { action: 'track_event', feature: 'first_switcher_open', kind: 'first_use' },
@@ -1254,7 +1252,6 @@ function showYsOnboarding(modLabel, dismissedKey) {
 
     const dismiss = () => {
         chrome.storage.local.set({ [dismissedKey]: true });
-        chrome.storage.onChanged.removeListener(storageWatcher);
         // 先冻结动画，建立当前可见状态为 inline 样式，再做退出过渡
         widget.style.animation = 'none';
         widget.style.opacity = '1';
@@ -1274,16 +1271,6 @@ function showYsOnboarding(modLabel, dismissedKey) {
     }
 
     // 任意手势首次成功触发后自动消除
-    // 让手势触发点可以直接调用 dismiss，不依赖 storage onChanged（trackFirstUse 重复上报时会跳过写入）
-    window.__ysOnboardingDismiss = () => { dismiss(); window.__ysOnboardingDismiss = null; };
-
-    // 保留 storage 监听作为备用（新装设备第一次触发时 trackFirstUse 一定会写入）
-    const storageWatcher = (changes) => {
-        if (!changes.ysFirstUseReported) return;
-        const reported = changes.ysFirstUseReported.newValue || {};
-        if (reported.first_close || reported.first_switcher_open) dismiss();
-    };
-    chrome.storage.onChanged.addListener(storageWatcher);
 }
 
 // ─── Bootstrap ────────────────────────────────────────────────────────────────

@@ -270,6 +270,6 @@
     "message": "Hold $1 + double-click blank area → close tab"
   },
   "onboardingHint": {
-    "message": "✨ This tip auto-hides once you try a gesture."
+    "message": "Click × in the top-right to close this tip."
   }
 }
