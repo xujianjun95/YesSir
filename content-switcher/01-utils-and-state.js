@@ -106,17 +106,12 @@ const TAB_ROW_OTHER_ACTIVE_BG = 'var(--ys-btn-bg)';
 /** 其他窗口当前页标题色（弱化，不与主窗口争抢视觉） */
 const TAB_ROW_OTHER_ACTIVE_TITLE_COLOR = 'var(--ys-text-secondary)';
 
-/** 行内 favicon：键盘选中、鼠标悬停（未进入纯键盘模式时），或当前窗口当前页时显示 */
+/** 行内 favicon：始终显示 */
 function refreshTabRowIconVis(itemEl) {
     if (!itemEl) return;
     const slot = itemEl.querySelector('.ys-tab-icon-slot');
     if (!slot || !slot.childNodes.length) return;
-    const hoverShows = !switcherKeyboardNavActive && itemEl.matches(':hover');
-    const show = itemEl.dataset.selected === 'true'
-        || hoverShows
-        || itemEl.dataset.activeInSourceWindow === 'true'
-        || itemEl.dataset.isActiveInItsWindow === 'true';
-    slot.style.opacity = show ? TAB_ROW_ICON_VISIBLE_OPACITY : '0';
+    slot.style.opacity = TAB_ROW_ICON_VISIBLE_OPACITY;
 }
 
 /** 方向键切换后刷新所有行，清除仍停留在鼠标下的 hover 态（favicon/关闭钮） */

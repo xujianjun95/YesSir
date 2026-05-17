@@ -93,8 +93,7 @@ function buildTabItem(tab, globalIdx, container) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        opacity: '0',
-        transition: 'opacity 0.15s ease',
+        opacity: TAB_ROW_ICON_VISIBLE_OPACITY,
         overflow: 'hidden',
         borderRadius: '4px',
     });
