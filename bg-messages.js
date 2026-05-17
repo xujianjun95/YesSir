@@ -249,11 +249,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const tabIdNum = Number(request.tabId);
         const tabIdStr = String(request.tabId);
         const newTopic = request.topic || null;
+        // content 侧按当前语言传 lang；缺省兜底用 'topic'
+        const topicField = request.lang === 'en' ? 'topic_en' : 'topic';
 
         // 更新内存缓存并持久化，防止下次 AI 分组覆盖
         const existing = (aiSnapshotCache.entries || {})[tabIdStr] || {};
         if (newTopic) {
-            aiSnapshotCache.entries[tabIdStr] = { ...existing, topic: newTopic };
+            aiSnapshotCache.entries[tabIdStr] = { ...existing, [topicField]: newTopic };
         } else {
             delete aiSnapshotCache.entries[tabIdStr];
         }
@@ -283,6 +285,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             } catch (err) {
                 console.error('update_tab_topic: 移动标签组失败', err);
             }
+            _broadcastCategoryBarRefresh();
             sendResponse({ ok: true });
         })();
         return true;

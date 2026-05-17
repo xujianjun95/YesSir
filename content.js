@@ -39,7 +39,7 @@ function ensureYsThemeStylesInjected() {
     style.id = 'ys-theme-vars';
     const darkVars = `
           --ys-overlay-bg: rgba(0, 0, 0, 0.4);
-          --ys-card-bg: rgba(30, 30, 30, 0.75);
+          --ys-card-bg: rgba(30, 30, 30, 0.65);
           --ys-card-border: rgba(255, 255, 255, 0.12);
           --ys-card-shadow: 0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1);
           --ys-divider: rgba(255, 255, 255, 0.08);
@@ -78,7 +78,7 @@ function ensureYsThemeStylesInjected() {
     style.textContent = `
         :root {
           --ys-overlay-bg: rgba(160, 175, 200, 0.16);
-          --ys-card-bg: rgba(248, 248, 246, 0.46);
+          --ys-card-bg: rgba(248, 248, 246, 0.38);
           --ys-card-border: rgba(255, 255, 255, 0.52);
           --ys-card-shadow: 0 24px 64px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
           --ys-divider: rgba(0, 0, 0, 0.05);

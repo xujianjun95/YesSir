@@ -697,7 +697,25 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
     const tabIdSet = new Set(httpTabs.map((t) => t.id));
     const metaById = new Map(httpTabs.map((t) => [t.id, { windowId: t.windowId }]));
 
-    // —— 缓存分流：签名匹配且已写过 topic 的跳过 LLM，其余走 LLM ——
+    // —— 先确定语言，所有 topic 读写都按语言用对应字段 ——
+    const [userPrefs, isEnglishMode] = await new Promise((resolve) => {
+        chrome.storage.local.get({ ysUserTopicPrefs: {}, ysUserTopicPrefs_en: {}, uiLanguage: 'auto' }, (res) => {
+            let lang = (res && res.uiLanguage) || 'auto';
+            if (lang === 'system') lang = 'auto';
+            let en = lang === 'en';
+            if (!en && lang === 'auto') {
+                try { en = !/^zh\b/i.test(String(chrome.i18n.getUILanguage() || '')); } catch (_) {}
+            }
+            const prefs = en
+                ? ((res && res.ysUserTopicPrefs_en) || {})
+                : ((res && res.ysUserTopicPrefs) || {});
+            resolve([prefs, en]);
+        });
+    });
+    // 中文 topic 存 entry.topic，英文 topic 存 entry.topic_en，互不干扰
+    const topicField = isEnglishMode ? 'topic_en' : 'topic';
+
+    // —— 缓存分流：签名匹配且已写过对应语言 topic 的跳过 LLM，其余走 LLM ——
     const entries = aiSnapshotCache.entries || {};
     const results = []; // 最终参与分组的 { id, topic }
     let toQuery = []; // 未命中缓存、需要送 LLM 的原始 tab
@@ -705,19 +723,14 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
         const idStr = String(t.id);
         const sig = buildTabSignature(t);
         const cached = entries[idStr];
-        if (cached && cached.sig === sig && cached.topic) {
-            results.push({ id: t.id, topic: cached.topic });
+        if (cached && cached.sig === sig && cached[topicField]) {
+            results.push({ id: t.id, topic: cached[topicField] });
         } else {
             toQuery.push(t);
         }
     }
 
     // —— 用户偏好预分配：domain 命中用户手动设置的分类，直接赋值跳过 LLM ——
-    const userPrefs = await new Promise((resolve) => {
-        chrome.storage.local.get('ysUserTopicPrefs', (res) => {
-            resolve((res && res.ysUserTopicPrefs) || {});
-        });
-    });
     const nowTs = Date.now();
     const prefFiltered = [];
     for (const t of toQuery) {
@@ -729,7 +742,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
             aiSnapshotCache.entries[idStr] = {
                 ...(aiSnapshotCache.entries[idStr] || {}),
                 sig: buildTabSignature(t),
-                topic: prefTopic,
+                [topicField]: prefTopic,
                 updatedAt: nowTs,
             };
         } else {
@@ -758,13 +771,40 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
             }).join('\n');
 
             const existingSection = existingTopics.length > 0
-                ? `\n\n【已有 topic — 必须优先复用，禁止改字】\n${existingTopics.map((s) => `- ${s}`).join('\n')}\n新标签能归入以上任意一条就直接用，字符串完全一致（含 Emoji）；仅在确实无法归类时才创造新 topic。`
+                ? isEnglishMode
+                    ? `\n\nExisting topics — reuse exactly (same string, same Emoji):\n${existingTopics.map((s) => `- ${s}`).join('\n')}\nIf a new tab fits any existing topic, use that exact string. Only create a new topic when none of them fit.`
+                    : `\n\n【已有 topic — 必须优先复用，禁止改字】\n${existingTopics.map((s) => `- ${s}`).join('\n')}\n新标签能归入以上任意一条就直接用，字符串完全一致（含 Emoji）；仅在确实无法归类时才创造新 topic。`
                 : '';
             const userPrefSection = Object.keys(userPrefs).length > 0
-                ? `\n\n【用户手动设定的网站分类 — 必须严格遵守】\n${Object.entries(userPrefs).map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
+                ? isEnglishMode
+                    ? `\n\nUser-defined site categories — must follow strictly:\n${Object.entries(userPrefs).map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
+                    : `\n\n【用户手动设定的网站分类 — 必须严格遵守】\n${Object.entries(userPrefs).map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
                 : '';
 
-            const systemPrompt = `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
+            const systemPrompt = isEnglishMode
+                ? `You are a minimalist browser organizer. Your job is NOT to describe each page precisely, but to abstract at a high level: merge similar tabs, reduce cognitive load.
+
+Input: one tab per line, format: id|title|url or id|title|url|desc:<description> (any "|" in title/desc is replaced with space). The optional desc: field is a truncated meta description — use it when the title alone is ambiguous.
+
+Output format (strictly follow):
+- One line per tab: <id>|<topic>
+- <topic>: A short 2–3 word category with one Emoji prefix, e.g. "💻 Dev Tools", "📈 Investing", "🛒 Shopping".
+- No header, no explanation, no Markdown, no blank lines. Every input id must appear in the output.
+
+Language rule:
+- If the tab fits an existing topic or a user-defined category (see below), reuse that exact string — do NOT translate or alter it.
+- For brand-new topics (no match found), always write the label in English.
+
+Correct example:
+891723|💻 Dev Tools
+891724|📈 Investing
+891725|🎬 Videos
+
+Grouping rules:
+- Primary goal: merge. Find common ground across tabs and assign as many as possible to the SAME topic string.
+- Never one-tab-one-topic. E.g. bank dividends + stock reports + finance sites → all go to "📈 Investing"; Cursor + GitHub + Claude → all go to "💻 Dev Tools".
+- Keep total distinct topics to 3–5 within one batch; share topics aggressively.${existingSection}${userPrefSection}`
+                : `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
 
 用户会以「每行一条标签页」的格式提供输入，格式为：id|title|url 或 id|title|url|desc:<页面描述>（title/desc 中原有的 "|" 已被替换为空格）。\`desc:\` 是可选字段，仅在标题信息量不足时附带，是该页面 meta description 的截断，作为补充判据；存在时请优先据其判断页面内容。你必须为每个 id 返回一行结果。
 
@@ -816,7 +856,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
                 if (results.length === 0) return { groupCount: 0, error: 'parse_failed' };
             }
 
-            const nowTs = Date.now();
+            const nowTs2 = Date.now();
             const queryIdSet = new Set(toQuery.map((t) => t.id));
             const sigById = new Map(toQuery.map((t) => [t.id, buildTabSignature(t)]));
             const cacheUpdates = {};
@@ -827,8 +867,8 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
                 cacheUpdates[idStr] = {
                     ...(entries[idStr] || {}),
                     sig: sigById.get(r.id) || '',
-                    topic: r.topic,
-                    updatedAt: nowTs,
+                    [topicField]: r.topic,
+                    updatedAt: nowTs2,
                 };
             }
             if (Object.keys(cacheUpdates).length > 0) {
@@ -843,7 +883,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
         for (const item of results) {
             const id = Number(item.id);
             if (!Number.isFinite(id) || !tabIdSet.has(id)) continue;
-            const topic = String(item.topic || '').trim() || '📁 未分组';
+            const topic = String(item.topic || '').trim() || (isEnglishMode ? '📁 Misc' : '📁 未分组');
             const meta = metaById.get(id);
             if (!meta) continue;
             const wId = meta.windowId;
@@ -854,7 +894,8 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
             if (!arr.includes(id)) arr.push(id);
         }
 
-        const groupCount = await performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId);
+        const orphanTitle = isEnglishMode ? '🗂️ Misc' : '🗂️ 零碎浏览';
+        const groupCount = await performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId, orphanTitle);
         return { groupCount };
     } catch (error) {
         console.error('批量聚类失败:', error);
@@ -866,9 +907,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
     }
 }
 
-const ORPHAN_MISC_GROUP_TITLE = '🗂️ 零碎浏览';
-
-async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId) {
+async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId, orphanTitle) {
     let groupCount = 0;
     /** 同窗口内因「单标签主题」未建组的标签，稍后放入收纳盒 */
     const orphansByWindow = new Map();
@@ -902,7 +941,7 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId)
         try {
             const groupId = await chrome.tabs.group({ tabIds: orphanTabIds });
             await chrome.tabGroups.update(groupId, {
-                title: ORPHAN_MISC_GROUP_TITLE,
+                title: orphanTitle || '🗂️ 零碎浏览',
                 color: 'grey',
                 collapsed: shouldCollapseTabGroup(orphanTabIds, activeTabId),
             });
@@ -960,37 +999,21 @@ chrome.tabs.query({}, (tabs) => {
     }
 });
 
-// 防抖广播：多个 tab 同时被取消分组时合并成一次刷新
-let _catBarRefreshTimer = null;
-function _scheduleCategoryBarRefresh() {
-    clearTimeout(_catBarRefreshTimer);
-    _catBarRefreshTimer = setTimeout(() => {
-        _catBarRefreshTimer = null;
-        chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }, (allTabs) => {
-            for (const t of allTabs) {
-                chrome.tabs.sendMessage(t.id, { action: 'refresh_category_bar' }).catch(() => {});
-            }
-        });
-    }, 150);
+function _broadcastCategoryBarRefresh() {
+    chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }, (allTabs) => {
+        if (chrome.runtime.lastError || !Array.isArray(allTabs)) return;
+        for (const t of allTabs) {
+            chrome.tabs.sendMessage(t.id, { action: 'refresh_category_bar' }).catch(() => {});
+        }
+    });
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.groupId === undefined) return;
-    // 维护 group map
     for (const [gId, set] of _groupTabsMap) {
         if (set.has(tabId)) { set.delete(tabId); if (set.size === 0) _groupTabsMap.delete(gId); break; }
     }
     _groupMapAdd(tabId, changeInfo.groupId);
-
-    // tab 被移出分组（取消分组 / 解散分组）→ 清除其 topic
-    if (changeInfo.groupId < 0) {
-        const idStr = String(tabId);
-        if (aiSnapshotCache.entries && aiSnapshotCache.entries[idStr]) {
-            delete aiSnapshotCache.entries[idStr];
-            persistAiSnapshotCache();
-            _scheduleCategoryBarRefresh();
-        }
-    }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -999,7 +1022,112 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     }
 });
 
-// tabGroups.onRemoved：map 清理兜底（tab 的 topic 在 tabs.onUpdated 里已处理）
+// 用户在 Chrome 原生改了分组名 → 更新用户偏好 + 刷新面板
+chrome.tabGroups.onUpdated.addListener((group) => {
+    const newTitle = (group.title || '').trim();
+    if (!newTitle) return;
+
+    const tabIdsInGroup = _groupTabsMap.get(group.id);
+    if (!tabIdsInGroup || tabIdsInGroup.size === 0) return;
+
+    const tabIdArr = [...tabIdsInGroup];
+
+    (async () => {
+        try {
+            const res = await new Promise((resolve) => {
+                chrome.storage.local.get(
+                    { aiSnapshotV1: null, ysUserTopicPrefs: {}, ysUserTopicPrefs_en: {}, uiLanguage: 'auto' },
+                    resolve
+                );
+            });
+
+            let lang = (res.uiLanguage) || 'auto';
+            if (lang === 'system') lang = 'auto';
+            let isEn = lang === 'en';
+            if (!isEn && lang === 'auto') {
+                try { isEn = !/^zh\b/i.test(String(chrome.i18n.getUILanguage() || '')); } catch (_) {}
+            }
+            const topicField = isEn ? 'topic_en' : 'topic';
+            const prefsKey = isEn ? 'ysUserTopicPrefs_en' : 'ysUserTopicPrefs';
+            const prefs = Object.assign({}, res[prefsKey] || {});
+
+            // 并发拿组内所有 tab 的域名，更新用户偏好
+            await Promise.all(tabIdArr.map(async (tabId) => {
+                const tab = await chrome.tabs.get(tabId).catch(() => null);
+                if (tab && tab.url) {
+                    const domain = getDomainFromUrl(tab.url);
+                    if (domain) prefs[domain] = newTitle;
+                }
+            }));
+
+            // 更新 aiSnapshotV1 中这批 tab 的 topic 字段
+            const raw = res.aiSnapshotV1;
+            let snapshotChanged = false;
+            if (raw && raw.entries) {
+                for (const tabId of tabIdArr) {
+                    const idStr = String(tabId);
+                    if (raw.entries[idStr]) {
+                        raw.entries[idStr][topicField] = newTitle;
+                        if (aiSnapshotCache.entries && aiSnapshotCache.entries[idStr]) {
+                            aiSnapshotCache.entries[idStr][topicField] = newTitle;
+                        }
+                        snapshotChanged = true;
+                    }
+                }
+            }
+
+            const writes = { [prefsKey]: prefs };
+            if (snapshotChanged && raw) writes.aiSnapshotV1 = raw;
+
+            await new Promise((resolve) => chrome.storage.local.set(writes, resolve));
+            _broadcastCategoryBarRefresh();
+        } catch (err) {
+            console.error('tabGroups.onUpdated: 更新分组偏好失败', err);
+        }
+    })();
+});
+
+// 取消分组 / 解散分组 → 从 storage 直接清除 topic，再广播刷新面板
 chrome.tabGroups.onRemoved.addListener((group) => {
+    const tabIdsFromMap = _groupTabsMap.get(group.id);
     _groupTabsMap.delete(group.id);
+
+    chrome.storage.local.get('aiSnapshotV1', (res) => {
+        const raw = res && res.aiSnapshotV1;
+        if (!raw || !raw.entries) return;
+
+        let toDelete;
+        if (tabIdsFromMap && tabIdsFromMap.size > 0) {
+            toDelete = [...tabIdsFromMap].map(String);
+        } else {
+            // SW 刚唤醒时 _groupTabsMap 可能为空，按 group.title 匹配兜底（中英文字段都检查）
+            toDelete = Object.entries(raw.entries)
+                .filter(([, entry]) => entry.topic === group.title || entry.topic_en === group.title)
+                .map(([id]) => id);
+        }
+
+        if (toDelete.length === 0) return;
+
+        let changed = false;
+        for (const id of toDelete) {
+            const entry = raw.entries[id];
+            if (!entry) continue;
+            // 只清 topic 字段，保留 siteName/pageLabel 等其他缓存
+            let entryChanged = false;
+            if (entry.topic === group.title) { delete entry.topic; entryChanged = true; }
+            if (entry.topic_en === group.title) { delete entry.topic_en; entryChanged = true; }
+            if (entryChanged) {
+                if (aiSnapshotCache.entries && aiSnapshotCache.entries[id]) {
+                    delete aiSnapshotCache.entries[id].topic;
+                    delete aiSnapshotCache.entries[id].topic_en;
+                }
+                changed = true;
+            }
+        }
+        if (!changed) return;
+
+        chrome.storage.local.set({ aiSnapshotV1: raw }, () => {
+            _broadcastCategoryBarRefresh();
+        });
+    });
 });

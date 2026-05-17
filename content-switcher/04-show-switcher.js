@@ -896,10 +896,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         const raw = storageRes && storageRes.aiSnapshotV1;
         if (!raw || !raw.entries) return;
         const tabIds = new Set(tabs.map((t) => String(t.id)));
+        const _isEn = ysGetResolvedLanguage() === 'en';
         switcherAiTopicMap = {};
         for (const [tabId, entry] of Object.entries(raw.entries)) {
-            if (tabIds.has(tabId) && entry.topic) {
-                switcherAiTopicMap[tabId] = entry.topic;
+            const topic = _isEn ? (entry.topic_en || '') : (entry.topic || '');
+            if (tabIds.has(tabId) && topic) {
+                switcherAiTopicMap[tabId] = topic;
             }
         }
         const seen = new Set();
@@ -923,11 +925,13 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         if (!switcherVisible) return;
         chrome.storage.local.get('aiSnapshotV1', (storageRes) => {
             const raw = storageRes && storageRes.aiSnapshotV1;
+            const _isEn = ysGetResolvedLanguage() === 'en';
             switcherAiTopicMap = {};
             if (raw && raw.entries) {
                 const tabIds = new Set(tabs.map((t) => String(t.id)));
                 for (const [tabId, entry] of Object.entries(raw.entries)) {
-                    if (tabIds.has(tabId) && entry.topic) switcherAiTopicMap[tabId] = entry.topic;
+                    const topic = _isEn ? (entry.topic_en || '') : (entry.topic || '');
+                    if (tabIds.has(tabId) && topic) switcherAiTopicMap[tabId] = topic;
                 }
             }
             const seen = new Set();
@@ -1097,24 +1101,29 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     }
 
     function persistTopicChange(tabId, tab, newTopic) {
+        const _lang = ysGetResolvedLanguage() === 'en' ? 'en' : 'zh';
         // 让 background 更新内存缓存 + storage + 移动 Chrome 原生标签组
-        ysSendToBg({ action: 'update_tab_topic', tabId, topic: newTopic }, {}, () => {});
+        ysSendToBg({ action: 'update_tab_topic', tabId, topic: newTopic, lang: _lang }, {}, () => {});
 
-        // domain 级偏好只影响 ysUserTopicPrefs，不走 aiSnapshotCache，可直接写
+        // domain 级偏好按语言分别存储，互不干扰
         if (newTopic && tab && tab.url) {
             try {
                 const { hostname } = new URL(tab.url);
                 const parts = hostname.split('.');
                 const domain = parts.length > 2 ? parts.slice(-2).join('.') : hostname;
+                const prefsKey = _lang === 'en' ? 'ysUserTopicPrefs_en' : 'ysUserTopicPrefs';
                 if (domain) {
-                    chrome.storage.local.get('ysUserTopicPrefs', (res) => {
-                        const prefs = (res && res.ysUserTopicPrefs) || {};
+                    chrome.storage.local.get(prefsKey, (res) => {
+                        const prefs = (res && res[prefsKey]) || {};
                         prefs[domain] = newTopic;
-                        chrome.storage.local.set({ ysUserTopicPrefs: prefs });
+                        chrome.storage.local.set({ [prefsKey]: prefs });
                     });
                 }
             } catch {}
         }
+
+        // toast 提示用户偏好已记忆
+        showCustomToast(ysT('toastTopicLearned'), 2500);
     }
 
     const onDragMouseMove = (e) => {
@@ -1677,7 +1686,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     };
 
     // 先读缓存快照，优先秒开；再异步补齐缺失项。
-    ysSendToBg({ action: 'get_ai_snapshot', tabs: tabsForAi }, {}, (res, err) => {
+    ysSendToBg({ action: 'get_ai_snapshot', tabs: tabsForAi, lang: ysGetResolvedLanguage() === 'en' ? 'en' : 'zh' }, {}, (res, err) => {
         if (err) return;
         applyAiSnapshotToView(res);
     });

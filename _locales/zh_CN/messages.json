@@ -242,6 +242,9 @@
   "toastExtensionBusy": {
     "message": "扩展暂时未响应，请轻点页面后再试或刷新本页（睡眠唤醒后较常见）。"
   },
+  "toastTopicLearned": {
+    "message": "🫡 YesSir，您的分组偏好已记录，下次 AI 分组将基于新规则执行。"
+  },
   "bgNothingToRestore": {
     "message": "没有可恢复的标签页"
   },
