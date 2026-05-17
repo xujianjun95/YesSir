@@ -10,6 +10,7 @@ function hideSwitcher(opts) {
     switcherTabs    = [];
     switcherCurrentWindowId = null;
     currentSwitcherSession = null;
+    window.__ysRefreshCategoryBar = null;
     if (switcherKeydownHandler) {
         document.removeEventListener('keydown', switcherKeydownHandler, true);
         switcherKeydownHandler = null;

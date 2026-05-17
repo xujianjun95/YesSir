@@ -918,6 +918,48 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }
     });
 
+    // 供 background 推送 refresh_category_bar 消息时实时重建 pills
+    window.__ysRefreshCategoryBar = () => {
+        if (!switcherVisible) return;
+        chrome.storage.local.get('aiSnapshotV1', (storageRes) => {
+            const raw = storageRes && storageRes.aiSnapshotV1;
+            switcherAiTopicMap = {};
+            if (raw && raw.entries) {
+                const tabIds = new Set(tabs.map((t) => String(t.id)));
+                for (const [tabId, entry] of Object.entries(raw.entries)) {
+                    if (tabIds.has(tabId) && entry.topic) switcherAiTopicMap[tabId] = entry.topic;
+                }
+            }
+            const seen = new Set();
+            const topics = [];
+            tabs.forEach((t) => {
+                const topic = switcherAiTopicMap[String(t.id)];
+                if (topic && !seen.has(topic)) { seen.add(topic); topics.push(topic); }
+            });
+            if (topics.length === 0) {
+                categoryBar.style.display = 'none';
+                if (switcherActiveCategory !== null) {
+                    switcherActiveCategory = null;
+                    renderList('', { restoreScroll: false, preferActive: true, animate: true });
+                }
+                return;
+            }
+            catBarTopics = topics;
+            catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
+            // 当前选中的分类已被删除，重置到「全部」
+            if (switcherActiveCategory !== null
+                && switcherActiveCategory !== '其他'
+                && !topics.includes(switcherActiveCategory)) {
+                switcherActiveCategory = null;
+                renderCategoryPills();
+                renderList('', { restoreScroll: false, preferActive: true, animate: true });
+            } else {
+                renderCategoryPills();
+            }
+            categoryBar.style.display = 'flex';
+        });
+    };
+
     // ── 拖拽到分类 ──────────────────────────────────────────────────────────────
     // 上次面板可能留下残影，先清掉
     document.getElementById('ys-drag-thumbnail')?.remove();

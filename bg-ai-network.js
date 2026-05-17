@@ -987,5 +987,12 @@ chrome.tabGroups.onRemoved.addListener((group) => {
         }
     }
     _groupTabsMap.delete(group.id);
-    if (changed) persistAiSnapshotCache();
+    if (changed) {
+        persistAiSnapshotCache();
+        chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }, (tabs) => {
+            for (const t of tabs) {
+                chrome.tabs.sendMessage(t.id, { action: 'refresh_category_bar' }).catch(() => {});
+            }
+        });
+    }
 });

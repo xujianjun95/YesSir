@@ -1144,6 +1144,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         showToast(request.count);
     } else if (request.action === 'show_message_toast') {
         showYsMessageToast(request.message || '🫡 YesSir', Number(request.durationMs) || 2800);
+    } else if (request.action === 'refresh_category_bar') {
+        if (typeof window.__ysRefreshCategoryBar === 'function') {
+            window.__ysRefreshCategoryBar();
+        }
     } else if (request.action === 'force_hide_switcher') {
         if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
             hideSwitcher();
