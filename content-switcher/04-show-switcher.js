@@ -277,6 +277,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             return;
         }
 
+        // 埋点：AI 聚合按钮点击数（按日累计，次日上报）
+        ysSendToBg({ action: 'track_event', feature: 'ai_aggregate' }, { maxRetries: 1 }, () => {});
+
         const finishProcessing = showProcessingToast(tabsToProcess.length);
         ysSendToBg({
             action: 'ai_batch_group',
@@ -312,6 +315,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     regretBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        // 埋点：后悔药按钮点击数（按日累计，次日上报）
+        ysSendToBg({ action: 'track_event', feature: 'undo' }, { maxRetries: 1 }, () => {});
         ysSendToBg({ action: 'restore_last_3_tabs' }, {}, (res, err) => {
             if (err) return;
             if (res && res.success) {
@@ -951,6 +956,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const submitWebSearch = () => {
         const keyword = searchInput ? String(searchInput.value || '').trim() : '';
         if (!keyword) return;
+        // 埋点：网页搜索点击数（按日累计，次日上报）
+        ysSendToBg({ action: 'track_event', feature: 'web_search' }, { maxRetries: 1 }, () => {});
         ysSendToBg({ action: 'search_web', keyword }, {}, (res, err) => {
             if (err || !res || !res.success) {
                 const errMsg = (res && res.error) ? String(res.error) : (err || ysT('errorWebSearchFailed'));
@@ -965,6 +972,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     const applySearchModeUi = () => {
         if (!searchInput) return;
         if (mode.isWebSearchMode) {
+            // 锁住当前高度，防止切换时列表清空导致面板缩小
+            card.style.minHeight = card.offsetHeight + 'px';
             invalidateAiSearch();
             // 先清场，避免上一模式结果残留；再按当前输入拉建议
             renderWebSuggestions([], '', { animate: true });
@@ -981,6 +990,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             }
             requestWebSuggestions(searchInput.value, true);
         } else {
+            // 切回标签模式时释放高度锁
+            card.style.minHeight = '';
             invalidateWebSuggestions();
             searchInput.placeholder = ysSwitcherPlaceholderDefault();
             searchInput.style.paddingRight = '12px';
@@ -1041,7 +1052,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     if (!mode.isWebSearchMode) {
                         invalidateAiSearch();
                         switcherSelIdx = 0;
-                        renderList(searchInput.value, { restoreScroll: false, preferActive: false, animate: true });
+                        renderList(searchInput.value, { restoreScroll: false, preferActive: false, animate: false, stagger: true });
                     }
                     mode.isTabAnimating = false;
                     return;
@@ -1062,7 +1073,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     if (!mode.isWebSearchMode) {
                         invalidateAiSearch();
                         switcherSelIdx = 0;
-                        renderList(searchInput.value, { restoreScroll: false, preferActive: false, animate: true });
+                        renderList(searchInput.value, { restoreScroll: false, preferActive: false, animate: false, stagger: true });
                     }
 
                     searchInput.style.transition = 'none';

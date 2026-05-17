@@ -933,6 +933,12 @@ document.addEventListener('dblclick', function(event) {
     if (isModHeld(event)) {
         event.preventDefault();
         chrome.runtime.sendMessage({ action: "close_and_toast" });
+        // 埋点：用户首次成功触发「修饰键 + 双击关闭」手势 → 只上报一次，用于算激活率
+        ysRuntimeSendMessageRetry(
+            { action: 'track_event', feature: 'first_close', kind: 'first_use' },
+            { maxRetries: 1 },
+            () => {},
+        );
     }
 });
 
@@ -1115,6 +1121,12 @@ document.addEventListener('keydown', function(event) {
                     showSwitcher(res.tabs, false, res.currentWindowId);
                     if (typeof initSwitcherHighlight === 'function') initSwitcherHighlight();
                     checkAndShowFeedbackFlyout();
+                    // 埋点：用户首次成功双击修饰键唤出面板 → 只上报一次，用于算激活率
+                    ysRuntimeSendMessageRetry(
+                        { action: 'track_event', feature: 'first_switcher_open', kind: 'first_use' },
+                        { maxRetries: 1 },
+                        () => {},
+                    );
                 });
             } else {
                 if (typeof hideSwitcher === 'function') hideSwitcher();
@@ -1127,7 +1139,7 @@ document.addEventListener('keydown', function(event) {
 }, true);
 
 // 来自 background 的消息
-chrome.runtime.onMessage.addListener((request) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'show_toast') {
         showToast(request.count);
     } else if (request.action === 'show_message_toast') {
@@ -1136,6 +1148,22 @@ chrome.runtime.onMessage.addListener((request) => {
         if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
             hideSwitcher();
         }
+    } else if (request.action === 'get_page_meta') {
+        // 仅在 AI 分组遇到「模糊标题」时被调用，返回 meta 描述辅助 LLM 判断
+        const pick = (sel) => {
+            const el = document.querySelector(sel);
+            return el && el.content ? String(el.content).trim() : '';
+        };
+        const description = pick('meta[name="description"]')
+            || pick('meta[property="og:description"]')
+            || pick('meta[name="twitter:description"]')
+            || '';
+        const ogTitle = pick('meta[property="og:title"]') || '';
+        sendResponse({
+            description: description.slice(0, 280),
+            ogTitle: ogTitle.slice(0, 120),
+        });
+        return false;
     }
 });
 

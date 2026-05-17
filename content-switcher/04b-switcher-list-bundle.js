@@ -106,6 +106,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
             const shouldRestoreScroll = !!opts.restoreScroll;
             const shouldPreferActive = !!opts.preferActive;
             const shouldAnimate = !!opts.animate;
+            const shouldStagger = !!opts.stagger;
             const explicitRestoreScrollTop = Number.isFinite(opts.scrollTop) ? opts.scrollTop : null;
             const prevScrollTop = listContainer.scrollTop;
             // AI 搜索模式：由上一轮 AI 请求返回的关键词数组；存在时用多词 OR 匹配取代单一关键词匹配
@@ -409,7 +410,24 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
     
             const prevH = shouldAnimate ? card.offsetHeight : 0;
             rebuildListDOM();
-    
+
+            if (shouldStagger) {
+                const rows = listContainer.querySelectorAll('.ys-group-row');
+                rows.forEach((row, i) => {
+                    row.style.opacity = '0';
+                    row.style.transform = 'translateY(-8px)';
+                    row.style.transition = 'none';
+                    requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                            row.style.transition = 'opacity 0.18s ease, transform 0.18s ease';
+                            row.style.transitionDelay = `${i * 30}ms`;
+                            row.style.opacity = '1';
+                            row.style.transform = 'translateY(0)';
+                        });
+                    });
+                });
+            }
+
             if (shouldAnimate) {
                 const nextH = card.offsetHeight;
                 if (Math.abs(prevH - nextH) > 1.5) {
@@ -458,7 +476,10 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                 if (!keyword) {
                     const empty = document.createElement('div');
                     Object.assign(empty.style, {
-                        padding: '24px 20px',
+                        flex: '1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         textAlign: 'center',
                         color: 'var(--ys-text-muted)',
                         fontSize: '12px',
@@ -467,11 +488,14 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     listContainer.appendChild(empty);
                     return;
                 }
-    
+
                 if (!Array.isArray(suggestions) || suggestions.length === 0) {
                     const empty = document.createElement('div');
                     Object.assign(empty.style, {
-                        padding: '24px 20px',
+                        flex: '1',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         textAlign: 'center',
                         color: 'var(--ys-text-muted)',
                         fontSize: '12px',

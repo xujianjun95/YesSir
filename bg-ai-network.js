@@ -64,7 +64,6 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
     });
 }
 
-const CATEGORY_CACHE_VERSION = 'v3';
 const SITE_NAME_CACHE_VERSION = 'v2';
 const PAGE_LABEL_CACHE_VERSION = 'v7';
 
@@ -305,12 +304,6 @@ function parseAiSearchKeywords(raw) {
     return out;
 }
 
-function titleCacheKey(title, url = '') {
-    const t = encodeURIComponent((title || '').trim().toLowerCase().slice(0, 200));
-    const d = encodeURIComponent(getDomainFromUrl(url).slice(0, 120));
-    return `cat_${CATEGORY_CACHE_VERSION}_${d}_${t}`;
-}
-
 function siteNameCacheKey(url = '') {
     const domain = encodeURIComponent(getDomainFromUrl(url).slice(0, 120));
     return `site_name_${SITE_NAME_CACHE_VERSION}_${domain}`;
@@ -389,7 +382,6 @@ function buildTabSignature(tab) {
 }
 
 function buildAiSnapshotFromCache(tabs) {
-    const classification = {};
     const siteNames = {};
     const labels = {};
     const entries = aiSnapshotCache.entries || {};
@@ -398,13 +390,12 @@ function buildAiSnapshotFromCache(tabs) {
         const cached = entries[id];
         if (!cached) return;
         if (cached.sig !== buildTabSignature(tab)) return;
-        if (cached.category) classification[id] = cached.category;
         if (cached.siteName) siteNames[id] = cached.siteName;
         /* 尚无 pageLabel 字段的旧条目不强行兜底，等与 prewarm/recompute */
         if (cached.pageLabel === undefined || cached.pageLabel === null) return;
         labels[id] = coerceAndFinalizePageLabel(cached.pageLabel, tab);
     });
-    return { classification, siteNames, labels };
+    return { siteNames, labels };
 }
 
 async function fetchPageLabelsForTabs(tabList, apiKey) {
@@ -477,7 +468,6 @@ async function fetchPageLabelsForTabs(tabList, apiKey) {
 async function computeAiSnapshotForTabs(tabs) {
     const tabList = Array.isArray(tabs) ? tabs : [];
     const apiKey = await getDeepSeekApiKey();
-    const classification = {};
     const siteNames = {};
     const labels = {};
     const updates = {};
@@ -489,12 +479,6 @@ async function computeAiSnapshotForTabs(tabs) {
         const sig = buildTabSignature(tab);
         const cached = entries[id];
         const isSigMatch = !!(cached && cached.sig === sig);
-
-        let category = isSigMatch ? cached.category : '';
-        if (!category) {
-            category = await getSmartCategory(tab.title, tab.url, apiKey);
-        }
-        if (category) classification[id] = category;
 
         let siteName = isSigMatch ? cached.siteName : '';
         if (siteName === undefined || siteName === null) siteName = '';
@@ -516,7 +500,6 @@ async function computeAiSnapshotForTabs(tabs) {
         updates[id] = {
             ...(cached || {}),
             sig,
-            category: category || '',
             siteName: siteName || '',
             updatedAt: Date.now(),
         };
@@ -589,52 +572,7 @@ async function computeAiSnapshotForTabs(tabs) {
         aiSnapshotCache.entries[id] = entry;
     });
     await persistAiSnapshotCache();
-    return { classification, siteNames, labels };
-}
-
-async function getSmartCategory(title, url, apiKey) {
-    const keywordCategory = inferCategoryByKeyword(title, url);
-    if (keywordCategory) return keywordCategory;
-
-    const cacheKey = titleCacheKey(title, url);
-    const cached = await chrome.storage.local.get(cacheKey);
-    if (cached[cacheKey]) return normalizeCategory(cached[cacheKey]);
-
-    try {
-        const domain = getDomainFromUrl(url);
-        const response = await callDeepSeekApi({
-                model: 'deepseek-chat',
-                messages: [
-                    {
-                        role: 'system',
-                        content: `你是一个网页分类专家。请将网页标题归类为以下之一：
-📖 信息资讯（新闻门户、科技博客、百科词典、天气预报、股票行情、企业黄页）、
-🛠️ 效率办公（在线文档、任务管理、云存储、在线表单、日历日程、会议软件、云服务控制台、开发者平台、AI工具网站）、
-💬 社交互动（微博/朋友圈、论坛社区、即时聊天、问答社区、评论系统、群组协作）、
-🎡 生活娱乐（视频点播、音乐流媒体、在线游戏、直播平台、外卖/点评、旅游攻略）、
-📁 其他分类（个人主页、实验性站点、计算器/二维码等工具类、404页面）。
-如果标题不够明确，请结合 URL 和域名判断。只需返回类别名称（带 Emoji），不要解释。`,
-                    },
-                    {
-                        role: 'user',
-                        content: `标题：${title || '(无标题)'}
-URL：${url || '(无URL)'}
-域名：${domain || '(无域名)'}`,
-                    },
-                ],
-                temperature: 0.3,
-            }, apiKey, { feature: 'general' });
-
-        const data = await response.json();
-        const rawCategory = data.choices?.[0]?.message?.content?.trim() || '📁 其他分类';
-        const category = normalizeCategory(rawCategory);
-
-        await chrome.storage.local.set({ [cacheKey]: category });
-        return category;
-    } catch (error) {
-        console.error('DeepSeek 呼叫失败:', error);
-        return '📁 其他分类';
-    }
+    return { siteNames, labels };
 }
 
 async function getSmartSiteName(title, url, apiKey) {
@@ -688,30 +626,7 @@ function parseDeepSeekJsonContent(raw) {
 }
 
 /**
- * 批量聚类输出的 category 编码表。让 LLM 只写单字母（省 token → 省时间），后端再映射回完整值。
- * 生成侧省约 5~7 token/行，37 条 × 0.03s/token ≈ 快 6~8 秒。
- */
-const BATCH_CATEGORY_CODE_MAP = {
-    A: '📖 信息资讯',
-    B: '🛠️ 效率办公',
-    C: '💬 社交互动',
-    D: '🎡 生活娱乐',
-    E: '📁 其他分类',
-};
-const BATCH_CATEGORY_DEFAULT = '📁 其他分类';
-
-function decodeBatchCategory(raw) {
-    const s = String(raw || '').trim();
-    if (!s) return BATCH_CATEGORY_DEFAULT;
-    // 主路径：单字母代号
-    const upper = s.toUpperCase();
-    if (BATCH_CATEGORY_CODE_MAP[upper]) return BATCH_CATEGORY_CODE_MAP[upper];
-    // 兜底：LLM 偶发退回旧格式，直接返回完整字符串（避免正常聚类信息被丢）
-    return s;
-}
-
-/**
- * 解析批量聚类的 CSV 输出：每行 `id|category|topic`。
+ * 解析批量聚类的 CSV 输出：每行 `id|topic`。
  * 比 JSON 输出快 ~30%+（少写大量引号/括号/字段名），且容错更强。
  */
 function parseBatchCsvContent(raw) {
@@ -725,15 +640,14 @@ function parseBatchCsvContent(raw) {
         const t = line.trim();
         if (!t) continue;
         const parts = t.split('|').map((p) => p.trim());
-        if (parts.length < 3) continue;
+        if (parts.length < 2) continue;
         const id = Number(parts[0]);
         if (!Number.isFinite(id) || seen.has(id)) continue;
-        const category = parts[1];
         // topic 允许自带空格，若被多个 | 误切，则把后续段合并回去
-        const topic = parts.slice(2).join(' | ').trim();
+        const topic = parts.slice(1).join(' | ').trim();
         if (!topic) continue;
         seen.add(id);
-        out.push({ id, category, topic });
+        out.push({ id, topic });
     }
     return out;
 }
@@ -749,11 +663,25 @@ function shouldCollapseTabGroup(tabIds, activeTabId) {
 }
 
 /**
+ * 标题信息量不足 → 单靠 title+url 难以分类，需要补 meta 描述。
+ * 仅在 ai_batch_group 流程里用，决定哪些标签去抓 page meta。
+ */
+function titleIsAmbiguous(title) {
+    const t = String(title || '').trim();
+    if (!t || t.length < 4) return true;
+    if (/^\(\d+\)/.test(t)) return true;                          // "(3) WhatsApp"
+    if (/^(Dashboard|Untitled|Home|Loading|New Tab|无标题|加载中)/i.test(t)) return true;
+    if (/^\d+\s*[-·]\s*\w+$/.test(t)) return true;                // "404 - Not Found" 之类
+    return false;
+}
+
+/**
  * 批量聚类：一次请求拿到各标签的 topic，再按窗口分别 chrome.tabs.group（跨窗口不可同组）。
  * @param {number|undefined} restrictWindowId 若传入，仅处理该窗口内的标签（避免与其它窗口混组、或误搬移标签）。
  * @param {number|null|undefined} activeTabId 发起聚合操作时的标签 id；其所在组展开，其余折叠。
+ * @param {Object<number,string>} [tabMetaMap] 标题模糊的标签的 meta description；仅对存在该字段的标签拼入 desc:
  */
-async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTabId) {
+async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTabId, tabMetaMap) {
     if (!Array.isArray(tabs) || tabs.length === 0) return { groupCount: 0, error: 'no_tabs' };
 
     let httpTabs = tabs.filter((t) => t.url && /^https?:\/\//i.test(String(t.url)));
@@ -771,18 +699,14 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
 
     // —— 缓存分流：签名匹配且已写过 topic 的跳过 LLM，其余走 LLM ——
     const entries = aiSnapshotCache.entries || {};
-    const results = []; // 最终参与分组的 { id, category, topic }
+    const results = []; // 最终参与分组的 { id, topic }
     const toQuery = []; // 未命中缓存、需要送 LLM 的原始 tab
     for (const t of httpTabs) {
         const idStr = String(t.id);
         const sig = buildTabSignature(t);
         const cached = entries[idStr];
         if (cached && cached.sig === sig && cached.topic) {
-            results.push({
-                id: t.id,
-                category: cached.category || '📁 其他分类',
-                topic: cached.topic,
-            });
+            results.push({ id: t.id, topic: cached.topic });
         } else {
             toQuery.push(t);
         }
@@ -796,7 +720,11 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
             const tabLines = toQuery.map((t) => {
                 const title = String(t.title || '').replace(/[|\n\r]/g, ' ').slice(0, 120);
                 const url = String(t.url || '').slice(0, 200);
-                return `${t.id}|${title}|${url}`;
+                const rawDesc = tabMetaMap && tabMetaMap[t.id];
+                const descPart = rawDesc
+                    ? `|desc:${String(rawDesc).replace(/[|\n\r]/g, ' ').slice(0, 160)}`
+                    : '';
+                return `${t.id}|${title}|${url}${descPart}`;
             }).join('\n');
 
             const existingSection = existingTopics.length > 0
@@ -805,23 +733,17 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
 
             const systemPrompt = `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
 
-用户会以「每行一条标签页」的格式提供输入，格式为：id|title|url（title 中原有的 "|" 已被替换为空格，因此分隔符只出现 2 个）。你必须为每个 id 返回一行结果。
+用户会以「每行一条标签页」的格式提供输入，格式为：id|title|url 或 id|title|url|desc:<页面描述>（title/desc 中原有的 "|" 已被替换为空格）。\`desc:\` 是可选字段，仅在标题信息量不足时附带，是该页面 meta description 的截断，作为补充判据；存在时请优先据其判断页面内容。你必须为每个 id 返回一行结果。
 
 【输出格式 — 严格遵守】
-- 每行一条，格式：<id>|<cat>|<topic>
-- <cat> 只能是单个大写字母 A / B / C / D / E，对应五大类（禁止输出完整名称或 emoji）：
-  A = 📖 信息资讯（新闻/资讯/百科/财经行情）
-  B = 🛠️ 效率办公（文档/代码/AI 工具/云服务/开发者平台）
-  C = 💬 社交互动（社区/聊天/问答/评论/朋友圈）
-  D = 🎡 生活娱乐（视频/音乐/游戏/直播/外卖/旅游/购物）
-  E = 📁 其他分类（个人站点/工具/404 等兜底）
+- 每行一条，格式：<id>|<topic>
 - <topic>：4～6 个汉字左右的子主题场景，并带一个 Emoji 前缀，例如 "💻 研发工具"、"📈 投资调研"、"🛒 购物消费"。
 - 不要表头、不要解释、不要 Markdown 代码块、不要空行；每个输入 id 都必须有对应输出行。
 
 【正确示例】
-891723|B|💻 研发工具
-891724|A|📈 投资调研
-891725|D|🎬 影视追剧
+891723|💻 研发工具
+891724|📈 投资调研
+891725|🎬 影视追剧
 
 【强制聚合规则】
 - 首要目标是合并同类项：尽最大努力发现网页之间的共性，把尽可能多的页面归入**相同**的 topic 字符串。
@@ -867,18 +789,11 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
             const cacheUpdates = {};
             for (const r of llmResults) {
                 if (!queryIdSet.has(r.id)) continue;
-                // LLM 只写 A/B/C/D/E，这里还原为完整 "📖 信息资讯" 等字符串
-                const fullCategory = decodeBatchCategory(r.category);
-                results.push({
-                    id: r.id,
-                    category: fullCategory,
-                    topic: r.topic,
-                });
+                results.push({ id: r.id, topic: r.topic });
                 const idStr = String(r.id);
                 cacheUpdates[idStr] = {
                     ...(entries[idStr] || {}),
                     sig: sigById.get(r.id) || '',
-                    category: fullCategory || (entries[idStr]?.category || ''),
                     topic: r.topic,
                     updatedAt: nowTs,
                 };

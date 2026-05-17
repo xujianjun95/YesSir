@@ -20,16 +20,6 @@ function getTabGroupDomainKey(url) {
     return domain;
 }
 
-function normalizeCategory(rawCategory) {
-    const text = String(rawCategory || '').trim();
-    if (text.includes('📖') || text.includes('信息资讯')) return '📖 信息资讯';
-    if (text.includes('🛠') || text.includes('效率办公')) return '🛠️ 效率办公';
-    if (text.includes('💬') || text.includes('社交互动')) return '💬 社交互动';
-    if (text.includes('🎡') || text.includes('生活娱乐')) return '🎡 生活娱乐';
-    if (text.includes('📁') || text.includes('🔍') || text.includes('其他')) return '📁 其他分类';
-    return '📁 其他分类';
-}
-
 function normalizeSiteName(rawName, url = '') {
     let name = String(rawName || '').trim();
     if (!name) return null;
@@ -213,15 +203,3 @@ function inferSiteNameByKeyword(title, url = '') {
     return null;
 }
 
-function inferCategoryByKeyword(title, url = '') {
-    const t = String(title || '').toLowerCase();
-    const u = String(url || '').toLowerCase();
-    const all = `${t} ${u}`;
-
-    // 优先保证“云服务/开发平台/AI 工具”命中效率办公
-    if (/(aliyun|aithub|github|gitlab|gitee|notion|feishu|lark|jira|confluence|slack|trello|docs\.google|drive\.google|aws|azure|cloud|vercel|netlify|supabase|openai|claude|deepseek|cursor|figma|canva|chatgpt)/.test(all)) {
-        return '🛠️ 效率办公';
-    }
-
-    return null;
-}

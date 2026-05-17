@@ -1,10 +1,86 @@
 // bg-messages.js — chrome.runtime.onMessage 路由（由 background.js importScripts 加载）
+
+/** 并发抓「标题模糊」http 标签的 meta description；带超时，失败静默忽略 */
+async function collectAmbiguousTabMeta(tabs) {
+    const candidates = (Array.isArray(tabs) ? tabs : []).filter((t) =>
+        t && t.id != null
+        && /^https?:\/\//i.test(String(t.url || ''))
+        && typeof titleIsAmbiguous === 'function'
+        && titleIsAmbiguous(t.title)
+    );
+    if (candidates.length === 0) return {};
+
+    const TIMEOUT_MS = 500;
+    const fetchOne = (tabId) => new Promise((resolve) => {
+        let done = false;
+        const timer = setTimeout(() => {
+            if (done) return;
+            done = true;
+            resolve(null);
+        }, TIMEOUT_MS);
+        try {
+            chrome.tabs.sendMessage(tabId, { action: 'get_page_meta' }, (res) => {
+                if (done) return;
+                done = true;
+                clearTimeout(timer);
+                if (chrome.runtime.lastError) {
+                    resolve(null);
+                    return;
+                }
+                resolve(res || null);
+            });
+        } catch (_) {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            resolve(null);
+        }
+    });
+
+    const metaMap = {};
+    await Promise.all(candidates.map(async (t) => {
+        const res = await fetchOne(t.id);
+        if (res && res.description) {
+            metaMap[t.id] = String(res.description).trim();
+        } else if (res && res.ogTitle) {
+            metaMap[t.id] = String(res.ogTitle).trim();
+        }
+    }));
+    return metaMap;
+}
+
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // 供 content script 在睡眠唤醒后轻量唤醒 SW，降低首条业务消息失败率
     if (request.action === 'ping') {
         sendResponse({ ok: true });
         return false;
+    }
+
+    // ── 通用埋点入口：content script 触发的功能使用统计 ──
+    // 用法：
+    //   ysSendToBg({ action: 'track_event', feature: 'ai_aggregate' })            // 点击类，本地累计次日上报
+    //   ysSendToBg({ action: 'track_event', feature: 'first_close', kind: 'first_use' })  // 首次触发，立即上报一次
+    if (request.action === 'track_event') {
+        const feature = String(request.feature || '').trim();
+        const kind = String(request.kind || 'click').trim();
+        if (!feature) {
+            sendResponse({ ok: false });
+            return false;
+        }
+        (async () => {
+            try {
+                if (kind === 'first_use') {
+                    await trackFirstUse(feature);
+                } else {
+                    await incrementDailyCounter(feature);
+                }
+                sendResponse({ ok: true });
+            } catch (_) {
+                sendResponse({ ok: false });
+            }
+        })();
+        return true;
     }
 
     // ── 统一记录函数：记录一次“使用” (关闭或切换) ──
@@ -174,7 +250,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             try {
                 const tabList = Array.isArray(request.tabs) ? request.tabs : [];
                 if (tabList.length === 0) {
-                    sendResponse({ classification: {}, siteNames: {}, labels: {} });
+                    sendResponse({ siteNames: {}, labels: {} });
                     return;
                 }
                 const snapshot = await computeAiSnapshotForTabs(tabList);
@@ -182,7 +258,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             } catch (err) {
                 console.error('prewarm_ai_snapshot:', err);
                 sendResponse({
-                    classification: {}, siteNames: {}, labels: {},
+                    siteNames: {}, labels: {},
                     error: err && err.message ? String(err.message) : String(err),
                 });
             }
@@ -222,44 +298,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     });
                 }
             });
-        })();
-        return true;
-    }
-
-    // ── DeepSeek：按标签页标题智能分类（带缓存） ──
-    else if (request.action === 'classify_tabs') {
-        (async () => {
-            try {
-                const results = {};
-                const siteNames = {};
-                const apiKey = await getDeepSeekApiKey();
-                const tabList = Array.isArray(request.tabs) ? request.tabs : [];
-                const domainNameMemo = new Map();
-
-                await Promise.all(tabList.map(async (tab) => {
-                    results[tab.id] = await getSmartCategory(tab.title, tab.url, apiKey);
-
-                    const domain = getDomainFromUrl(tab.url);
-                    if (!domain) {
-                        siteNames[tab.id] = null;
-                        return;
-                    }
-
-                    let pendingSiteName = domainNameMemo.get(domain);
-                    if (!pendingSiteName) {
-                        pendingSiteName = getSmartSiteName(tab.title, tab.url, apiKey)
-                            .then((name) => name ?? null)
-                            .catch(() => null);
-                        domainNameMemo.set(domain, pendingSiteName);
-                    }
-                    siteNames[tab.id] = await pendingSiteName;
-                }));
-
-                sendResponse({ classification: results, siteNames });
-            } catch (err) {
-                console.error('classify_tabs:', err);
-                sendResponse({ classification: {}, siteNames: {}, error: err && err.message ? String(err.message) : String(err) });
-            }
         })();
         return true;
     }
@@ -312,7 +350,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     restrictWindowId = sender.tab.windowId;
                 }
                 const activeTabId = sender.tab && sender.tab.id !== undefined ? sender.tab.id : null;
-                const result = await performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTabId);
+
+                // 标题模糊的 http 标签 → 并发抓 page meta 作为补充判据（隐私权衡：仅对真正需要的标签发起）
+                const tabMetaMap = await collectAmbiguousTabMeta(tabs);
+
+                const result = await performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTabId, tabMetaMap);
                 sendResponse({
                     success: !result.error,
                     groupCount: result.groupCount,
