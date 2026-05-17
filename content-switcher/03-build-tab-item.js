@@ -220,9 +220,9 @@ function buildTabItem(tab, globalIdx, container) {
             Object.assign(labelEl.style, {
                 fontSize:       '11px',
                 fontWeight:     '600',
-                color:          'var(--ys-text-muted)',
-                background:     'var(--ys-btn-bg)',
-                border:         '1px solid var(--ys-divider)',
+                color:          'var(--ys-ai-text)',
+                background:     'var(--ys-ai-bg)',
+                border:         '1px solid var(--ys-ai-border)',
                 borderRadius:   '4px',
                 padding:        '2px 6px',
                 flexShrink:     '0',
