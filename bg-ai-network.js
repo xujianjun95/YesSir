@@ -933,3 +933,59 @@ async function fetchSearchSuggestions(query) {
         return [];
     }
 }
+
+// ─── Chrome 标签组删除时同步清除 AI topic ────────────────────────────────────
+// groupId → Set<tabId>：事件触发时 Chrome 已无法查询组内成员，须提前维护
+const _groupTabsMap = new Map();
+
+function _groupMapAdd(tabId, groupId) {
+    if (!groupId || groupId < 0) return;
+    if (!_groupTabsMap.has(groupId)) _groupTabsMap.set(groupId, new Set());
+    _groupTabsMap.get(groupId).add(tabId);
+}
+
+function _groupMapRemove(tabId, groupId) {
+    if (!groupId || groupId < 0) return;
+    const s = _groupTabsMap.get(groupId);
+    if (!s) return;
+    s.delete(tabId);
+    if (s.size === 0) _groupTabsMap.delete(groupId);
+}
+
+// Service Worker 每次启动重建映射
+chrome.tabs.query({}, (tabs) => {
+    if (chrome.runtime.lastError || !Array.isArray(tabs)) return;
+    for (const t of tabs) {
+        if (t.groupId && t.groupId > 0) _groupMapAdd(t.id, t.groupId);
+    }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+    if (changeInfo.groupId === undefined) return;
+    // 从所有组里移除旧关联
+    for (const [gId, set] of _groupTabsMap) {
+        if (set.has(tabId)) { set.delete(tabId); if (set.size === 0) _groupTabsMap.delete(gId); break; }
+    }
+    _groupMapAdd(tabId, changeInfo.groupId);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+    for (const [gId, set] of _groupTabsMap) {
+        if (set.has(tabId)) { set.delete(tabId); if (set.size === 0) _groupTabsMap.delete(gId); break; }
+    }
+});
+
+chrome.tabGroups.onRemoved.addListener((group) => {
+    const tabIds = _groupTabsMap.get(group.id);
+    if (!tabIds || tabIds.size === 0) { _groupTabsMap.delete(group.id); return; }
+    let changed = false;
+    for (const tabId of tabIds) {
+        const idStr = String(tabId);
+        if (aiSnapshotCache.entries && aiSnapshotCache.entries[idStr]) {
+            delete aiSnapshotCache.entries[idStr];
+            changed = true;
+        }
+    }
+    _groupTabsMap.delete(group.id);
+    if (changed) persistAiSnapshotCache();
+});
