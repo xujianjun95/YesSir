@@ -960,13 +960,37 @@ chrome.tabs.query({}, (tabs) => {
     }
 });
 
+// 防抖广播：多个 tab 同时被取消分组时合并成一次刷新
+let _catBarRefreshTimer = null;
+function _scheduleCategoryBarRefresh() {
+    clearTimeout(_catBarRefreshTimer);
+    _catBarRefreshTimer = setTimeout(() => {
+        _catBarRefreshTimer = null;
+        chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }, (allTabs) => {
+            for (const t of allTabs) {
+                chrome.tabs.sendMessage(t.id, { action: 'refresh_category_bar' }).catch(() => {});
+            }
+        });
+    }, 150);
+}
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.groupId === undefined) return;
-    // 从所有组里移除旧关联
+    // 维护 group map
     for (const [gId, set] of _groupTabsMap) {
         if (set.has(tabId)) { set.delete(tabId); if (set.size === 0) _groupTabsMap.delete(gId); break; }
     }
     _groupMapAdd(tabId, changeInfo.groupId);
+
+    // tab 被移出分组（取消分组 / 解散分组）→ 清除其 topic
+    if (changeInfo.groupId < 0) {
+        const idStr = String(tabId);
+        if (aiSnapshotCache.entries && aiSnapshotCache.entries[idStr]) {
+            delete aiSnapshotCache.entries[idStr];
+            persistAiSnapshotCache();
+            _scheduleCategoryBarRefresh();
+        }
+    }
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -975,24 +999,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     }
 });
 
+// tabGroups.onRemoved：map 清理兜底（tab 的 topic 在 tabs.onUpdated 里已处理）
 chrome.tabGroups.onRemoved.addListener((group) => {
-    const tabIds = _groupTabsMap.get(group.id);
-    if (!tabIds || tabIds.size === 0) { _groupTabsMap.delete(group.id); return; }
-    let changed = false;
-    for (const tabId of tabIds) {
-        const idStr = String(tabId);
-        if (aiSnapshotCache.entries && aiSnapshotCache.entries[idStr]) {
-            delete aiSnapshotCache.entries[idStr];
-            changed = true;
-        }
-    }
     _groupTabsMap.delete(group.id);
-    if (changed) {
-        persistAiSnapshotCache();
-        chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }, (tabs) => {
-            for (const t of tabs) {
-                chrome.tabs.sendMessage(t.id, { action: 'refresh_category_bar' }).catch(() => {});
-            }
-        });
-    }
 });
