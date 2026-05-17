@@ -63,8 +63,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     card.id = 'ys-switcher-card';
     Object.assign(card.style, {
         background:     'var(--ys-card-bg)',
-        backdropFilter: 'saturate(180%) blur(32px)',
-        WebkitBackdropFilter: 'saturate(180%) blur(32px)',
+        backdropFilter: 'saturate(180%) blur(40px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(40px)',
         border:         '1px solid var(--ys-card-border)',
         borderRadius:   '20px',
         boxShadow:      'var(--ys-card-shadow)',
