@@ -275,6 +275,9 @@
   "onboardingClose": {
     "message": "按住 $1 + 双击空白处 → 关闭当前标签"
   },
+  "onboardingDrag": {
+    "message": "AI 分组后可拖拽标签到分类，YesSir 会记住你的偏好"
+  },
   "onboardingHint": {
     "message": "点击右上角 × 可关闭此提示"
   }

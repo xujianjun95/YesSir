@@ -275,6 +275,9 @@
   "onboardingClose": {
     "message": "Hold $1 + double-click blank area → close tab"
   },
+  "onboardingDrag": {
+    "message": "After AI grouping, drag any tab to a category — YesSir remembers your preference"
+  },
   "onboardingHint": {
     "message": "Click × in the top-right to close this tip."
   }
