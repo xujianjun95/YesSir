@@ -1,6 +1,6 @@
 # YesSir — CLAUDE.md
 
-Chrome 扩展，Manifest V3，极简标签页管理。当前版本 **v1.5.1**。
+Chrome 扩展，Manifest V3，极简标签页管理。当前版本 **v1.5.2**。
 
 ---
 
