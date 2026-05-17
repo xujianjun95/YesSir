@@ -1081,6 +1081,7 @@ chrome.tabGroups.onUpdated.addListener((group) => {
 
             await new Promise((resolve) => chrome.storage.local.set(writes, resolve));
             _broadcastCategoryBarRefresh();
+            void incrementDailyCounter('rename_group');
         } catch (err) {
             console.error('tabGroups.onUpdated: 更新分组偏好失败', err);
         }

@@ -1122,6 +1122,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             } catch {}
         }
 
+        // 埋点
+        ysSendToBg({ action: 'track_event', feature: 'drag_reclassify' }, { maxRetries: 1 }, () => {});
+
         // toast 提示用户偏好已记忆
         showCustomToast(ysT('toastTopicLearned'), 2500);
     }
