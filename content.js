@@ -1200,41 +1200,27 @@ function showYsOnboarding(modLabel, dismissedKey) {
     if (document.getElementById('ys-onboarding')) return;
     ensureYsThemeStylesInjected();
 
-    if (!document.getElementById('ys-onboarding-kf')) {
-        const kfStyle = document.createElement('style');
-        kfStyle.id = 'ys-onboarding-kf';
-        kfStyle.textContent = `
-            @keyframes ys-ob-in {
-                0%   { opacity: 0; transform: translateY(20px); }
-                45%  { opacity: 1; transform: translateY(-5px); }
-                60%  { transform: translateY(1px); }
-                75%  { transform: translateY(-3px); }
-                88%  { transform: translateY(1px); }
-                100% { opacity: 1; transform: translateY(0); }
-            }
-        `;
-        document.head.appendChild(kfStyle);
-    }
-
     const widget = document.createElement('div');
     widget.id = 'ys-onboarding';
     Object.assign(widget.style, {
         position:             'fixed',
-        right:                '20px',
-        bottom:               '80px',
+        right:                '24px',
+        bottom:               '24px',
         zIndex:               '2147483647',
-        width:                '276px',
+        width:                '292px',
         padding:              '14px 14px 12px',
         borderRadius:         '14px',
-        background:           'var(--ys-card-bg, rgba(252,252,254,0.92))',
+        background:           'var(--ys-card-bg, rgba(252, 252, 254, 0.82))',
         backdropFilter:       'saturate(180%) blur(24px)',
         WebkitBackdropFilter: 'saturate(180%) blur(24px)',
-        border:               '1px solid var(--ys-accent-hover, rgba(80,110,220,0.3))',
-        boxShadow:            'var(--ys-card-shadow, 0 12px 32px rgba(0,0,0,0.14), inset 0 1px 0 rgba(255,255,255,0.52))',
-        color:                'var(--ys-text-primary, rgba(40,50,70,0.9))',
+        border:               '1px solid var(--ys-card-border, rgba(110, 150, 235, 0.35))',
+        boxShadow:            'var(--ys-card-shadow, 0 12px 32px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.52))',
+        color:                'var(--ys-text-primary, rgba(45, 55, 78, 0.92))',
         fontFamily:           '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        opacity:              '0',
+        transform:            'translateY(14px)',
+        transition:           'opacity 0.28s ease, transform 0.36s cubic-bezier(0.22, 1, 0.36, 1)',
         boxSizing:            'border-box',
-        animation:            'ys-ob-in 0.85s cubic-bezier(0.22,1,0.36,1) forwards',
     });
 
     widget.innerHTML = `
@@ -1256,18 +1242,16 @@ function showYsOnboarding(modLabel, dismissedKey) {
     `;
 
     document.body.appendChild(widget);
+    requestAnimationFrame(() => {
+        widget.style.opacity = '1';
+        widget.style.transform = 'translateY(0)';
+    });
 
     const dismiss = () => {
         chrome.storage.local.set({ [dismissedKey]: true });
-        // 先冻结动画，建立当前可见状态为 inline 样式，再做退出过渡
-        widget.style.animation = 'none';
-        widget.style.opacity = '1';
-        widget.style.transform = 'translateY(0)';
-        void widget.offsetHeight; // force reflow
-        widget.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
         widget.style.opacity = '0';
-        widget.style.transform = 'translateY(10px)';
-        setTimeout(() => { if (widget.isConnected) widget.remove(); }, 260);
+        widget.style.transform = 'translateY(14px)';
+        setTimeout(() => { if (widget.isConnected) widget.remove(); }, 360);
     };
 
     const closeBtn = widget.querySelector('#ys-ob-x');
