@@ -283,5 +283,5 @@ function buildTabItem(tab, globalIdx, container) {
     // hover / click / 关闭 均由 listContainer 上的事件委托统一处理，行内不再绑定监听
     refreshTabRowIconVis(item);
     // 非活跃行初始渲染为淡态，hover/选中时由事件委托恢复到 1
-    item.style.opacity = item.dataset.activeInSourceWindow === 'true' ? '1' : '0.55';
+    item.style.opacity = item.dataset.activeInSourceWindow === 'true' ? '1' : '0.8';
 }

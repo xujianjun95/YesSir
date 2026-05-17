@@ -22,7 +22,7 @@ function updateSwitcherSelection(newIdx) {
     if (oldItem) {
         oldItem.dataset.selected = 'false';
         oldItem.style.background = getUnselectedItemBackground(oldItem);
-        oldItem.style.opacity = oldItem.dataset.activeInSourceWindow === 'true' ? '1' : '0.55';
+        oldItem.style.opacity = oldItem.dataset.activeInSourceWindow === 'true' ? '1' : '0.8';
         const title = oldItem.querySelector('.ys-tab-title');
         if (title) {
             title.style.color = getTabTitleColor(oldItem, title);

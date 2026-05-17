@@ -743,7 +743,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     const setRowHoverOff = (item) => {
         if (item.dataset.selected !== 'true' && item.dataset.activeInSourceWindow !== 'true') {
-            item.style.opacity = '0.55';
+            item.style.opacity = '0.8';
         }
         const closeBtn = item.querySelector('.ys-close-btn');
         if (closeBtn) {
