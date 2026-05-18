@@ -10,3 +10,5 @@ importScripts('bg-messages.js');
 void restoreGlobalTabHistory();
 void restoreAiSnapshotCache();
 void restoreFaviconCache();
+// 散落 site_name_* / page_label_* 缓存键的 TTL 清理：每天最多一次，自身去重
+void maybeCleanupAiCache();

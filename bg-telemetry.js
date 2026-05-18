@@ -46,11 +46,12 @@ async function sendTelemetry(eventType, extra = {}) {
             version: manifest && manifest.version ? manifest.version : '',
             ...extra,
         };
-        await fetch(TELEMETRY_ENDPOINT, {
+        // 用 bg-ai-network.js 里的 fetchWithTimeout，避免上报服务慢/挂时把 SW 撑活
+        await fetchWithTimeout(TELEMETRY_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
-        });
+        }, 6000);
     } catch (error) {
         // 遥测上报失败不影响主功能；仅打日志便于排查
         console.log('[telemetry] send failed:', error && error.message ? error.message : error);

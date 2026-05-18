@@ -5,6 +5,75 @@
 //  中转：请求发到 api.pmtools.com.cn/yessir/ai，服务器持有 Key 并做限流
 //        新用户无需申请 Key 即可体验，每天 10 次免费额度（可在设置里填 Key 解除）
 const PROXY_BASE_URL = 'https://api.pmtools.com.cn/yessir/ai';
+const FETCH_DEFAULT_TIMEOUT_MS = 8000;
+
+// ─── AI 缓存 TTL 管理 ──────────────────────────────────────────────────────────
+// site_name_* / page_label_* 历史上无清理机制，长期使用会累积上万散落 storage 键，
+// 拖慢所有读写。现在所有缓存写入都包一层 { v, ts }，每天最多清理一次过期项。
+const AI_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const AI_CACHE_CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const AI_CACHE_CLEANUP_KEY = 'ysAiCacheLastCleanupAt';
+const AI_CACHE_KEY_PREFIXES = ['site_name_', 'page_label_'];
+
+function wrapCacheValue(value) {
+    return { v: value, ts: Date.now() };
+}
+
+/** 同时兼容老数据（直接是 string/pair 对象，没有 ts 字段）和新格式 { v, ts } */
+function unwrapCacheValue(raw) {
+    if (raw && typeof raw === 'object' && 'v' in raw && typeof raw.ts === 'number') {
+        return { value: raw.v, ts: raw.ts };
+    }
+    return { value: raw, ts: 0 };
+}
+
+async function maybeCleanupAiCache() {
+    try {
+        const stored = await chrome.storage.local.get(AI_CACHE_CLEANUP_KEY);
+        const lastAt = Number(stored[AI_CACHE_CLEANUP_KEY] || 0);
+        const now = Date.now();
+        if (now - lastAt < AI_CACHE_CLEANUP_INTERVAL_MS) return;
+
+        // 拿全量 storage 仅用于扫前缀；只在每天一次的冷路径执行
+        const all = await chrome.storage.local.get(null);
+        const toRemove = [];
+        const toRewrite = {};
+        for (const [k, v] of Object.entries(all)) {
+            const isAi = AI_CACHE_KEY_PREFIXES.some((p) => k.startsWith(p));
+            if (!isAi) continue;
+            const { value, ts } = unwrapCacheValue(v);
+            if (ts === 0) {
+                // 旧数据无时间戳：补上"今天"，给一个完整 TTL 缓冲期再考虑清理
+                toRewrite[k] = wrapCacheValue(value);
+                continue;
+            }
+            if (now - ts > AI_CACHE_TTL_MS) toRemove.push(k);
+        }
+        if (toRemove.length > 0) await chrome.storage.local.remove(toRemove);
+        if (Object.keys(toRewrite).length > 0) await chrome.storage.local.set(toRewrite);
+        await chrome.storage.local.set({ [AI_CACHE_CLEANUP_KEY]: now });
+        if (toRemove.length > 0 || Object.keys(toRewrite).length > 0) {
+            console.log(`[ai-cache] cleanup: removed=${toRemove.length} migrated=${Object.keys(toRewrite).length}`);
+        }
+    } catch (err) {
+        console.warn('[ai-cache] cleanup failed:', err);
+    }
+}
+
+/**
+ * 带超时的 fetch：网络挂掉/服务慢时主动放弃，避免 Service Worker 一直被 pending
+ * 请求撑着不睡，浪费用户电量。abort 后调用方会抛 AbortError，被现有 try/catch 接住。
+ */
+function fetchWithTimeout(url, options = {}, timeoutMs = FETCH_DEFAULT_TIMEOUT_MS) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const signal = options.signal
+        ? AbortSignal.any
+            ? AbortSignal.any([options.signal, controller.signal])
+            : controller.signal
+        : controller.signal;
+    return fetch(url, { ...options, signal }).finally(() => clearTimeout(timer));
+}
 
 /** 中转 API 按 Accept-Language 返回中英文错误文案（与 chrome.i18n 界面语言一致） */
 function getAcceptLanguageForProxy() {
@@ -36,22 +105,25 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
     const feature = quotaOpts.feature != null ? String(quotaOpts.feature) : 'general';
     const units = quotaOpts.units != null ? Math.max(1, Number(quotaOpts.units) || 1) : 1;
 
+    // LLM 推理偶尔会比较慢（聚类一次几十个 tab 可能 6-10s），单独放宽到 20s 上限
+    const timeoutMs = 20000;
+
     if (key) {
         // 直连模式：用户自己的 Key
-        return fetch('https://api.deepseek.com/chat/completions', {
+        return fetchWithTimeout('https://api.deepseek.com/chat/completions', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${key}`,
             },
             body: JSON.stringify(payload),
-        });
+        }, timeoutMs);
     }
 
     // 中转模式：走服务器代理（body 内带 _yessir_quota，避免部分网关丢弃自定义头导致误计为 general）
     const uuid = await getDeviceUUID();
     const bodyObj = { ...payload, _yessir_quota: { feature, units } };
-    return fetch(PROXY_BASE_URL, {
+    return fetchWithTimeout(PROXY_BASE_URL, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
@@ -61,7 +133,7 @@ async function callDeepSeekApi(payload, apiKey, quotaOpts = {}) {
             'X-YesSir-Units': String(units),
         },
         body: JSON.stringify(bodyObj),
-    });
+    }, timeoutMs);
 }
 
 const SITE_NAME_CACHE_VERSION = 'v2';
@@ -474,6 +546,18 @@ async function computeAiSnapshotForTabs(tabs) {
     const entries = aiSnapshotCache.entries || {};
     const domainNameMemo = new Map();
 
+    // 一次性预读所有域名的 site_name 缓存，避免并发循环里每个域名各自走一次 storage.get
+    const siteNameCacheKeys = [];
+    tabList.forEach((tab) => {
+        const domain = getDomainFromUrl(tab.url);
+        if (!domain) return;
+        const key = siteNameCacheKey(tab.url);
+        if (!siteNameCacheKeys.includes(key)) siteNameCacheKeys.push(key);
+    });
+    const preloadedSiteNames = siteNameCacheKeys.length > 0
+        ? await chrome.storage.local.get(siteNameCacheKeys)
+        : {};
+
     await runWithConcurrency(tabList, 4, async (tab) => {
         const id = String(tab.id);
         const sig = buildTabSignature(tab);
@@ -487,7 +571,7 @@ async function computeAiSnapshotForTabs(tabs) {
             if (domain) {
                 let pendingSiteName = domainNameMemo.get(domain);
                 if (!pendingSiteName) {
-                    pendingSiteName = getSmartSiteName(tab.title, tab.url, apiKey)
+                    pendingSiteName = getSmartSiteName(tab.title, tab.url, apiKey, preloadedSiteNames)
                         .then((name) => name || '')
                         .catch(() => '');
                     domainNameMemo.set(domain, pendingSiteName);
@@ -530,7 +614,7 @@ async function computeAiSnapshotForTabs(tabs) {
         for (const tab of group) {
             const id = String(tab.id);
             const cacheKey = tabToCacheKey.get(tab);
-            const rawStored = cachedRows[cacheKey];
+            const rawStored = unwrapCacheValue(cachedRows[cacheKey]).value;
             if (rawStored !== undefined && rawStored !== null) {
                 const pair = coerceAndFinalizePageLabel(rawStored, tab);
                 labels[id] = pair;
@@ -568,7 +652,7 @@ async function computeAiSnapshotForTabs(tabs) {
                 const id = String(tab.id);
                 const pair = coerceAndFinalizePageLabel(fetched[id], tab);
                 labels[id] = pair;
-                writeBatch[tabToCacheKey.get(tab)] = pair;
+                writeBatch[tabToCacheKey.get(tab)] = wrapCacheValue(pair);
                 const current = updates[id] || {};
                 updates[id] = {
                     ...current,
@@ -590,13 +674,25 @@ async function computeAiSnapshotForTabs(tabs) {
     return { siteNames, labels };
 }
 
-async function getSmartSiteName(title, url, apiKey) {
+/**
+ * @param {Object} [preloadedSiteNames] 可选：调用方一次性批量读到的 site_name 缓存（key→raw value）
+ *        命中即可跳过单独的 storage.get，避免在 computeAiSnapshotForTabs 的并发循环里
+ *        每个域名各自走一次 storage I/O。
+ */
+async function getSmartSiteName(title, url, apiKey, preloadedSiteNames) {
     const keywordName = inferSiteNameByKeyword(title, url);
     if (keywordName) return keywordName;
 
     const cacheKey = siteNameCacheKey(url);
-    const cached = await chrome.storage.local.get(cacheKey);
-    if (cached[cacheKey]) return normalizeSiteName(cached[cacheKey], url);
+    let rawCached;
+    if (preloadedSiteNames && Object.prototype.hasOwnProperty.call(preloadedSiteNames, cacheKey)) {
+        rawCached = preloadedSiteNames[cacheKey];
+    } else {
+        const cached = await chrome.storage.local.get(cacheKey);
+        rawCached = cached[cacheKey];
+    }
+    const cachedValue = unwrapCacheValue(rawCached).value;
+    if (cachedValue) return normalizeSiteName(cachedValue, url);
 
     try {
         const domain = getDomainFromUrl(url);
@@ -621,7 +717,7 @@ async function getSmartSiteName(title, url, apiKey) {
         const rawName = data.choices?.[0]?.message?.content?.trim() || '';
         const siteName = normalizeSiteName(rawName, url);
         if (siteName) {
-            await chrome.storage.local.set({ [cacheKey]: siteName });
+            await chrome.storage.local.set({ [cacheKey]: wrapCacheValue(siteName) });
         }
         return siteName;
     } catch (error) {
@@ -974,7 +1070,8 @@ async function fetchSearchSuggestions(query) {
     if (!keyword) return [];
     try {
         const url = `https://suggestqueries.google.com/complete/search?client=firefox&q=${encodeURIComponent(keyword)}`;
-        const response = await fetch(url, { method: 'GET' });
+        // Google 搜索建议对延迟敏感，超过 5s 没回就放弃
+        const response = await fetchWithTimeout(url, { method: 'GET' }, 5000);
         if (!response.ok) return [];
         const data = await response.json().catch(() => null);
         if (!Array.isArray(data) || !Array.isArray(data[1])) return [];
