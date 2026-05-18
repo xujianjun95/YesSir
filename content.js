@@ -1259,6 +1259,10 @@ function showYsOnboarding(modLabel, dismissedKey) {
                 <span style="font-size:16px;flex-shrink:0;">🗂️</span>
                 <div style="font-size:12px;color:var(--ys-text-primary);line-height:1.5;">${ysT('onboardingDrag')}</div>
             </div>
+            <div style="display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:9px;background:var(--ys-btn-bg,rgba(0,0,0,0.04));">
+                <span style="font-size:16px;flex-shrink:0;">📌</span>
+                <div style="font-size:12px;color:var(--ys-text-primary);line-height:1.5;">${ysT('onboardingPin')}</div>
+            </div>
         </div>
         <div style="margin-top:9px;font-size:11px;color:var(--ys-text-muted,rgba(100,110,130,0.6));text-align:center;line-height:1.4;">${ysT('onboardingHint')}</div>
     `;
