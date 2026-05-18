@@ -192,7 +192,7 @@ function showToast(count) {
 
     Object.assign(toast.style, {
         position:           'fixed',
-        bottom:             '15%',
+        bottom:             '24px',
         left:               '50%',
         transform:          'translateX(-50%)',
         padding:            '9px 18px',
@@ -234,7 +234,7 @@ function showYsMessageToast(message, durationMs = 3200) {
 
     Object.assign(toast.style, {
         position:           'fixed',
-        bottom:             '15%',
+        bottom:             '24px',
         left:               '50%',
         transform:          'translateX(-50%)',
         padding:            '9px 18px',
@@ -1157,6 +1157,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     } else if (request.action === 'refresh_category_bar') {
         if (typeof window.__ysRefreshCategoryBar === 'function') {
             window.__ysRefreshCategoryBar();
+        }
+    } else if (request.action === 'pinned_tab_removed') {
+        if (typeof window.__ysRemovePinnedTab === 'function') {
+            window.__ysRemovePinnedTab(request.tabId);
         }
     } else if (request.action === 'force_hide_switcher') {
         if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {

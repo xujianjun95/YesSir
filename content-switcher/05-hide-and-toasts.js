@@ -12,6 +12,7 @@ function hideSwitcher(opts) {
     switcherCurrentWindowId = null;
     currentSwitcherSession = null;
     window.__ysRefreshCategoryBar = null;
+    window.__ysRemovePinnedTab    = null;
     // 告诉后台本 tab 不再需要 refresh_category_bar 广播
     if (wasVisible) {
         try { chrome.runtime.sendMessage({ action: 'switcher_closed' }, () => void chrome.runtime.lastError); }
@@ -61,7 +62,7 @@ function showProcessingToast(count) {
     toast.id = 'ys-processing-toast';
     Object.assign(toast.style, {
         position: 'fixed',
-        bottom: '15%',
+        bottom: '24px',
         left: '50%',
         transform: 'translateX(-50%)',
         padding: '9px 18px',

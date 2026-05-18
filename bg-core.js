@@ -72,6 +72,22 @@ chrome.tabs.onActivated.addListener((activeInfo) => {
     updateGlobalTab(activeInfo.tabId);
 });
 
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+    const stored = await chrome.storage.local.get('ysPinnedTabs').catch(() => ({}));
+    const pinned = stored && stored.ysPinnedTabs;
+    if (!pinned) return;
+    const { left = [], right = [] } = pinned;
+    const hit = (arr) => Array.isArray(arr) && arr.some((s) => s && s.tabId === tabId);
+    if (!hit(left) && !hit(right)) return;
+    const clean = (arr) => (Array.isArray(arr) ? arr.map((s) => (s && s.tabId === tabId ? null : s)) : arr);
+    await chrome.storage.local.set({ ysPinnedTabs: { left: clean(left), right: clean(right) } }).catch(() => {});
+    // 通知各 content script 实时更新面板
+    const tabs = await chrome.tabs.query({}).catch(() => []);
+    tabs.forEach((t) => {
+        chrome.tabs.sendMessage(t.id, { action: 'pinned_tab_removed', tabId }, () => void chrome.runtime.lastError);
+    });
+});
+
 chrome.windows.onFocusChanged.addListener((windowId) => {
     if (windowId === chrome.windows.WINDOW_ID_NONE) return;
     chrome.tabs.query({ active: true, windowId }, (tabs) => {

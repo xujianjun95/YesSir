@@ -1055,6 +1055,15 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }
     }
 
+    window.__ysRemovePinnedTab = (tabId) => {
+        let changed = false;
+        for (let i = 0; i < YS_PINNED_COUNT; i++) {
+            if (pinnedLeft[i]  && pinnedLeft[i].tabId  === tabId) { pinnedLeft[i]  = null; changed = true; }
+            if (pinnedRight[i] && pinnedRight[i].tabId === tabId) { pinnedRight[i] = null; changed = true; }
+        }
+        if (changed) renderPinnedCols();
+    };
+
     function buildPinnedSlotEl(data, side, idx) {
         const slot = document.createElement('div');
         slot.dataset.pinnedSide = side;
@@ -1137,13 +1146,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 dots.appendChild(d);
             });
             topBar.appendChild(dots);
-            if (data.favicon) {
-                const imgTop = document.createElement('img');
-                imgTop.src = data.favicon;
-                Object.assign(imgTop.style, { width: '13px', height: '13px', flexShrink: '0', borderRadius: '2px' });
-                imgTop.onerror = () => imgTop.remove();
-                topBar.appendChild(imgTop);
-            }
             const domainEl = document.createElement('span');
             domainEl.textContent = data.siteName || '';
             Object.assign(domainEl.style, {
@@ -1187,7 +1189,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (data.favicon) {
                 const imgBody = document.createElement('img');
                 imgBody.src = data.favicon;
-                Object.assign(imgBody.style, { width: '22px', height: '22px', borderRadius: '4px' });
+                imgBody.draggable = false;
+                Object.assign(imgBody.style, { width: '22px', height: '22px', borderRadius: '4px', pointerEvents: 'none' });
                 imgBody.onerror = () => {
                     imgBody.remove();
                     const ltr = document.createElement('span');
@@ -1645,7 +1648,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     windowId: dragTab.windowId || null,
                     pageLabel: tabPageLabelMap[parseInt(tabId, 10)] ?? tabPageLabelMap[String(tabId)] ?? null,
                 };
-                // 满槽替换：直接写入
                 setPinnedSlot(targetPinnedSlot.side, targetPinnedSlot.idx, pinnedData);
                 renderCategoryPills();
             } else {
