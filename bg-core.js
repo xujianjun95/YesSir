@@ -76,11 +76,17 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     const stored = await chrome.storage.local.get('ysPinnedTabs').catch(() => ({}));
     const pinned = stored && stored.ysPinnedTabs;
     if (!pinned) return;
-    const { left = [], right = [] } = pinned;
-    const hit = (arr) => Array.isArray(arr) && arr.some((s) => s && s.tabId === tabId);
-    if (!hit(left) && !hit(right)) return;
     const clean = (arr) => (Array.isArray(arr) ? arr.map((s) => (s && s.tabId === tabId ? null : s)) : arr);
-    await chrome.storage.local.set({ ysPinnedTabs: { left: clean(left), right: clean(right) } }).catch(() => {});
+    // 兼容新格式 { slots, side } 和旧格式 { left, right }
+    if (Array.isArray(pinned.slots)) {
+        if (!pinned.slots.some((s) => s && s.tabId === tabId)) return;
+        await chrome.storage.local.set({ ysPinnedTabs: { slots: clean(pinned.slots), side: pinned.side || 'left' } }).catch(() => {});
+    } else {
+        const { left = [], right = [] } = pinned;
+        const hit = (arr) => Array.isArray(arr) && arr.some((s) => s && s.tabId === tabId);
+        if (!hit(left) && !hit(right)) return;
+        await chrome.storage.local.set({ ysPinnedTabs: { left: clean(left), right: clean(right) } }).catch(() => {});
+    }
     // 通知各 content script 实时更新面板
     const tabs = await chrome.tabs.query({}).catch(() => []);
     tabs.forEach((t) => {

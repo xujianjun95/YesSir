@@ -70,8 +70,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     card.id = 'ys-switcher-card';
     Object.assign(card.style, {
         background:     'var(--ys-card-bg)',
-        backdropFilter: 'saturate(180%) blur(40px)',
-        WebkitBackdropFilter: 'saturate(180%) blur(40px)',
+        backdropFilter: 'saturate(180%) blur(30px)',
+        WebkitBackdropFilter: 'saturate(180%) blur(30px)',
         border:         '1px solid var(--ys-card-border)',
         borderRadius:   '20px',
         boxShadow:      'var(--ys-card-shadow)',
@@ -81,7 +81,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         flexDirection:  'column',
         overflow:       'hidden',
         transform:      'scale(0.93) translateY(6px)',
-        transition:     'transform 0.18s cubic-bezier(0.34,1.3,0.64,1), background 0.3s ease',
+        transition:     'transform 0.18s cubic-bezier(0.34,1.3,0.64,1), background 0.3s ease, box-shadow 0.3s ease',
     });
 
     const header = document.createElement('div');
@@ -365,7 +365,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         menu.id = 'ys-settings-dropdown';
         Object.assign(menu.style, {
             position: 'absolute', top: '36px', right: '0', background: 'var(--ys-settings-bg)',
-            backdropFilter: 'saturate(180%) blur(20px)', WebkitBackdropFilter: 'saturate(180%) blur(20px)',
+            backdropFilter: 'saturate(180%) blur(30px)', WebkitBackdropFilter: 'saturate(180%) blur(30px)',
             border: '1px solid var(--ys-settings-border)', boxShadow: 'var(--ys-settings-shadow)',
             borderRadius: '10px', padding: '6px', display: 'flex', flexDirection: 'column', gap: '2px', zIndex: '100', minWidth: '150px'
         });
@@ -1010,10 +1010,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     // ── 置顶槽 ──────────────────────────────────────────────────────────────────
     const YS_PINNED_KEY   = 'ysPinnedTabs';
     const YS_PINNED_COUNT = 3;
-    let pinnedLeft    = [null, null, null];
-    let pinnedRight   = [null, null, null];
-    let pinnedLeftCol  = null;
-    let pinnedRightCol = null;
+    let pinnedSlots  = [null, null, null];  // 单列 3 槽
+    let pinnedSide   = 'left';              // 当前列在哪侧
+    let pinnedCol    = null;                // 单列 DOM 元素
+    let isDragShowingPinnedCol = false;     // 是否因拖拽而强制显示列
 
     function isInsideCard(x, y) {
         const r = card.getBoundingClientRect();
@@ -1021,54 +1021,53 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     }
 
     function getPinnedSlotAt(x, y) {
-        if (!pinnedLeftCol || !pinnedRightCol) return null;
-        for (const el of [...pinnedLeftCol.children, ...pinnedRightCol.children]) {
+        if (!pinnedCol || pinnedCol.style.display === 'none') return null;
+        for (const el of pinnedCol.children) {
             const r = el.getBoundingClientRect();
             if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
-                return { side: el.dataset.pinnedSide, idx: parseInt(el.dataset.pinnedIdx, 10), el };
+                return { idx: parseInt(el.dataset.pinnedIdx, 10), el };
             }
         }
         return null;
     }
 
     function highlightPinnedTarget(slot) {
-        if (!pinnedLeftCol || !pinnedRightCol) return;
-        for (const el of [...pinnedLeftCol.children, ...pinnedRightCol.children]) {
-            const matched = slot && el.dataset.pinnedSide === slot.side && parseInt(el.dataset.pinnedIdx, 10) === slot.idx;
+        if (!pinnedCol) return;
+        for (const el of pinnedCol.children) {
+            const matched = slot && parseInt(el.dataset.pinnedIdx, 10) === slot.idx;
             el.style.outline       = matched ? '2px solid var(--ys-accent)' : '';
             el.style.outlineOffset = matched ? '2px' : '';
         }
     }
 
-    function setPinnedSlot(side, idx, data) {
-        if (side === 'left') pinnedLeft[idx] = data;
-        else pinnedRight[idx] = data;
-        renderPinnedCols();
-        chrome.storage.local.set({ [YS_PINNED_KEY]: { left: pinnedLeft, right: pinnedRight } });
+    function setPinnedSlot(idx, data) {
+        pinnedSlots[idx] = data;
+        renderPinnedCol();
+        chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
     }
 
-    function renderPinnedCols() {
-        if (!pinnedLeftCol || !pinnedRightCol) return;
-        pinnedLeftCol.replaceChildren();
-        pinnedRightCol.replaceChildren();
+    function renderPinnedCol() {
+        if (!pinnedCol) return;
+        pinnedCol.replaceChildren();
         for (let i = 0; i < YS_PINNED_COUNT; i++) {
-            pinnedLeftCol.appendChild(buildPinnedSlotEl(pinnedLeft[i],  'left',  i));
-            pinnedRightCol.appendChild(buildPinnedSlotEl(pinnedRight[i], 'right', i));
+            pinnedCol.appendChild(buildPinnedSlotEl(pinnedSlots[i], i));
         }
     }
 
     window.__ysRemovePinnedTab = (tabId) => {
         let changed = false;
         for (let i = 0; i < YS_PINNED_COUNT; i++) {
-            if (pinnedLeft[i]  && pinnedLeft[i].tabId  === tabId) { pinnedLeft[i]  = null; changed = true; }
-            if (pinnedRight[i] && pinnedRight[i].tabId === tabId) { pinnedRight[i] = null; changed = true; }
+            if (pinnedSlots[i] && pinnedSlots[i].tabId === tabId) { pinnedSlots[i] = null; changed = true; }
         }
-        if (changed) renderPinnedCols();
+        if (changed) {
+            renderPinnedCol();
+            if (!pinnedSlots.some(s => s) && !isDragShowingPinnedCol) hidePinnedCol();
+            chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
+        }
     };
 
-    function buildPinnedSlotEl(data, side, idx) {
+    function buildPinnedSlotEl(data, idx) {
         const slot = document.createElement('div');
-        slot.dataset.pinnedSide = side;
         slot.dataset.pinnedIdx  = String(idx);
         if (data) slot.dataset.pinnedData = '1';
         Object.assign(slot.style, {
@@ -1085,14 +1084,16 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
         if (!data) {
             Object.assign(slot.style, {
-                border:         '1.5px dashed var(--ys-divider)',
-                background:     'rgba(255,255,255,0.22)',
-                display:        'flex',
-                flexDirection:  'column',
-                alignItems:     'center',
-                justifyContent: 'center',
-                gap:            '8px',
-                cursor:         'default',
+                border:               '1.5px dashed var(--ys-divider)',
+                background:           'var(--ys-card-bg)',
+                backdropFilter:       'saturate(180%) blur(30px)',
+                WebkitBackdropFilter: 'saturate(180%) blur(30px)',
+                display:              'flex',
+                flexDirection:        'column',
+                alignItems:           'center',
+                justifyContent:       'center',
+                gap:                  '8px',
+                cursor:               'default',
             });
             const icon = document.createElement('div');
             icon.textContent = '📌';
@@ -1110,18 +1111,16 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             slot.appendChild(icon);
             slot.appendChild(hint);
             slot.addEventListener('mouseenter', () => {
-                slot.style.background  = 'rgba(255,255,255,0.32)';
                 slot.style.borderColor = 'var(--ys-accent)';
             });
             slot.addEventListener('mouseleave', () => {
-                slot.style.background  = 'rgba(255,255,255,0.22)';
                 slot.style.borderColor = 'var(--ys-divider)';
             });
         } else {
             Object.assign(slot.style, {
                 background:           'var(--ys-card-bg)',
-                backdropFilter:       'saturate(180%) blur(40px)',
-                WebkitBackdropFilter: 'saturate(180%) blur(40px)',
+                backdropFilter:       'saturate(180%) blur(30px)',
+                WebkitBackdropFilter: 'saturate(180%) blur(30px)',
                 border:               '1px solid var(--ys-card-border)',
                 boxShadow:            '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)',
                 display:              'flex',
@@ -1258,7 +1257,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
         // 数字角标：左列 1-3，右列 4-6
         const numBadge = document.createElement('div');
-        numBadge.textContent = String(side === 'left' ? idx + 1 : idx + 4);
+        numBadge.textContent = String(idx + 1);
         Object.assign(numBadge.style, {
             position:     'absolute',
             top:          '7px',
@@ -1281,11 +1280,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
         if (data) {
             slot.addEventListener('mouseenter', () => {
-                slot.style.transform  = 'scale(1.03)';
                 slot.style.boxShadow  = '0 8px 32px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.1)';
             });
             slot.addEventListener('mouseleave', () => {
-                slot.style.transform  = '';
                 slot.style.boxShadow  = '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)';
             });
 
@@ -1335,21 +1332,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     }
 
                     const targetInfo = getPinnedSlotAt(ue.clientX, ue.clientY);
-                    if (targetInfo && (targetInfo.side !== side || targetInfo.idx !== idx)) {
+                    if (targetInfo && targetInfo.idx !== idx) {
                         // 换位：缩略图普通淡出
                         if (floatEl) {
                             floatEl.style.opacity = '0';
                             const _f = floatEl; floatEl = null;
                             setTimeout(() => _f.remove(), 150);
                         }
-                        const targetArr  = targetInfo.side === 'left' ? pinnedLeft : pinnedRight;
-                        const targetData = targetArr[targetInfo.idx] || null;
-                        if (side === 'left') pinnedLeft[idx] = targetData;
-                        else pinnedRight[idx] = targetData;
-                        if (targetInfo.side === 'left') pinnedLeft[targetInfo.idx] = data;
-                        else pinnedRight[targetInfo.idx] = data;
-                        renderPinnedCols();
-                        chrome.storage.local.set({ [YS_PINNED_KEY]: { left: pinnedLeft, right: pinnedRight } });
+                        const targetData = pinnedSlots[targetInfo.idx] || null;
+                        pinnedSlots[idx] = targetData;
+                        pinnedSlots[targetInfo.idx] = data;
+                        renderPinnedCol();
+                        chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
                     } else if (!targetInfo) {
                         // 拖出删除：垃圾桶动画——缩小旋转后消失
                         if (floatEl) {
@@ -1359,7 +1353,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                             const _f = floatEl; floatEl = null;
                             setTimeout(() => _f.remove(), 340);
                         }
-                        setPinnedSlot(side, idx, null);
+                        setPinnedSlot(idx, null);
+                        if (!pinnedSlots.some(s => s) && !isDragShowingPinnedCol) hidePinnedCol();
                     } else {
                         // 放回原位：普通淡出
                         if (floatEl) {
@@ -1560,12 +1555,34 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
             dragState  = { ...dragPending, floatEl, started: true };
             dragPending = null;
+
+            // 拖拽开始，置顶列暂不显示，等鼠标移出面板再出现
+            isDragShowingPinnedCol = true;
             return;
         }
 
         // 移动缩略图
         dragState.floatEl.style.left = `${e.clientX - 90}px`;
         dragState.floatEl.style.top  = `${e.clientY - 30}px`;
+
+        // Stage 1：靠近边缘时主面板边缘渐显发光（「系统感知用户意图」）
+        // Stage 2/3：鼠标越过边界才显示置顶列（dock 浮现）
+        const _cardR = card.getBoundingClientRect();
+        if (e.clientX < _cardR.left || e.clientX > _cardR.right) {
+            setEdgeGlow(null); // dock 接管，取消感知光
+            showPinnedColOnSide(e.clientX < _cardR.left ? 'left' : 'right');
+        } else {
+            const distLeft  = e.clientX - _cardR.left;
+            const distRight = _cardR.right - e.clientX;
+            if (distLeft < EDGE_SENSE_DIST && distLeft <= distRight) {
+                setEdgeGlow('left');
+            } else if (distRight < EDGE_SENSE_DIST) {
+                setEdgeGlow('right');
+            } else {
+                setEdgeGlow(null);
+            }
+        }
+
         const _inCard  = isInsideCard(e.clientX, e.clientY);
         const _overPill = _inCard ? getDragOverPill(e.clientX, e.clientY) : null;
         const _overSlot = !_inCard ? getPinnedSlotAt(e.clientX, e.clientY) : null;
@@ -1585,6 +1602,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
         dragJustEnded = true;
         setTimeout(() => { dragJustEnded = false; }, 0);
+        setEdgeGlow(null); // 拖拽结束统一清除「感知」发光
 
         const { tabId, tab: dragTab, floatEl, originEl } = dragState;
         dragState   = null;
@@ -1621,6 +1639,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 originEl.style.pointerEvents = '';
                 renderCategoryPills();
             }
+            isDragShowingPinnedCol = false;
+            if (!pinnedSlots.some(s => s)) hidePinnedCol();
         } else {
             const targetPinnedSlot = !_upInCard ? getPinnedSlotAt(e.clientX, e.clientY) : null;
             if (targetPinnedSlot) {
@@ -1650,8 +1670,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     windowId: dragTab.windowId || null,
                     pageLabel: tabPageLabelMap[parseInt(tabId, 10)] ?? tabPageLabelMap[String(tabId)] ?? null,
                 };
-                setPinnedSlot(targetPinnedSlot.side, targetPinnedSlot.idx, pinnedData);
+                isDragShowingPinnedCol = false;
+                setPinnedSlot(targetPinnedSlot.idx, pinnedData);
                 renderCategoryPills();
+                // 落入置顶槽后保持显示，让用户看到结果
             } else {
                 // 取消：缩略图淡出，恢复行
                 floatEl.style.opacity = '0';
@@ -1660,6 +1682,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 originEl.style.pointerEvents = '';
                 highlightPinnedTarget(null);
                 renderCategoryPills();
+                isDragShowingPinnedCol = false;
+                if (!pinnedSlots.some(s => s)) hidePinnedCol();
             }
         }
     };
@@ -1775,52 +1799,182 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     card.appendChild(footer);
 
-    // 左右置顶列
-    pinnedLeftCol = document.createElement('div');
-    Object.assign(pinnedLeftCol.style, {
-        display:         'flex',
+    // 单列置顶槽（默认隐藏，拖拽时出现）
+    // ── 置顶列：绝对定位，紧贴主面板，淡入 + 解模糊 + 微滑 ───────────────────────
+    pinnedCol = document.createElement('div');
+    Object.assign(pinnedCol.style, {
+        position:        'absolute',
+        top:             '50%',
+        display:         'none',
         flexDirection:   'column',
         justifyContent:  'space-between',
-        alignSelf:       'center',
         flexShrink:      '0',
         padding:         '4px 6px',
         boxSizing:       'border-box',
+        opacity:         '0',
+        filter:          'blur(12px)',
+        transform:       'translateY(-50%)',
+        willChange:      'opacity, filter, transform',
+        pointerEvents:   'none',
     });
-    pinnedRightCol = document.createElement('div');
-    Object.assign(pinnedRightCol.style, {
-        display:         'flex',
-        flexDirection:   'column',
-        justifyContent:  'space-between',
-        alignSelf:       'center',
-        flexShrink:      '0',
-        padding:         '4px 6px',
-        boxSizing:       'border-box',
-    });
+
+    const APPLE_EASE      = 'cubic-bezier(0.22, 1, 0.36, 1)';
+    const SHOW_DURATION   = 420;
+    const HIDE_DURATION   = 320;
+    const DOCK_GAP            = 28;  // dock 到主面板的间距
+    const DOCK_WIDTH          = 237; // dock 宽度（slot 225 + padding 12）
+    const CARD_WIDTH_BASE     = 700; // 主面板默认宽度
+    const CARD_WIDTH_EXPANDED = 740; // 主面板「让出空间」时的扩张宽度
+    // 主面板让出 (dock宽 + gap)/2，确保 pair 整体在 viewport 居中
+    const CARD_SHIFT          = (DOCK_WIDTH + DOCK_GAP) / 2;
+    const DOCK_SLIDE          = 16;  // dock 入场时从外侧滑入的距离
+    const EDGE_SENSE_DIST     = 80;  // 光标到主面板边距 < 此值时，触发「感知」发光
+    const BASE_SHADOW         = 'var(--ys-card-shadow)';
+    let   _currentGlowSide    = null;
+
+    function setEdgeGlow(side) {
+        if (side === _currentGlowSide) return;
+        _currentGlowSide = side;
+        if (side === 'left') {
+            card.style.boxShadow = `${BASE_SHADOW}, -28px 0 64px -12px var(--ys-accent-glow)`;
+        } else if (side === 'right') {
+            card.style.boxShadow = `${BASE_SHADOW}, 28px 0 64px -12px var(--ys-accent-glow)`;
+        } else {
+            card.style.boxShadow = BASE_SHADOW;
+        }
+    }
+    let _pinnedHideTimer  = null;
+
+    function setPinnedColPosition(side) {
+        // dock 紧贴扩张后的主面板边缘
+        const off = CARD_WIDTH_EXPANDED / 2 - CARD_SHIFT + DOCK_GAP;
+        if (side === 'left') {
+            pinnedCol.style.right = `calc(50% + ${off}px)`;
+            pinnedCol.style.left  = '';
+        } else {
+            pinnedCol.style.left  = `calc(50% + ${off}px)`;
+            pinnedCol.style.right = '';
+        }
+    }
+
+    function staggerSlotsIn() {
+        const slots = Array.from(pinnedCol.children);
+        slots.forEach((slot, i) => {
+            const delay = i * 70;
+            slot.style.transition = 'none';
+            slot.style.opacity    = '0';
+            slot.style.transform  = 'translateY(8px) scale(0.96)';
+            slot.getBoundingClientRect();
+            slot.style.transition = `opacity 360ms ${APPLE_EASE} ${delay}ms, transform 460ms ${APPLE_EASE} ${delay}ms`;
+            slot.style.opacity    = '1';
+            slot.style.transform  = 'translateY(0) scale(1)';
+        });
+    }
+
+    function showPinnedColOnSide(side, animate = true) {
+        if (_pinnedHideTimer) { clearTimeout(_pinnedHideTimer); _pinnedHideTimer = null; }
+
+        const wasHidden   = pinnedCol.style.display === 'none';
+        const sideChanged = side !== pinnedSide;
+        pinnedSide = side;
+        setPinnedColPosition(side);
+
+        // 主面板：朝远离 dock 的方向轻移 + 扩张宽度（让出空间，而不是被推开）
+        const cardX = side === 'left' ? CARD_SHIFT : -CARD_SHIFT;
+        if (animate) {
+            card.style.transition = `transform ${SHOW_DURATION}ms ${APPLE_EASE}, width ${SHOW_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
+        }
+        // 非动画路径不动主面板的现有 transition（保留入场弹跳）
+        card.style.transform = `scale(1) translate(${cardX}px, 0)`;
+        card.style.width     = CARD_WIDTH_EXPANDED + 'px';
+
+        if (!animate) {
+            // 即时到位，无入场动画
+            pinnedCol.style.display       = 'flex';
+            pinnedCol.style.transition    = 'none';
+            pinnedCol.style.opacity       = '1';
+            pinnedCol.style.filter        = 'blur(0)';
+            pinnedCol.style.transform     = 'translateY(-50%) translate(0, 0) scale(1)';
+            pinnedCol.style.pointerEvents = 'auto';
+            return;
+        }
+
+        // dock 入场起点：blur + 从外侧微滑入
+        if (wasHidden || sideChanged) {
+            const slideFrom = side === 'left' ? -DOCK_SLIDE : DOCK_SLIDE;
+            pinnedCol.style.display    = 'flex';
+            pinnedCol.style.transition = 'none';
+            pinnedCol.style.opacity    = '0';
+            pinnedCol.style.filter     = 'blur(12px)';
+            pinnedCol.style.transform  = `translateY(-50%) translate(${slideFrom}px, 0) scale(0.96)`;
+            pinnedCol.getBoundingClientRect(); // 强制 reflow，锁定起点
+        }
+
+        pinnedCol.style.transition    = `opacity ${SHOW_DURATION}ms ${APPLE_EASE}, filter ${SHOW_DURATION}ms ${APPLE_EASE}, transform ${SHOW_DURATION}ms ${APPLE_EASE}`;
+        pinnedCol.style.opacity       = '1';
+        pinnedCol.style.filter        = 'blur(0)';
+        pinnedCol.style.transform     = 'translateY(-50%) translate(0, 0) scale(1)';
+        pinnedCol.style.pointerEvents = 'auto';
+
+        if (wasHidden || sideChanged) staggerSlotsIn();
+    }
+
+    function hidePinnedCol() {
+        if (_pinnedHideTimer) { clearTimeout(_pinnedHideTimer); _pinnedHideTimer = null; }
+
+        // 主面板：回到中央 + 收回宽度
+        card.style.transition = `transform ${HIDE_DURATION}ms ${APPLE_EASE}, width ${HIDE_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
+        card.style.transform  = 'scale(1) translate(0, 0)';
+        card.style.width      = CARD_WIDTH_BASE + 'px';
+
+        // dock：朝外侧微滑 + 解析回 blur + 淡出
+        const slideTo = pinnedSide === 'left' ? -DOCK_SLIDE : DOCK_SLIDE;
+        pinnedCol.style.transition    = `opacity ${HIDE_DURATION}ms ${APPLE_EASE}, filter ${HIDE_DURATION}ms ${APPLE_EASE}, transform ${HIDE_DURATION}ms ${APPLE_EASE}`;
+        pinnedCol.style.opacity       = '0';
+        pinnedCol.style.filter        = 'blur(12px)';
+        pinnedCol.style.transform     = `translateY(-50%) translate(${slideTo}px, 0) scale(0.96)`;
+        pinnedCol.style.pointerEvents = 'none';
+
+        _pinnedHideTimer = setTimeout(() => {
+            pinnedCol.style.display = 'none';
+            _pinnedHideTimer = null;
+        }, HIDE_DURATION);
+    }
+
     overlay.appendChild(card);
-    overlay.insertBefore(pinnedLeftCol, card);
-    overlay.appendChild(pinnedRightCol);
+    overlay.appendChild(pinnedCol);   // dock 绝对定位，作为 overlay 子节点（与 card 同层）
     document.body.appendChild(overlay);
 
-    // 列高度跟卡片高度同步，首尾槽对齐面板上下边缘
+    // 立即渲染空槽，保证拖拽触发显示时已有内容（不依赖 storage 回调）
+    renderPinnedCol();
+
+    // 列高度跟卡片高度同步
     const syncPinnedColHeight = () => {
         const h = card.offsetHeight;
-        if (h > 0) {
-            pinnedLeftCol.style.height  = h + 'px';
-            pinnedRightCol.style.height = h + 'px';
-        }
+        if (h > 0) pinnedCol.style.height = h + 'px';
     };
     const pinnedColRO = new ResizeObserver(syncPinnedColHeight);
     pinnedColRO.observe(card);
     requestAnimationFrame(syncPinnedColHeight);
 
-    // 从 storage 加载置顶数据
+    // 从 storage 加载置顶数据（兼容旧格式 {left,right}）
     chrome.storage.local.get(YS_PINNED_KEY, (res) => {
         if (res && res[YS_PINNED_KEY]) {
             const saved = res[YS_PINNED_KEY];
-            if (Array.isArray(saved.left))  pinnedLeft  = saved.left.slice(0, YS_PINNED_COUNT).map((v) => v || null);
-            if (Array.isArray(saved.right)) pinnedRight = saved.right.slice(0, YS_PINNED_COUNT).map((v) => v || null);
+            if (Array.isArray(saved.slots)) {
+                pinnedSlots = saved.slots.slice(0, YS_PINNED_COUNT).map((v) => v || null);
+            } else if (saved.left || saved.right) {
+                const l = Array.isArray(saved.left)  ? saved.left  : [];
+                const r = Array.isArray(saved.right) ? saved.right : [];
+                for (let i = 0; i < YS_PINNED_COUNT; i++) {
+                    pinnedSlots[i] = l[i] || r[i] || null;
+                }
+            }
+            if (saved.side === 'right') pinnedSide = 'right';
         }
-        renderPinnedCols();
+        renderPinnedCol();
+        // 有任意置顶数据则一直展示；无数据保持隐藏，仅拖拽时临时出现
+        if (pinnedSlots.some(s => s)) showPinnedColOnSide(pinnedSide, false);
     });
 
     let lockedCardMinHeight = '';
@@ -2145,7 +2299,13 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
-        card.style.transform = 'scale(1) translateY(0)';
+        // 若置顶 dock 已在显示，入场动画需保留主面板的横向位移 + 扩张宽度，否则会和 dock 重叠
+        const hasDockData = pinnedSlots.some(s => s);
+        const initialShiftX = hasDockData
+            ? (pinnedSide === 'left' ? CARD_SHIFT : -CARD_SHIFT)
+            : 0;
+        card.style.transform = `scale(1) translate(${initialShiftX}px, 0)`;
+        if (hasDockData) card.style.width = CARD_WIDTH_EXPANDED + 'px';
         lockedCardMinHeight = card.offsetHeight + 'px';
         card.style.minHeight = lockedCardMinHeight;
         setTimeout(() => {
