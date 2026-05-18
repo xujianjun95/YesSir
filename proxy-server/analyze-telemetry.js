@@ -30,6 +30,7 @@ const daily = new Map();                    // date -> { install, update, startu
 const allInstallUuids = new Set();          // 全期：累计安装过的 uuid（≈ 累计用户）
 const firstUseUuids = new Map();            // feature -> Set<uuid>，全期独立首次使用过该功能的用户
 const featureDaily = new Map();             // date -> Map<feature, sumClicks>，feature_daily 上报的按日点击数
+const featureDailyUuids = new Map();        // date -> Map<feature, Set<uuid>>，feature_daily 独立用户数
 
 let invalidLines = 0;
 
@@ -99,20 +100,31 @@ for (const line of lines) {
         if (!feature || count <= 0) continue;
         const bucket = ensureFeatureDay(clickDate);
         bucket.set(feature, (bucket.get(feature) || 0) + count);
+        // 同时追踪独立 UUID
+        if (uuid) {
+            if (!featureDailyUuids.has(clickDate)) featureDailyUuids.set(clickDate, new Map());
+            const uuidBucket = featureDailyUuids.get(clickDate);
+            if (!uuidBucket.has(feature)) uuidBucket.set(feature, new Set());
+            uuidBucket.get(feature).add(uuid);
+        }
     }
 }
 
 // ─── 输出 1：每日基础指标 ─────────────────────────────────────────────────────
 const baseRows = Array.from(daily.entries())
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, v]) => ({
-        date,
-        install: v.install,
-        update: v.update,
-        startup_events: v.startup,
-        dau_startup_uuids: v.startupUsers.size,
-        active_uuids_all_events: v.allUsers.size,
-    }));
+    .map(([date, v]) => {
+        const panelUuids = featureDailyUuids.get(date)?.get('switcher_open')?.size ?? 0;
+        return {
+            date,
+            install: v.install,
+            update: v.update,
+            startup_events: v.startup,
+            dau_startup_uuids: v.startupUsers.size,
+            panel_open_uuids: panelUuids,
+            active_uuids_all_events: v.allUsers.size,
+        };
+    });
 
 console.log(`Telemetry 日志: ${logFile}`);
 console.log(`总行数: ${lines.length} | 异常行: ${invalidLines}`);

@@ -29,6 +29,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     catch (_) {}
     if (!isRefresh) {
         tabPageLabelMap = {};
+        // 每次用户主动打开面板计一次（isRefresh = 换肤/换语言等内部重建，不重复计）
+        ysSendToBg({ action: 'track_event', feature: 'switcher_open' }, { maxRetries: 1 }, () => {});
     }
 
     const overlay = document.createElement('div');
