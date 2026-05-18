@@ -512,13 +512,25 @@ async function computeAiSnapshotForTabs(tabs) {
         domainGroups.get(domain).push(tab);
     });
 
+    // 之前是「每 tab 一次 await storage.get、每 tab 一次 await storage.set」串行 I/O，
+    // 50 个 tab ≈ 100 次串行往返。这里改成一次性批量读 + 一次性批量写。
+    const allCacheKeys = [];
+    const tabToCacheKey = new Map();
+    tabList.forEach((tab) => {
+        const key = pageLabelCacheKey(tab.title, tab.url);
+        tabToCacheKey.set(tab, key);
+        allCacheKeys.push(key);
+    });
+    const cachedRows = allCacheKeys.length > 0
+        ? await chrome.storage.local.get(allCacheKeys)
+        : {};
+
     for (const [, group] of domainGroups.entries()) {
         const missingForBatch = [];
         for (const tab of group) {
             const id = String(tab.id);
-            const cacheKey = pageLabelCacheKey(tab.title, tab.url);
-            const labelRow = await chrome.storage.local.get(cacheKey);
-            const rawStored = labelRow[cacheKey];
+            const cacheKey = tabToCacheKey.get(tab);
+            const rawStored = cachedRows[cacheKey];
             if (rawStored !== undefined && rawStored !== null) {
                 const pair = coerceAndFinalizePageLabel(rawStored, tab);
                 labels[id] = pair;
@@ -551,12 +563,12 @@ async function computeAiSnapshotForTabs(tabs) {
                 missingForBatch.map((t) => ({ id: t.id, title: t.title || '', url: t.url || '' })),
                 apiKey
             );
+            const writeBatch = {};
             for (const tab of missingForBatch) {
                 const id = String(tab.id);
                 const pair = coerceAndFinalizePageLabel(fetched[id], tab);
                 labels[id] = pair;
-                const cacheKey = pageLabelCacheKey(tab.title, tab.url);
-                await chrome.storage.local.set({ [cacheKey]: pair });
+                writeBatch[tabToCacheKey.get(tab)] = pair;
                 const current = updates[id] || {};
                 updates[id] = {
                     ...current,
@@ -564,6 +576,9 @@ async function computeAiSnapshotForTabs(tabs) {
                     pageLabel: pair,
                     updatedAt: Date.now(),
                 };
+            }
+            if (Object.keys(writeBatch).length > 0) {
+                await chrome.storage.local.set(writeBatch);
             }
         }
     }
@@ -999,14 +1014,23 @@ chrome.tabs.query({}, (tabs) => {
     }
 });
 
+// 记录当前哪些 tab 打开了切换面板。广播只发给它们，避免给一百个无关标签都打消息。
+// content 侧在 showSwitcher / hideSwitcher 时通过 switcher_opened / switcher_closed 维护。
+const _activeSwitcherTabs = new Set();
+
 function _broadcastCategoryBarRefresh() {
-    chrome.tabs.query({ url: ['http://*/*', 'https://*/*'] }, (allTabs) => {
-        if (chrome.runtime.lastError || !Array.isArray(allTabs)) return;
-        for (const t of allTabs) {
-            chrome.tabs.sendMessage(t.id, { action: 'refresh_category_bar' }).catch(() => {});
-        }
-    });
+    if (_activeSwitcherTabs.size === 0) return;
+    for (const tabId of _activeSwitcherTabs) {
+        chrome.tabs.sendMessage(tabId, { action: 'refresh_category_bar' }).catch(() => {
+            // 收件人不在了（页面已关闭/导航），从集合里清掉
+            _activeSwitcherTabs.delete(tabId);
+        });
+    }
 }
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+    _activeSwitcherTabs.delete(tabId);
+});
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     if (changeInfo.groupId === undefined) return;

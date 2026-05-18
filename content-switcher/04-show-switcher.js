@@ -24,6 +24,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     switcherSelIdx = 0;
     switcherKeyboardNavActive = false;
     switcherVisible = true;
+    // 注册到后台广播白名单：后续 refresh_category_bar 只会发给打开了面板的标签
+    try { chrome.runtime.sendMessage({ action: 'switcher_opened' }, () => void chrome.runtime.lastError); }
+    catch (_) {}
     if (!isRefresh) {
         tabPageLabelMap = {};
     }

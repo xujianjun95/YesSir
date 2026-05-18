@@ -6,11 +6,17 @@
  */
 function hideSwitcher(opts) {
     const immediate = !!(opts && opts.immediate);
+    const wasVisible = switcherVisible;
     switcherVisible = false;
     switcherTabs    = [];
     switcherCurrentWindowId = null;
     currentSwitcherSession = null;
     window.__ysRefreshCategoryBar = null;
+    // 告诉后台本 tab 不再需要 refresh_category_bar 广播
+    if (wasVisible) {
+        try { chrome.runtime.sendMessage({ action: 'switcher_closed' }, () => void chrome.runtime.lastError); }
+        catch (_) {}
+    }
     if (switcherKeydownHandler) {
         document.removeEventListener('keydown', switcherKeydownHandler, true);
         switcherKeydownHandler = null;

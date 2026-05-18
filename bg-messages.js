@@ -1,5 +1,15 @@
 // bg-messages.js — chrome.runtime.onMessage 路由（由 background.js importScripts 加载）
 
+// ─── AI 预热全局节流 ──────────────────────────────────────────────────────────
+// 之前的实现把节流变量放在 content.js 的 per-page 全局里，每打开一个新标签都从 0
+// 计时，等于没节流。免费用户 10 次/天的额度因此可能被预热请求悄悄烧光。
+// 现在按 windowId 在 SW 内统一节流，并发请求复用同一 Promise。
+const PREWARM_INTERVAL_MS = 45000;
+/** windowId(string) → lastSuccessTimestamp */
+const _prewarmLastAt = new Map();
+/** windowId(string) → in-flight Promise */
+const _prewarmInflight = new Map();
+
 /** 并发抓「标题模糊」http 标签的 meta description；带超时，失败静默忽略 */
 async function collectAmbiguousTabMeta(tabs) {
     const candidates = (Array.isArray(tabs) ? tabs : []).filter((t) =>
@@ -53,6 +63,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // 供 content script 在睡眠唤醒后轻量唤醒 SW，降低首条业务消息失败率
     if (request.action === 'ping') {
+        sendResponse({ ok: true });
+        return false;
+    }
+
+    // 面板生命周期：让广播 refresh_category_bar 时只命中真正打开了面板的标签
+    if (request.action === 'switcher_opened') {
+        if (sender.tab && sender.tab.id != null) _activeSwitcherTabs.add(sender.tab.id);
+        sendResponse({ ok: true });
+        return false;
+    }
+    if (request.action === 'switcher_closed') {
+        if (sender.tab && sender.tab.id != null) _activeSwitcherTabs.delete(sender.tab.id);
         sendResponse({ ok: true });
         return false;
     }
@@ -314,37 +336,53 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 
     // ── 静默预热当前窗口，供面板秒开（无需等待结果） ──
+    // 全局节流：同一窗口 45s 内只跑一次（跨标签共享，避免每个 tab 各自计时形同虚设）。
+    // in-flight 复用：同一窗口已有请求进行中时，新调用直接挂到旧 Promise 上，不重复打 LLM。
     else if (request.action === 'prewarm_ai_current_window') {
         (async () => {
             const sourceWindowId = sender.tab && Number.isFinite(Number(sender.tab.windowId))
                 ? Number(sender.tab.windowId)
                 : null;
+            const windowKey = sourceWindowId === null ? 'all' : String(sourceWindowId);
+            const nowTs = Date.now();
+            const lastTs = _prewarmLastAt.get(windowKey) || 0;
+            if (nowTs - lastTs < PREWARM_INTERVAL_MS) {
+                sendResponse({ success: true, skipped: true, reason: 'throttled' });
+                return;
+            }
+            const inflight = _prewarmInflight.get(windowKey);
+            if (inflight) {
+                try { await inflight; sendResponse({ success: true, skipped: true, reason: 'inflight' }); }
+                catch (_) { sendResponse({ success: false, error: 'inflight_failed' }); }
+                return;
+            }
+
             const query = sourceWindowId === null ? {} : { windowId: sourceWindowId };
-            chrome.tabs.query(query, async (tabs) => {
-                try {
-                    if (chrome.runtime.lastError) {
-                        sendResponse({ success: false, error: chrome.runtime.lastError.message });
-                        return;
-                    }
-                    const tabList = (tabs || []).map((t) => ({
-                        id: t.id,
-                        title: t.title || '',
-                        url: t.url || '',
-                    }));
-                    if (tabList.length === 0) {
-                        sendResponse({ success: true, skipped: true });
-                        return;
-                    }
-                    await computeAiSnapshotForTabs(tabList);
-                    sendResponse({ success: true });
-                } catch (err) {
-                    console.error('prewarm_ai_current_window:', err);
-                    sendResponse({
-                        success: false,
-                        error: err && err.message ? String(err.message) : String(err),
-                    });
-                }
-            });
+            const job = (async () => {
+                const tabs = await new Promise((resolve) => chrome.tabs.query(query, resolve));
+                if (chrome.runtime.lastError) throw new Error(chrome.runtime.lastError.message);
+                const tabList = (tabs || []).map((t) => ({
+                    id: t.id, title: t.title || '', url: t.url || '',
+                }));
+                if (tabList.length === 0) return { skipped: true };
+                await computeAiSnapshotForTabs(tabList);
+                return {};
+            })();
+            _prewarmInflight.set(windowKey, job);
+
+            try {
+                const result = await job;
+                _prewarmLastAt.set(windowKey, Date.now());
+                sendResponse({ success: true, ...(result || {}) });
+            } catch (err) {
+                console.error('prewarm_ai_current_window:', err);
+                sendResponse({
+                    success: false,
+                    error: err && err.message ? String(err.message) : String(err),
+                });
+            } finally {
+                _prewarmInflight.delete(windowKey);
+            }
         })();
         return true;
     }

@@ -675,15 +675,9 @@ function initFloatingWidget() {
 
     let isDragging = false, moved = false, dragStartClientY = 0, dragStartPosY = 0;
 
-    btn.addEventListener('mousedown', (e) => {
-        if (e.button !== 0) return;
-        isDragging = true; moved = false;
-        dragStartClientY = e.clientY; dragStartPosY = posY;
-        btn.style.cursor = 'grabbing'; btn.style.transition = 'none'; btn.style.opacity = '1';
-        e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
+    // mousemove / mouseup 之前全程挂在 document 上，鼠标随便动就跑回调。
+    // 现在改成「按下时挂载，松开时摘除」，没拖动时浏览器零开销。
+    const onDocMouseMove = (e) => {
         if (!isDragging) return;
         const dy = e.clientY - dragStartClientY;
         if (Math.abs(dy) > 3) moved = true;
@@ -692,9 +686,8 @@ function initFloatingWidget() {
         else                                    { snapEdge = 'right'; btn.style.right = Math.max(8, window.innerWidth - e.clientX - 19) + 'px'; btn.style.left = 'auto'; }
         btn.style.top = posY + 'px';
         repositionPanel();
-    });
-
-    document.addEventListener('mouseup', (e) => {
+    };
+    const onDocMouseUp = (e) => {
         if (!isDragging) return;
         isDragging = false; btn.style.cursor = 'grab';
         snapEdge = (e.clientX < window.innerWidth / 2) ? 'left' : 'right';
@@ -703,6 +696,18 @@ function initFloatingWidget() {
             widgetPosY: posY,
             widgetSnapEdge: snapEdge,
         });
+        document.removeEventListener('mousemove', onDocMouseMove);
+        document.removeEventListener('mouseup', onDocMouseUp);
+    };
+
+    btn.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isDragging = true; moved = false;
+        dragStartClientY = e.clientY; dragStartPosY = posY;
+        btn.style.cursor = 'grabbing'; btn.style.transition = 'none'; btn.style.opacity = '1';
+        document.addEventListener('mousemove', onDocMouseMove);
+        document.addEventListener('mouseup', onDocMouseUp);
+        e.preventDefault();
     });
 
     btn.addEventListener('click', () => {
@@ -710,9 +715,13 @@ function initFloatingWidget() {
         panelOpen ? closePanel() : openPanel();
     });
 
-    document.addEventListener('mousedown', (e) => {
+    // 关闭浮窗的 outside-click：之前在捕获阶段常驻全局监听，每次 mousedown 都进。
+    // 现在只在 panel 实际打开后才绑定，关闭时立刻摘掉。
+    // 监听器本体定义在下面 openPanel / closePanel 中使用。
+
+    const onOutsidePanelMouseDown = (e) => {
         if (panelOpen && !panel.contains(e.target) && e.target !== btn) closePanel();
-    }, true);
+    };
 
     function openPanel() {
         panelOpen = true;
@@ -724,6 +733,7 @@ function initFloatingWidget() {
             panel.style.opacity = '1';
             panel.style.transform = 'scale(1)';
         });
+        document.addEventListener('mousedown', onOutsidePanelMouseDown, true);
     }
 
     function closePanel() {
@@ -731,6 +741,7 @@ function initFloatingWidget() {
         panel.style.opacity = '0';
         panel.style.transform = 'scale(0.94)';
         setTimeout(() => { if (!panelOpen) panel.style.display = 'none'; }, 180);
+        document.removeEventListener('mousedown', onOutsidePanelMouseDown, true);
     }
 
     function renderChartView() {
@@ -944,14 +955,11 @@ document.addEventListener('dblclick', function(event) {
 
 // 双击修饰键呼出切换面板
 let lastModPressTime = 0;
-const DOUBLE_PRESS_DELAY = 300; 
-let lastAiPrewarmAt = 0;
-const AI_PREWARM_INTERVAL_MS = 45000;
+const DOUBLE_PRESS_DELAY = 300;
 
+// 节流逻辑在 background 全局做（按 windowId 跨标签共享 45s 冷却 + in-flight 复用）。
+// content 侧只管发；后台决定是否真的去打 AI。
 function trySilentAiPrewarm() {
-    const now = Date.now();
-    if (now - lastAiPrewarmAt < AI_PREWARM_INTERVAL_MS) return;
-    lastAiPrewarmAt = now;
     ysRuntimeSendMessageRetry({ action: 'prewarm_ai_current_window' }, { maxRetries: 2 }, () => {});
 }
 
@@ -1102,13 +1110,15 @@ document.addEventListener('keydown', function(event) {
     }
 
     if (event.key === MOD_EVENT_KEY[modifierKey]) {
-        trySilentAiPrewarm();
         const now = Date.now();
         if (now - lastModPressTime < DOUBLE_PRESS_DELAY) {
             // 触发双击
             event.preventDefault();
 
             if (typeof switcherVisible === 'undefined' || !switcherVisible) {
+                // 双击确认后再预热：避免单按 Cmd+S/C/V 等组合键时被误触发，
+                // 进而把免费 AI 配额（10 次/天）偷偷烧掉。
+                trySilentAiPrewarm();
                 ysRuntimeSendMessageRetry({ action: 'get_tabs' }, {}, (res, err) => {
                     if (err) {
                         showYsMessageToast(
@@ -1276,7 +1286,8 @@ function showYsOnboarding(modLabel, dismissedKey) {
 
 function bootstrap() {
     initFloatingWidget();
-    setTimeout(trySilentAiPrewarm, 1200);
+    // 不在页面加载时预热 AI：每开一个新标签都触发会把免费配额（10 次/天）瞬间打光。
+    // 预热移到用户双击修饰键、确认要呼出面板的那一刻（见 keydown 监听）。
     checkAndShowOnboarding();
 }
 
