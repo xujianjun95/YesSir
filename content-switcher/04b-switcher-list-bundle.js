@@ -119,8 +119,8 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
             stopAiEmptyStateEmojiLoop();
             listContainer.innerHTML = '';
             listContainer.style.justifyContent = 'flex-start';
-            listContainer.style.paddingTop = '';
-            listContainer.style.paddingBottom = '';
+            listContainer.style.paddingTop = '0';
+            listContainer.style.paddingBottom = '0';
     
             const keyword = filterText.trim().toLowerCase();
     
@@ -536,10 +536,10 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                         display: 'flex',
                         alignItems: 'center',
                         gap: '8px',
-                        minHeight: '35px',
-                        padding: '4px 10px',
-                        borderRadius: '7px',
-                        margin: '0 4px 1px',
+                        minHeight: '42px',
+                        padding: '8px 12px',
+                        borderRadius: '8px',
+                        margin: '0 4px 2px',
                         cursor: 'pointer',
                         boxSizing: 'border-box',
                         background: idx === webSuggestionSelIdx ? WEB_SUGGESTION_SELECTED_BG : 'transparent',
@@ -600,11 +600,15 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                 });
                 listContainer.appendChild(fragment);
                 requestAnimationFrame(() => {
+                    const pT = parseFloat(listContainer.style.paddingTop) || 0;
+                    const pB = parseFloat(listContainer.style.paddingBottom) || 0;
+                    const rawContent = listContainer.scrollHeight - pT - pB;
                     const available = listContainer.offsetHeight;
-                    const content = listContainer.scrollHeight;
-                    const gap = Math.max(0, Math.floor((available - content) / 2));
-                    listContainer.style.paddingTop = gap + 'px';
-                    listContainer.style.paddingBottom = gap + 'px';
+                    const BASE_PAD = 6;
+                    const extra = Math.max(0, Math.floor((available - rawContent - BASE_PAD * 2) / 2));
+                    const pad = BASE_PAD + extra;
+                    listContainer.style.paddingTop = pad + 'px';
+                    listContainer.style.paddingBottom = pad + 'px';
                 });
             };
 

@@ -796,6 +796,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     });
 
     listContainer.addEventListener('click', (e) => {
+        if (dragJustEnded) return;
         const item = rowOfEventTarget(e.target);
         if (!item) return;
         const tabId = Number(item.dataset.tabId);
@@ -887,8 +888,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 fontSize:     '12px',
                 fontWeight:   isActive ? '600' : '400',
                 cursor:       'pointer',
-                border:       `1px solid ${isActive ? 'var(--ys-accent-hover)' : 'var(--ys-divider)'}`,
-                background:   isActive ? 'var(--ys-accent-bg)' : 'transparent',
+                border:       `1px solid ${isActive ? 'var(--ys-accent-hover)' : 'var(--ys-card-border)'}`,
+                background:   isActive ? 'var(--ys-accent-bg)' : 'var(--ys-search-bg)',
                 color:        isActive ? 'var(--ys-accent)' : 'var(--ys-text-secondary)',
                 transition:   'all 0.15s ease',
                 outline:      'none',
@@ -1001,6 +1002,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     let dragState = null;    // { tabId, tab, floatEl, originEl, started }
     let dragPending = null;  // { tabId, tab, originEl, startX, startY }
+    let dragJustEnded = false;
 
     function createDragThumbnail(tab) {
         const el = document.createElement('div');
@@ -1175,8 +1177,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             document.body.appendChild(floatEl);
             requestAnimationFrame(() => { floatEl.style.opacity = '1'; });
 
-            originEl.style.transition  = 'opacity 0.15s ease';
-            originEl.style.opacity     = '0';
             originEl.style.pointerEvents = 'none';
 
             dragState  = { ...dragPending, floatEl, started: true };
@@ -1199,6 +1199,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             dragState   = null;
             return;
         }
+
+        dragJustEnded = true;
+        setTimeout(() => { dragJustEnded = false; }, 0);
 
         const { tabId, tab: dragTab, floatEl, originEl } = dragState;
         dragState   = null;
@@ -1231,7 +1234,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             if (switcherActiveCategory !== null) {
                 renderList('', { restoreScroll: false, preferActive: false, animate: true });
             } else {
-                originEl.style.opacity       = '';
                 originEl.style.pointerEvents = '';
                 renderCategoryPills();
             }
@@ -1412,6 +1414,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         if (mode.isWebSearchMode) {
             // 锁住当前高度，防止切换时列表清空导致面板缩小
             card.style.minHeight = card.offsetHeight + 'px';
+            categoryBar.style.display = 'none';
             invalidateAiSearch();
             // 先清场，避免上一模式结果残留；再按当前输入拉建议
             renderWebSuggestions([], '', { animate: true });
@@ -1430,6 +1433,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         } else {
             // 切回标签模式时恢复初始高度锁
             card.style.minHeight = lockedCardMinHeight;
+            if (catBarTopics.length > 0 || catBarHasOther) categoryBar.style.display = 'flex';
             invalidateWebSuggestions();
             searchInput.placeholder = ysSwitcherPlaceholderDefault();
             searchInput.style.paddingRight = '12px';
