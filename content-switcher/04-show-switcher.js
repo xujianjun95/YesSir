@@ -48,6 +48,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         transition:     'opacity 0.15s ease',
         pointerEvents:  'auto',
         fontFamily:     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        gap:            '28px',
     });
 
     overlay.addEventListener('mousedown', (e) => {
@@ -1004,6 +1005,374 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     let dragPending = null;  // { tabId, tab, originEl, startX, startY }
     let dragJustEnded = false;
 
+    // ── 置顶槽 ──────────────────────────────────────────────────────────────────
+    const YS_PINNED_KEY   = 'ysPinnedTabs';
+    const YS_PINNED_COUNT = 3;
+    let pinnedLeft    = [null, null, null];
+    let pinnedRight   = [null, null, null];
+    let pinnedLeftCol  = null;
+    let pinnedRightCol = null;
+
+    function isInsideCard(x, y) {
+        const r = card.getBoundingClientRect();
+        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }
+
+    function getPinnedSlotAt(x, y) {
+        if (!pinnedLeftCol || !pinnedRightCol) return null;
+        for (const el of [...pinnedLeftCol.children, ...pinnedRightCol.children]) {
+            const r = el.getBoundingClientRect();
+            if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+                return { side: el.dataset.pinnedSide, idx: parseInt(el.dataset.pinnedIdx, 10), el };
+            }
+        }
+        return null;
+    }
+
+    function highlightPinnedTarget(slot) {
+        if (!pinnedLeftCol || !pinnedRightCol) return;
+        for (const el of [...pinnedLeftCol.children, ...pinnedRightCol.children]) {
+            const matched = slot && el.dataset.pinnedSide === slot.side && parseInt(el.dataset.pinnedIdx, 10) === slot.idx;
+            el.style.outline       = matched ? '2px solid var(--ys-accent)' : '';
+            el.style.outlineOffset = matched ? '2px' : '';
+        }
+    }
+
+    function setPinnedSlot(side, idx, data) {
+        if (side === 'left') pinnedLeft[idx] = data;
+        else pinnedRight[idx] = data;
+        renderPinnedCols();
+        chrome.storage.local.set({ [YS_PINNED_KEY]: { left: pinnedLeft, right: pinnedRight } });
+    }
+
+    function renderPinnedCols() {
+        if (!pinnedLeftCol || !pinnedRightCol) return;
+        pinnedLeftCol.replaceChildren();
+        pinnedRightCol.replaceChildren();
+        for (let i = 0; i < YS_PINNED_COUNT; i++) {
+            pinnedLeftCol.appendChild(buildPinnedSlotEl(pinnedLeft[i],  'left',  i));
+            pinnedRightCol.appendChild(buildPinnedSlotEl(pinnedRight[i], 'right', i));
+        }
+    }
+
+    function buildPinnedSlotEl(data, side, idx) {
+        const slot = document.createElement('div');
+        slot.dataset.pinnedSide = side;
+        slot.dataset.pinnedIdx  = String(idx);
+        if (data) slot.dataset.pinnedData = '1';
+        Object.assign(slot.style, {
+            width:        '225px',
+            height:       '170px',
+            borderRadius: '14px',
+            boxSizing:    'border-box',
+            overflow:     'hidden',
+            flexShrink:   '0',
+            userSelect:   'none',
+            position:     'relative',
+            transition:   'transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease',
+        });
+
+        if (!data) {
+            Object.assign(slot.style, {
+                border:         '1.5px dashed var(--ys-divider)',
+                background:     'rgba(255,255,255,0.22)',
+                display:        'flex',
+                flexDirection:  'column',
+                alignItems:     'center',
+                justifyContent: 'center',
+                gap:            '8px',
+                cursor:         'default',
+            });
+            const icon = document.createElement('div');
+            icon.textContent = '📌';
+            icon.style.cssText = 'font-size:20px;opacity:0.28;line-height:1;flex-shrink:0;';
+            const hint = document.createElement('div');
+            hint.textContent = ysT('pinnedSlotHint') || '拖入标签页可置顶显示';
+            Object.assign(hint.style, {
+                fontSize:   '10px',
+                color:      'var(--ys-text-secondary)',
+                opacity:    '0.85',
+                textAlign:  'center',
+                lineHeight: '1.5',
+                padding:    '0 16px',
+            });
+            slot.appendChild(icon);
+            slot.appendChild(hint);
+            slot.addEventListener('mouseenter', () => {
+                slot.style.background  = 'rgba(255,255,255,0.32)';
+                slot.style.borderColor = 'var(--ys-accent)';
+            });
+            slot.addEventListener('mouseleave', () => {
+                slot.style.background  = 'rgba(255,255,255,0.22)';
+                slot.style.borderColor = 'var(--ys-divider)';
+            });
+        } else {
+            Object.assign(slot.style, {
+                background:           'var(--ys-card-bg)',
+                backdropFilter:       'saturate(180%) blur(40px)',
+                WebkitBackdropFilter: 'saturate(180%) blur(40px)',
+                border:               '1px solid var(--ys-card-border)',
+                boxShadow:            '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)',
+                display:              'flex',
+                flexDirection:        'column',
+                cursor:               'pointer',
+            });
+
+            // ── 顶栏：仿浏览器 ──
+            const topBar = document.createElement('div');
+            Object.assign(topBar.style, {
+                padding:      '7px 11px',
+                background:   'var(--ys-search-bg)',
+                borderBottom: '1px solid var(--ys-divider)',
+                display:      'flex',
+                alignItems:   'center',
+                gap:          '6px',
+                flexShrink:   '0',
+            });
+            const dots = document.createElement('div');
+            dots.style.cssText = 'display:flex;gap:4px;flex-shrink:0;';
+            ['#ff5f57', '#febc2e', '#28c840'].forEach((c) => {
+                const d = document.createElement('div');
+                d.style.cssText = `width:6px;height:6px;border-radius:50%;background:${c};`;
+                dots.appendChild(d);
+            });
+            topBar.appendChild(dots);
+            if (data.favicon) {
+                const imgTop = document.createElement('img');
+                imgTop.src = data.favicon;
+                Object.assign(imgTop.style, { width: '13px', height: '13px', flexShrink: '0', borderRadius: '2px' });
+                imgTop.onerror = () => imgTop.remove();
+                topBar.appendChild(imgTop);
+            }
+            const domainEl = document.createElement('span');
+            domainEl.textContent = data.siteName || '';
+            Object.assign(domainEl.style, {
+                fontSize:     '10px',
+                color:        'var(--ys-text-secondary)',
+                overflow:     'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace:   'nowrap',
+                flex:         '1',
+                minWidth:     '0',
+            });
+            topBar.appendChild(domainEl);
+            slot.appendChild(topBar);
+
+            // ── 内容区：favicon 居中 + 下方网页名 ──
+            const body = document.createElement('div');
+            Object.assign(body.style, {
+                display:        'flex',
+                flexDirection:  'column',
+                alignItems:     'center',
+                justifyContent: 'center',
+                gap:            '8px',
+                padding:        '10px 12px',
+                flex:           '1',
+                minHeight:      '0',
+            });
+
+            // Favicon（大）
+            const favWrap = document.createElement('div');
+            Object.assign(favWrap.style, {
+                width:          '36px',
+                height:         '36px',
+                borderRadius:   '10px',
+                background:     'var(--ys-search-bg)',
+                display:        'flex',
+                alignItems:     'center',
+                justifyContent: 'center',
+                flexShrink:     '0',
+                overflow:       'hidden',
+            });
+            if (data.favicon) {
+                const imgBody = document.createElement('img');
+                imgBody.src = data.favicon;
+                Object.assign(imgBody.style, { width: '22px', height: '22px', borderRadius: '4px' });
+                imgBody.onerror = () => {
+                    imgBody.remove();
+                    const ltr = document.createElement('span');
+                    ltr.textContent = (data.siteName || data.title || '?')[0].toUpperCase();
+                    Object.assign(ltr.style, { fontSize: '16px', fontWeight: '700', color: 'var(--ys-text-primary)' });
+                    favWrap.appendChild(ltr);
+                };
+                favWrap.appendChild(imgBody);
+            } else {
+                const ltr = document.createElement('span');
+                ltr.textContent = (data.siteName || data.title || '?')[0].toUpperCase();
+                Object.assign(ltr.style, { fontSize: '16px', fontWeight: '700', color: 'var(--ys-text-primary)' });
+                favWrap.appendChild(ltr);
+            }
+            body.appendChild(favWrap);
+
+            // 网站名 + 页面标题
+            const textCol = document.createElement('div');
+            Object.assign(textCol.style, {
+                display:       'flex',
+                flexDirection: 'column',
+                alignItems:    'center',
+                gap:           '3px',
+                width:         '100%',
+            });
+            const titleEl = document.createElement('div');
+            titleEl.textContent = data.title || '';
+            Object.assign(titleEl.style, {
+                fontSize:     '11px',
+                fontWeight:   '600',
+                color:        'var(--ys-text-primary)',
+                overflow:     'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace:   'nowrap',
+                width:        '100%',
+                textAlign:    'center',
+            });
+            textCol.appendChild(titleEl);
+            const _resolvedLabel = data.pageLabel ? ysResolveDisplayedPageLabel(data.pageLabel) : '';
+            if (_resolvedLabel) {
+                const topicTag = document.createElement('div');
+                topicTag.textContent = _resolvedLabel;
+                Object.assign(topicTag.style, {
+                    marginTop:    '5px',
+                    padding:      '2px 8px',
+                    borderRadius: '20px',
+                    fontSize:     '9px',
+                    fontWeight:   '500',
+                    color:        'var(--ys-ai-text)',
+                    background:   'var(--ys-ai-bg)',
+                    border:       '1px solid var(--ys-ai-border)',
+                    whiteSpace:   'nowrap',
+                    overflow:     'hidden',
+                    textOverflow: 'ellipsis',
+                    maxWidth:     '100%',
+                });
+                textCol.appendChild(topicTag);
+            }
+            body.appendChild(textCol);
+            slot.appendChild(body);
+
+        }
+
+        // 数字角标：左列 1-3，右列 4-6
+        const numBadge = document.createElement('div');
+        numBadge.textContent = String(side === 'left' ? idx + 1 : idx + 4);
+        Object.assign(numBadge.style, {
+            position:     'absolute',
+            top:          '7px',
+            right:        '8px',
+            width:        '16px',
+            height:       '16px',
+            borderRadius: '50%',
+            display:      'flex',
+            alignItems:   'center',
+            justifyContent: 'center',
+            fontSize:     '9px',
+            fontWeight:   '700',
+            lineHeight:   '1',
+            background:   data ? 'rgba(0,0,0,0.18)' : 'rgba(128,128,128,0.14)',
+            color:        data ? 'rgba(255,255,255,0.7)' : 'var(--ys-text-muted)',
+            pointerEvents:'none',
+            userSelect:   'none',
+        });
+        slot.appendChild(numBadge);
+
+        if (data) {
+            slot.addEventListener('mouseenter', () => {
+                slot.style.transform  = 'scale(1.03)';
+                slot.style.boxShadow  = '0 8px 32px rgba(0,0,0,0.22), 0 2px 8px rgba(0,0,0,0.1)';
+            });
+            slot.addEventListener('mouseleave', () => {
+                slot.style.transform  = '';
+                slot.style.boxShadow  = '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)';
+            });
+
+            // 从槽拖拽：拖出删除 / 拖到其他槽互换
+            slot.addEventListener('mousedown', (e) => {
+                e.stopPropagation();
+                let isDragging = false;
+                const startX = e.clientX;
+                const startY = e.clientY;
+                let floatEl  = null;
+
+                const onSlotMove = (me) => {
+                    const dx = me.clientX - startX;
+                    const dy = me.clientY - startY;
+                    if (dx * dx + dy * dy >= 64) isDragging = true;
+                    if (!isDragging) return;
+                    // 首次创建浮动缩略图（与列表拖拽样式一致）
+                    if (!floatEl) {
+                        const pseudoTab = { url: data.url || '', title: data.title || '', favIconUrl: data.favicon || '' };
+                        floatEl = createDragThumbnail(pseudoTab);
+                        floatEl.id = '';  // 避免与列表拖拽冲突
+                        floatEl.style.transform = 'rotate(-1.5deg) scale(1.04)';
+                        document.body.appendChild(floatEl);
+                        requestAnimationFrame(() => { if (floatEl) floatEl.style.opacity = '1'; });
+                        slot.style.opacity   = '0.4';
+                        slot.style.transform = 'scale(0.97)';
+                    }
+                    floatEl.style.left = `${me.clientX - 90}px`;
+                    floatEl.style.top  = `${me.clientY - 30}px`;
+                    highlightPinnedTarget(getPinnedSlotAt(me.clientX, me.clientY));
+                };
+
+                const onSlotUp = (ue) => {
+                    document.removeEventListener('mousemove', onSlotMove);
+                    document.removeEventListener('mouseup',   onSlotUp);
+                    slot.style.opacity   = '';
+                    slot.style.transform = '';
+                    highlightPinnedTarget(null);
+
+                    if (!isDragging) {
+                        if (floatEl) { floatEl.remove(); floatEl = null; }
+                        if (data.tabId) {
+                            hideSwitcher();
+                            ysSendToBg({ action: 'switch_tab_global', tabId: data.tabId, windowId: data.windowId }, { maxRetries: 3 }, () => {});
+                        }
+                        return;
+                    }
+
+                    const targetInfo = getPinnedSlotAt(ue.clientX, ue.clientY);
+                    if (targetInfo && (targetInfo.side !== side || targetInfo.idx !== idx)) {
+                        // 换位：缩略图普通淡出
+                        if (floatEl) {
+                            floatEl.style.opacity = '0';
+                            const _f = floatEl; floatEl = null;
+                            setTimeout(() => _f.remove(), 150);
+                        }
+                        const targetArr  = targetInfo.side === 'left' ? pinnedLeft : pinnedRight;
+                        const targetData = targetArr[targetInfo.idx] || null;
+                        if (side === 'left') pinnedLeft[idx] = targetData;
+                        else pinnedRight[idx] = targetData;
+                        if (targetInfo.side === 'left') pinnedLeft[targetInfo.idx] = data;
+                        else pinnedRight[targetInfo.idx] = data;
+                        renderPinnedCols();
+                        chrome.storage.local.set({ [YS_PINNED_KEY]: { left: pinnedLeft, right: pinnedRight } });
+                    } else if (!targetInfo) {
+                        // 拖出删除：垃圾桶动画——缩小旋转后消失
+                        if (floatEl) {
+                            floatEl.style.transition = 'transform 0.3s cubic-bezier(0.55, 0, 1, 1), opacity 0.22s ease 0.08s';
+                            floatEl.style.transform  = 'translate(0, 28px) scale(0.05) rotate(8deg)';
+                            floatEl.style.opacity    = '0';
+                            const _f = floatEl; floatEl = null;
+                            setTimeout(() => _f.remove(), 340);
+                        }
+                        setPinnedSlot(side, idx, null);
+                    } else {
+                        // 放回原位：普通淡出
+                        if (floatEl) {
+                            floatEl.style.opacity = '0';
+                            const _f = floatEl; floatEl = null;
+                            setTimeout(() => _f.remove(), 150);
+                        }
+                    }
+                };
+
+                document.addEventListener('mousemove', onSlotMove);
+                document.addEventListener('mouseup',   onSlotUp);
+            });
+        }
+
+        return slot;
+    }
+
     function createDragThumbnail(tab) {
         const el = document.createElement('div');
         el.id = 'ys-drag-thumbnail';
@@ -1089,6 +1458,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     }
 
     function getDragOverPill(x, y) {
+        // 先限定在 categoryBar 可视区内，避免 overflowX:auto 滚出去的 pill 误命中
+        const barRect = categoryBar.getBoundingClientRect();
+        if (x < barRect.left || x > barRect.right || y < barRect.top || y > barRect.bottom) return null;
         for (const pill of categoryBar.querySelectorAll('button')) {
             const r = pill.getBoundingClientRect();
             if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return pill;
@@ -1096,12 +1468,14 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         return null;
     }
 
-    function applyDragPillHighlight(hoveredPill) {
-        // 缩略图：悬停 pill 时缩到极小，离开时恢复
+    function applyDragPillHighlight(hoveredPill, overSlot) {
+        // 缩略图：悬停 pill 时缩到极小；悬停置顶槽时略微缩小；其他时正常
         if (dragState && dragState.floatEl) {
             dragState.floatEl.style.transform = hoveredPill
                 ? 'scale(0.12)'
-                : 'rotate(2deg) scale(1.03)';
+                : overSlot
+                    ? 'scale(0.72) rotate(-2deg)'
+                    : 'rotate(2deg) scale(1.03)';
         }
         categoryBar.querySelectorAll('button').forEach((pill) => {
             if (pill === hoveredPill) {
@@ -1187,7 +1561,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         // 移动缩略图
         dragState.floatEl.style.left = `${e.clientX - 90}px`;
         dragState.floatEl.style.top  = `${e.clientY - 30}px`;
-        applyDragPillHighlight(getDragOverPill(e.clientX, e.clientY));
+        const _inCard  = isInsideCard(e.clientX, e.clientY);
+        const _overPill = _inCard ? getDragOverPill(e.clientX, e.clientY) : null;
+        const _overSlot = !_inCard ? getPinnedSlotAt(e.clientX, e.clientY) : null;
+        applyDragPillHighlight(_overPill, _overSlot);
+        highlightPinnedTarget(_overSlot);
     };
 
     const onDragMouseUp = (e) => {
@@ -1207,7 +1585,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         dragState   = null;
         dragPending = null;
 
-        const targetPill = getDragOverPill(e.clientX, e.clientY);
+        const _upInCard  = isInsideCard(e.clientX, e.clientY);
+        const targetPill = _upInCard ? getDragOverPill(e.clientX, e.clientY) : null;
         if (targetPill) {
             // 飞入 pill 动画：计算缩略图中心到 pill 中心的位移，animate 过去再消失
             const pillRect  = targetPill.getBoundingClientRect();
@@ -1238,17 +1617,50 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 renderCategoryPills();
             }
         } else {
-            // 取消：缩略图淡出，恢复行
-            floatEl.style.opacity = '0';
-            setTimeout(() => floatEl.remove(), 150);
-            originEl.style.opacity       = '';
-            originEl.style.pointerEvents = '';
-            renderCategoryPills();
+            const targetPinnedSlot = !_upInCard ? getPinnedSlotAt(e.clientX, e.clientY) : null;
+            if (targetPinnedSlot) {
+                // 飞入置顶槽动画
+                const slotRect  = targetPinnedSlot.el.getBoundingClientRect();
+                const thumbLeft = parseFloat(floatEl.style.left) || 0;
+                const thumbTop  = parseFloat(floatEl.style.top)  || 0;
+                const dx = (slotRect.left + slotRect.width  / 2) - (thumbLeft + 90);
+                const dy = (slotRect.top  + slotRect.height / 2) - (thumbTop  + 50);
+                floatEl.style.transition = 'transform 0.26s cubic-bezier(0.4, 0, 1, 1), opacity 0.16s ease 0.1s';
+                floatEl.style.transform  = `translate(${dx}px, ${dy}px) scale(0.1)`;
+                floatEl.style.opacity    = '0';
+                setTimeout(() => floatEl.remove(), 300);
+
+                originEl.style.pointerEvents = '';
+                highlightPinnedTarget(null);
+                applyDragPillHighlight(null, null);
+
+                let hostname = '';
+                try { hostname = new URL(dragTab.url || '').hostname.replace(/^www\./, ''); } catch {}
+                const pinnedData = {
+                    tabId:    parseInt(tabId, 10),
+                    title:    dragTab.title    || '',
+                    url:      dragTab.url      || '',
+                    favicon:  dragTab.favIconUrl || '',
+                    siteName: hostname,
+                    windowId: dragTab.windowId || null,
+                    pageLabel: tabPageLabelMap[parseInt(tabId, 10)] ?? tabPageLabelMap[String(tabId)] ?? null,
+                };
+                // 满槽替换：直接写入
+                setPinnedSlot(targetPinnedSlot.side, targetPinnedSlot.idx, pinnedData);
+                renderCategoryPills();
+            } else {
+                // 取消：缩略图淡出，恢复行
+                floatEl.style.opacity = '0';
+                setTimeout(() => floatEl.remove(), 150);
+                originEl.style.opacity       = '';
+                originEl.style.pointerEvents = '';
+                highlightPinnedTarget(null);
+                renderCategoryPills();
+            }
         }
     };
 
     listContainer.addEventListener('mousedown', (e) => {
-        if (categoryBar.style.display === 'none') return;
         const item = e.target.closest('[data-tab-id]');
         if (!item) return;
 
@@ -1358,8 +1770,54 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     });
 
     card.appendChild(footer);
+
+    // 左右置顶列
+    pinnedLeftCol = document.createElement('div');
+    Object.assign(pinnedLeftCol.style, {
+        display:         'flex',
+        flexDirection:   'column',
+        justifyContent:  'space-between',
+        alignSelf:       'center',
+        flexShrink:      '0',
+        padding:         '4px 6px',
+        boxSizing:       'border-box',
+    });
+    pinnedRightCol = document.createElement('div');
+    Object.assign(pinnedRightCol.style, {
+        display:         'flex',
+        flexDirection:   'column',
+        justifyContent:  'space-between',
+        alignSelf:       'center',
+        flexShrink:      '0',
+        padding:         '4px 6px',
+        boxSizing:       'border-box',
+    });
     overlay.appendChild(card);
+    overlay.insertBefore(pinnedLeftCol, card);
+    overlay.appendChild(pinnedRightCol);
     document.body.appendChild(overlay);
+
+    // 列高度跟卡片高度同步，首尾槽对齐面板上下边缘
+    const syncPinnedColHeight = () => {
+        const h = card.offsetHeight;
+        if (h > 0) {
+            pinnedLeftCol.style.height  = h + 'px';
+            pinnedRightCol.style.height = h + 'px';
+        }
+    };
+    const pinnedColRO = new ResizeObserver(syncPinnedColHeight);
+    pinnedColRO.observe(card);
+    requestAnimationFrame(syncPinnedColHeight);
+
+    // 从 storage 加载置顶数据
+    chrome.storage.local.get(YS_PINNED_KEY, (res) => {
+        if (res && res[YS_PINNED_KEY]) {
+            const saved = res[YS_PINNED_KEY];
+            if (Array.isArray(saved.left))  pinnedLeft  = saved.left.slice(0, YS_PINNED_COUNT).map((v) => v || null);
+            if (Array.isArray(saved.right)) pinnedRight = saved.right.slice(0, YS_PINNED_COUNT).map((v) => v || null);
+        }
+        renderPinnedCols();
+    });
 
     let lockedCardMinHeight = '';
     const searchInput = document.getElementById('ys-search-input');

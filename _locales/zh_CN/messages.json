@@ -280,5 +280,8 @@
   },
   "onboardingHint": {
     "message": "点击右上角 × 可关闭此提示"
+  },
+  "pinnedSlotHint": {
+    "message": "拖入标签页可置顶显示"
   }
 }

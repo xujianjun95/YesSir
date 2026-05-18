@@ -280,5 +280,8 @@
   },
   "onboardingHint": {
     "message": "Click × in the top-right to close this tip."
+  },
+  "pinnedSlotHint": {
+    "message": "Drop a tab to pin it here"
   }
 }
