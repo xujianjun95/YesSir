@@ -1286,6 +1286,37 @@ function showYsOnboarding(modLabel, dismissedKey) {
     // 任意手势首次成功触发后自动消除
 }
 
+/**
+ * 新版本上线后：首次打开标签页弹引导，3 天后再弹一次。
+ * storage key: ysPostUpdateOnboarding
+ *   'pending'            → 刚更新，还没弹过
+ *   { firstShownAt: ts } → 第一次已弹，等 3 天
+ *   (不存在)             → 已完成，不再触发
+ */
+function checkAndShowPostUpdateOnboarding() {
+    if (window.top !== window.self) return;
+    if (!/^https?:$/.test(location.protocol)) return;
+    const KEY = 'ysPostUpdateOnboarding';
+    const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
+    chrome.storage.local.get([KEY, 'modifierKey'], (res) => {
+        const state = res[KEY];
+        if (!state) return;
+        const modKey   = normalizeStoredModifierKey(res.modifierKey);
+        const modLabel = MOD_LABELS[modKey] || modKey;
+        if (state === 'pending') {
+            // 第一次：立即弹，记录时间戳
+            chrome.storage.local.set({ [KEY]: { firstShownAt: Date.now() } });
+            showYsOnboarding(modLabel, null);
+        } else if (state && typeof state === 'object' && state.firstShownAt) {
+            if (Date.now() - state.firstShownAt >= THREE_DAYS) {
+                // 3 天后：再弹一次，然后清掉
+                chrome.storage.local.remove(KEY);
+                showYsOnboarding(modLabel, null);
+            }
+        }
+    });
+}
+
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 function bootstrap() {
@@ -1293,6 +1324,7 @@ function bootstrap() {
     // 不在页面加载时预热 AI：每开一个新标签都触发会把免费配额（10 次/天）瞬间打光。
     // 预热移到用户双击修饰键、确认要呼出面板的那一刻（见 keydown 监听）。
     checkAndShowOnboarding();
+    checkAndShowPostUpdateOnboarding();
 }
 
 if (document.readyState === 'loading') {

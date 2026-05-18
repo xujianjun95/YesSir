@@ -133,6 +133,7 @@ chrome.runtime.onInstalled.addListener((details) => {
         chrome.storage.local.set({ ysOnboardingPending: true });
     } else if (details.reason === 'update') {
         void sendTelemetry('update');
+        chrome.storage.local.set({ ysPostUpdateOnboarding: 'pending' });
     }
 });
 
