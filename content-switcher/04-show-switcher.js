@@ -38,9 +38,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         inset:          '0',
         zIndex:         '2147483646',
         display:        'flex',
-        alignItems:     'flex-start',
+        alignItems:     'center',
         justifyContent: 'center',
-        paddingTop:     'max(8vh, 56px)',
         boxSizing:      'border-box',
         background:     'var(--ys-overlay-bg)',
         backdropFilter: 'blur(10px)',
@@ -74,7 +73,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         borderRadius:   '20px',
         boxShadow:      'var(--ys-card-shadow)',
         width:          '700px',
-        maxHeight:      '70vh',
+        maxHeight:      '80vh',
         display:        'flex',
         flexDirection:  'column',
         overflow:       'hidden',
@@ -146,7 +145,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         overflowX:      'auto',
         scrollbarWidth: 'none',
         flexShrink:     '0',
+        alignItems:     'center',
     });
+    categoryBar.addEventListener('wheel', (e) => {
+        e.stopPropagation();
+        const isHorizontal = Math.abs(e.deltaX) >= Math.abs(e.deltaY);
+        if (isHorizontal) return; // 横向手势交给浏览器原生处理，保留惯性
+        e.preventDefault();
+        let delta = e.deltaY;
+        if (e.deltaMode === 1) delta *= 40;
+        else if (e.deltaMode === 2) delta *= categoryBar.offsetWidth;
+        categoryBar.scrollLeft += delta;
+    }, { passive: false });
     header.appendChild(categoryBar);
 
     const topActions = header.querySelector('#ys-top-actions');
@@ -283,11 +293,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     aiGroupBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        let tabsToProcess = switcherTabs.filter((t) => t.url && /^https?:\/\//i.test(t.url));
-        if (switcherCurrentWindowId !== null && switcherCurrentWindowId !== undefined) {
-            const wid = Number(switcherCurrentWindowId);
-            tabsToProcess = tabsToProcess.filter((t) => Number(t.windowId) === wid);
-        }
+        const tabsToProcess = switcherTabs.filter((t) => t.url && /^https?:\/\//i.test(t.url));
         if (tabsToProcess.length === 0) {
             showYsMessageToast(ysT('toastNoHttpTabs'), 2800);
             return;
@@ -300,7 +306,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         ysSendToBg({
             action: 'ai_batch_group',
             tabs: tabsToProcess,
-            windowId: switcherCurrentWindowId,
+            windowId: null,
         }, { maxRetries: 2 }, (res, err) => {
             finishProcessing();
 
@@ -862,9 +868,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         const allCats = ['全部', ...catBarTopics, ...(catBarHasOther ? ['其他'] : [])];
         allCats.forEach((cat) => {
             const isActive = cat === '全部' ? switcherActiveCategory === null : switcherActiveCategory === cat;
+            let count;
+            if (cat === '全部') {
+                count = tabs.length;
+            } else if (cat === '其他') {
+                count = tabs.filter((t) => !switcherAiTopicMap[String(t.id)]).length;
+            } else {
+                count = tabs.filter((t) => switcherAiTopicMap[String(t.id)] === cat).length;
+            }
             const pill = document.createElement('button');
             pill.type = 'button';
-            pill.textContent = cat;
+            pill.dataset.cat = cat;
+            pill.textContent = `${cat}·${count}`;
             Object.assign(pill.style, {
                 flexShrink:   '0',
                 padding:      '3px 10px',
@@ -883,11 +898,24 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 WebkitUserSelect: 'none',
             });
             pill.addEventListener('click', () => {
-                switcherActiveCategory = cat === '全部' ? null : cat;
+                const nextCat = cat === '全部' ? null : cat;
+                switcherActiveCategory = nextCat;
                 const si = document.getElementById('ys-search-input');
                 if (si) si.value = '';
                 renderCategoryPills();
-                renderList('', { restoreScroll: false, preferActive: true, animate: true });
+                const currentRows = listContainer.querySelectorAll('.ys-group-row');
+                if (currentRows.length > 0) {
+                    currentRows.forEach((row) => {
+                        row.style.transition = 'opacity 0.1s ease, transform 0.1s ease';
+                        row.style.opacity = '0';
+                        row.style.transform = 'translateY(6px)';
+                    });
+                    setTimeout(() => {
+                        renderList('', { restoreScroll: false, preferActive: true, animate: false, stagger: true });
+                    }, 100);
+                } else {
+                    renderList('', { restoreScroll: false, preferActive: true, animate: false, stagger: true });
+                }
             });
             categoryBar.appendChild(pill);
         });
@@ -1082,7 +1110,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     fontWeight: '600',
                 });
             } else {
-                const cat = pill.textContent.trim();
+                const cat = pill.dataset.cat || pill.textContent.trim();
                 const isActive = cat === '全部' ? switcherActiveCategory === null : switcherActiveCategory === cat;
                 Object.assign(pill.style, {
                     background: isActive ? 'var(--ys-accent-bg)' : 'transparent',
@@ -1190,7 +1218,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             floatEl.style.opacity    = '0';
             setTimeout(() => floatEl.remove(), 320);
 
-            const cat = targetPill.textContent.trim();
+            const cat = targetPill.dataset.cat || targetPill.textContent.trim();
             const newTopic = (cat === '全部' || cat === '其他') ? null : cat;
             const tabIdStr = String(tabId);
 
@@ -1331,6 +1359,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     overlay.appendChild(card);
     document.body.appendChild(overlay);
 
+    let lockedCardMinHeight = '';
     const searchInput = document.getElementById('ys-search-input');
     const webSearchEnterBtn = document.getElementById('ys-web-search-enter-btn');
     const searchBarWrapper = document.getElementById('ys-search-bar-wrapper');
@@ -1399,8 +1428,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             }
             requestWebSuggestions(searchInput.value, true);
         } else {
-            // 切回标签模式时释放高度锁
-            card.style.minHeight = '';
+            // 切回标签模式时恢复初始高度锁
+            card.style.minHeight = lockedCardMinHeight;
             invalidateWebSuggestions();
             searchInput.placeholder = ysSwitcherPlaceholderDefault();
             searchInput.style.paddingRight = '12px';
@@ -1651,6 +1680,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
         card.style.transform = 'scale(1) translateY(0)';
+        lockedCardMinHeight = card.offsetHeight + 'px';
+        card.style.minHeight = lockedCardMinHeight;
         setTimeout(() => {
             if (searchInput) searchInput.focus();
         }, 50);

@@ -118,6 +118,9 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
             function rebuildListDOM() {
             stopAiEmptyStateEmojiLoop();
             listContainer.innerHTML = '';
+            listContainer.style.justifyContent = 'flex-start';
+            listContainer.style.paddingTop = '';
+            listContainer.style.paddingBottom = '';
     
             const keyword = filterText.trim().toLowerCase();
     
@@ -174,7 +177,11 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     const myToken = ++aiSearchToken;
                     const loadingWrap = document.createElement('div');
                     Object.assign(loadingWrap.style, {
-                        padding: '24px 20px',
+                        flex: '1',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                         textAlign: 'center',
                         color: 'rgba(100,110,130,0.6)',
                         fontSize: '12px',
@@ -215,7 +222,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                                 const base = err
                                     ? ysT('listBgUnreachable')
                                     : ysT('listNoMatchingTabs');
-                                listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">${base}${extra}</div>`;
+                                listContainer.innerHTML = `<div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">${base}${extra}</div>`;
                                 return;
                             }
                             renderList(filterText, { restoreScroll: false, preferActive: false, animate: false, aiKeywords: res.keywords });
@@ -225,7 +232,11 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     if (aiKeywords) {
                         const noResultWrap = document.createElement('div');
                         Object.assign(noResultWrap.style, {
-                            padding: '22px 20px',
+                            flex: '1',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             textAlign: 'center',
                             color: 'rgba(100,110,130,0.6)',
                             fontSize: '12px',
@@ -244,7 +255,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                         noResultWrap.appendChild(text);
                         listContainer.appendChild(noResultWrap);
                     } else {
-                        listContainer.innerHTML = `<div style="padding:20px;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">${ysT('listNoMatchingTabs')}</div>`;
+                        listContainer.innerHTML = `<div style="flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:rgba(100,110,130,0.6);font-size:12px;">${ysT('listNoMatchingTabs')}</div>`;
                     }
                 }
                 return;
@@ -479,6 +490,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
             const rebuildSuggestionsDOM = () => {
                 stopAiEmptyStateEmojiLoop();
                 listContainer.innerHTML = '';
+                listContainer.style.justifyContent = 'flex-start';
                 switcherTabs = [];
                 switcherSelIdx = -1;
     
@@ -523,11 +535,11 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     Object.assign(row.style, {
                         display: 'flex',
                         alignItems: 'center',
-                        gap: '10px',
-                        minHeight: '36px',
-                        padding: '8px 12px',
-                        borderRadius: '8px',
-                        margin: '0 6px 2px',
+                        gap: '8px',
+                        minHeight: '35px',
+                        padding: '4px 10px',
+                        borderRadius: '7px',
+                        margin: '0 4px 1px',
                         cursor: 'pointer',
                         boxSizing: 'border-box',
                         background: idx === webSuggestionSelIdx ? WEB_SUGGESTION_SELECTED_BG : 'transparent',
@@ -536,15 +548,15 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
     
                     const iconWrap = document.createElement('div');
                     Object.assign(iconWrap.style, {
-                        width: '20px',
-                        height: '20px',
-                        borderRadius: '6px',
+                        width: '18px',
+                        height: '18px',
+                        borderRadius: '5px',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
                         background: 'rgba(80,110,220,0.08)',
                         flexShrink: '0',
-                        fontSize: '11px',
+                        fontSize: '10px',
                     });
                     iconWrap.textContent = '🔎';
     
@@ -587,8 +599,15 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     fragment.appendChild(row);
                 });
                 listContainer.appendChild(fragment);
+                requestAnimationFrame(() => {
+                    const available = listContainer.offsetHeight;
+                    const content = listContainer.scrollHeight;
+                    const gap = Math.max(0, Math.floor((available - content) / 2));
+                    listContainer.style.paddingTop = gap + 'px';
+                    listContainer.style.paddingBottom = gap + 'px';
+                });
             };
-    
+
             rebuildSuggestionsDOM();
             if (!shouldAnimate) return;
             const nextH = card.offsetHeight;
@@ -645,7 +664,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     currentWebSuggestions = res.suggestions
                         .map((item) => String(item || '').trim())
                         .filter(Boolean)
-                        .slice(0, 8);
+                        .slice(0, 10);
                     webSuggestionSelIdx = currentWebSuggestions.length > 0 ? 0 : -1;
                     renderWebSuggestions(currentWebSuggestions, query, { animate: true });
                 });

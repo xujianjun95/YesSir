@@ -1033,7 +1033,7 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId,
                 continue;
             }
             try {
-                const groupId = await chrome.tabs.group({ tabIds });
+                const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId: wId } });
                 await chrome.tabGroups.update(groupId, {
                     title,
                     color: TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
@@ -1047,10 +1047,10 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId,
     }
 
     // 长尾收纳：每窗口内孤儿 ≥2 个时，归入灰色折叠组；若包含当前标签则展开该组
-    for (const [, orphanTabIds] of orphansByWindow) {
+    for (const [wId, orphanTabIds] of orphansByWindow) {
         if (orphanTabIds.length < 2) continue;
         try {
-            const groupId = await chrome.tabs.group({ tabIds: orphanTabIds });
+            const groupId = await chrome.tabs.group({ tabIds: orphanTabIds, createProperties: { windowId: wId } });
             await chrome.tabGroups.update(groupId, {
                 title: orphanTitle || '🗂️ 零碎浏览',
                 color: 'grey',
@@ -1078,7 +1078,7 @@ async function fetchSearchSuggestions(query) {
         return data[1]
             .map((item) => String(item || '').trim())
             .filter(Boolean)
-            .slice(0, 8);
+            .slice(0, 10);
     } catch (error) {
         console.error('获取搜索建议失败:', error);
         return [];

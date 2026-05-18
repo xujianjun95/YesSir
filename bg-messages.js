@@ -427,13 +427,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             try {
                 const apiKey = await getDeepSeekApiKey();
                 const tabs = Array.isArray(request.tabs) ? request.tabs : [];
-                let restrictWindowId = request.windowId;
-                if (
-                    (restrictWindowId === null || restrictWindowId === undefined)
-                    && sender.tab && sender.tab.windowId !== undefined
-                ) {
-                    restrictWindowId = sender.tab.windowId;
-                }
+                const restrictWindowId = (request.windowId !== null && request.windowId !== undefined)
+                    ? request.windowId
+                    : null;
                 const activeTabId = sender.tab && sender.tab.id !== undefined ? sender.tab.id : null;
 
                 // 标题模糊的 http 标签 → 并发抓 page meta 作为补充判据（隐私权衡：仅对真正需要的标签发起）
