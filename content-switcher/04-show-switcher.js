@@ -44,6 +44,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         justifyContent: 'center',
         boxSizing:      'border-box',
         background:     'var(--ys-overlay-bg)',
+        backdropFilter: 'blur(10px)',
+        WebkitBackdropFilter: 'blur(10px)',
         opacity:        '0',
         transition:     'opacity 0.34s cubic-bezier(0.16,1,0.3,1)',
         pointerEvents:  'auto',
@@ -80,8 +82,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         overflow:       'hidden',
         opacity:        '0',
         transform:      'translateY(10px)',
-        filter:         'blur(8px)',
-        transition:     'transform 0.26s cubic-bezier(0.16,1,0.3,1), opacity 0.34s cubic-bezier(0.16,1,0.3,1), filter 0.38s cubic-bezier(0.16,1,0.3,1), background 0.3s ease, box-shadow 0.3s ease',
+        transition:     'transform 0.26s cubic-bezier(0.16,1,0.3,1), opacity 0.34s cubic-bezier(0.16,1,0.3,1), background 0.3s ease, box-shadow 0.3s ease',
     });
 
     const header = document.createElement('div');
@@ -1993,11 +1994,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         // 主面板：朝远离 dock 的方向轻移 + 扩张宽度（让出空间，而不是被推开）
         const cardX = side === 'left' ? CARD_SHIFT : -CARD_SHIFT;
         if (animate) {
-            card.style.transition = `transform 260ms ${APPLE_EASE}, opacity 340ms ${APPLE_EASE}, filter 380ms ${APPLE_EASE}, width ${SHOW_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
+            card.style.transition = `transform 260ms ${APPLE_EASE}, opacity 340ms ${APPLE_EASE}, width ${SHOW_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
         }
         card.style.opacity   = '1';
         card.style.transform = `translate(${cardX}px, 0)`;
-        card.style.filter    = 'blur(0)';
         card.style.width     = CARD_WIDTH_EXPANDED + 'px';
 
         if (!animate) {
@@ -2044,10 +2044,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         pinnedCol.style.transform     = `translateY(-50%) translate(${slideTo}px, 0)`;
         pinnedCol.style.pointerEvents = 'none';
 
-        card.style.transition = `transform 220ms ${APPLE_EASE}, opacity 280ms ${APPLE_EASE}, filter 320ms ${APPLE_EASE}, width ${HIDE_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
+        card.style.transition = `transform 220ms ${APPLE_EASE}, opacity 280ms ${APPLE_EASE}, width ${HIDE_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
         card.style.opacity   = '1';
         card.style.transform = 'translate(0, 0)';
-        card.style.filter    = 'blur(0)';
         card.style.width     = CARD_WIDTH_BASE + 'px';
 
         _pinnedHideTimer = setTimeout(() => {
@@ -2423,7 +2422,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 : 0;
             card.style.opacity   = '1';
             card.style.transform = `translate(${initialShiftX}px, 0)`;
-            card.style.filter    = 'blur(0)';
             if (hasDockData) card.style.width = CARD_WIDTH_EXPANDED + 'px';
             lockedCardMinHeight = card.offsetHeight + 'px';
             card.style.minHeight = lockedCardMinHeight;

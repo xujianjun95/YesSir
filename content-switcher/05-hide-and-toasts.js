@@ -40,7 +40,6 @@ function hideSwitcher(opts) {
     if (card) {
         card.style.opacity   = '0';
         card.style.transform = 'translateY(6px)';
-        card.style.filter    = 'blur(8px)';
     }
     setTimeout(() => overlay.remove(), 300);
 }
