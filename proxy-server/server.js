@@ -191,11 +191,21 @@ const server = http.createServer(async (req, res) => {
             return;
         }
 
+        // 透传 first_use / feature_daily 等事件的扩展字段，确保 analyze 脚本能区分 feature
+        const feature = String((parsed && parsed.feature) || '').trim().slice(0, 64);
+        const countRaw = Number(parsed && parsed.count);
+        const count = Number.isFinite(countRaw) && countRaw > 0 ? Math.floor(countRaw) : 0;
+        const dateRaw = String((parsed && parsed.date) || '').trim();
+        const date = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : '';
+
         const logEntry = JSON.stringify({
             timestamp: new Date().toISOString(),
             uuid,
             event,
             version,
+            ...(feature ? { feature } : {}),
+            ...(count > 0 ? { count } : {}),
+            ...(date ? { date } : {}),
             ip: getClientIp(req),
         }) + '\n';
         const logFile = path.join(__dirname, 'telemetry.log');
