@@ -929,99 +929,71 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     if (!isRefresh) switcherActiveCategory = null;
 
-    chrome.storage.local.get('aiSnapshotV1', (storageRes) => {
-        const raw = storageRes && storageRes.aiSnapshotV1;
-        if (!raw || !raw.entries) return;
-        const tabIds = new Set(tabs.map((t) => String(t.id)));
-        const _isEn = ysGetResolvedLanguage() === 'en';
-        switcherAiTopicMap = {};
-        for (const [tabId, entry] of Object.entries(raw.entries)) {
-            const topic = _isEn ? (entry.topic_en || '') : (entry.topic || '');
-            if (tabIds.has(tabId) && topic) {
-                switcherAiTopicMap[tabId] = topic;
+    // ── 分类 pill 公共函数 ──────────────────────────────────────────────────────
+    function _applyCategoryBar(topics, animate) {
+        if (topics.length === 0) {
+            categoryBar.style.display = 'none';
+            if (switcherActiveCategory !== null) {
+                switcherActiveCategory = null;
+                renderList('', { restoreScroll: false, preferActive: true, animate });
             }
+            return;
         }
+        catBarTopics = topics;
+        catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
+        if (switcherActiveCategory !== null
+            && switcherActiveCategory !== '其他'
+            && !topics.includes(switcherActiveCategory)) {
+            switcherActiveCategory = null;
+            renderCategoryPills();
+            renderList('', { restoreScroll: false, preferActive: true, animate });
+        } else {
+            renderCategoryPills();
+        }
+        categoryBar.style.display = 'flex';
+    }
+
+    function _collectTopics() {
         const seen = new Set();
-        let topics = [];
+        const topics = [];
         tabs.forEach((t) => {
             const topic = switcherAiTopicMap[String(t.id)];
             if (topic && !seen.has(topic)) { seen.add(topic); topics.push(topic); }
         });
-        if (topics.length === 0) return;
+        return topics;
+    }
 
-        // 以浏览器实际标签组为准，过滤掉不存在的分类
+    function _syncCategoryBar(topics, animate) {
+        if (topics.length === 0) { _applyCategoryBar(topics, animate); return; }
         ysSendToBg({ action: 'get_tab_group_titles' }, {}, (res) => {
             const groupTitles = res && res.titles ? new Set(res.titles) : null;
-            if (groupTitles) {
-                topics = topics.filter((t) => groupTitles.has(t));
-            }
-            if (topics.length === 0) return;
-            catBarTopics = topics;
-            catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
-            categoryBar.style.display = 'flex';
-            renderCategoryPills();
-            if (switcherActiveCategory !== null) {
-                renderList('', { restoreScroll: false, preferActive: true, animate: false });
-            }
+            _applyCategoryBar(groupTitles ? topics.filter((t) => groupTitles.has(t)) : topics, animate);
         });
+    }
+
+    function _buildTopicMap(raw) {
+        switcherAiTopicMap = {};
+        if (!raw || !raw.entries) return;
+        const tabIds = new Set(tabs.map((t) => String(t.id)));
+        const _isEn = ysGetResolvedLanguage() === 'en';
+        for (const [tabId, entry] of Object.entries(raw.entries)) {
+            const topic = _isEn ? (entry.topic_en || '') : (entry.topic || '');
+            if (tabIds.has(tabId) && topic) switcherAiTopicMap[tabId] = topic;
+        }
+    }
+
+    // ── 初次渲染分类 pill ─────────────────────────────────────────────────────
+    chrome.storage.local.get('aiSnapshotV1', (storageRes) => {
+        _buildTopicMap(storageRes && storageRes.aiSnapshotV1);
+        _syncCategoryBar(_collectTopics(), false);
     });
 
     // 供 background 推送 refresh_category_bar 消息时实时重建 pills
     window.__ysRefreshCategoryBar = () => {
         if (!switcherVisible) return;
         chrome.storage.local.get('aiSnapshotV1', (storageRes) => {
-            const raw = storageRes && storageRes.aiSnapshotV1;
-            const _isEn = ysGetResolvedLanguage() === 'en';
-            switcherAiTopicMap = {};
-            if (raw && raw.entries) {
-                const tabIds = new Set(tabs.map((t) => String(t.id)));
-                for (const [tabId, entry] of Object.entries(raw.entries)) {
-                    const topic = _isEn ? (entry.topic_en || '') : (entry.topic || '');
-                    if (tabIds.has(tabId) && topic) switcherAiTopicMap[tabId] = topic;
-                }
-            }
-            const seen = new Set();
-            let topics = [];
-            tabs.forEach((t) => {
-                const topic = switcherAiTopicMap[String(t.id)];
-                if (topic && !seen.has(topic)) { seen.add(topic); topics.push(topic); }
-            });
-
-            // 以浏览器实际标签组为准，过滤掉不存在的分类
-            const _applyRefresh = (filteredTopics) => {
-                if (filteredTopics.length === 0) {
-                    categoryBar.style.display = 'none';
-                    if (switcherActiveCategory !== null) {
-                        switcherActiveCategory = null;
-                        renderList('', { restoreScroll: false, preferActive: true, animate: true });
-                    }
-                    return;
-                }
-                catBarTopics = filteredTopics;
-                catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
-                if (switcherActiveCategory !== null
-                    && switcherActiveCategory !== '其他'
-                    && !filteredTopics.includes(switcherActiveCategory)) {
-                    switcherActiveCategory = null;
-                    renderCategoryPills();
-                    renderList('', { restoreScroll: false, preferActive: true, animate: true });
-                } else {
-                    renderCategoryPills();
-                }
-                categoryBar.style.display = 'flex';
-            };
-
-            if (topics.length === 0) {
-                _applyRefresh(topics);
-                return;
-            }
-            ysSendToBg({ action: 'get_tab_group_titles' }, {}, (res) => {
-                const groupTitles = res && res.titles ? new Set(res.titles) : null;
-                if (groupTitles) {
-                    topics = topics.filter((t) => groupTitles.has(t));
-                }
-                _applyRefresh(topics);
-            });
+            _buildTopicMap(storageRes && storageRes.aiSnapshotV1);
+            _syncCategoryBar(_collectTopics(), true);
         });
     };
 
