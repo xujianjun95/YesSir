@@ -44,8 +44,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         justifyContent: 'center',
         boxSizing:      'border-box',
         background:     'var(--ys-overlay-bg)',
-        backdropFilter: 'blur(10px)',
-        WebkitBackdropFilter: 'blur(10px)',
         opacity:        '0',
         transition:     'opacity 0.34s cubic-bezier(0.16,1,0.3,1)',
         pointerEvents:  'auto',
