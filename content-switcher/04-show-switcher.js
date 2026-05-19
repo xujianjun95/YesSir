@@ -1034,34 +1034,29 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
     function highlightPinnedTarget(slot) {
         if (!pinnedCol) return;
-        for (const el of pinnedCol.children) {
-            const matched = slot && parseInt(el.dataset.pinnedIdx, 10) === slot.idx;
-            const isEmpty = !el.dataset.pinnedData;
+        for (const wrapper of pinnedCol.children) {
+            const slotEl = wrapper.firstElementChild;
+            if (!slotEl) continue;
+            const matched = slot && parseInt(wrapper.dataset.pinnedIdx, 10) === slot.idx;
+            const isEmpty = !wrapper.dataset.pinnedData;
             if (isEmpty) {
-                // 空槽：只动 inner，外层 slot 永远静止
-                const innerEl = el.querySelector('.ys-slot-inner');
-                const iconEl  = el.children[1];  // [0]=inner, [1]=icon
+                // 空槽：在 slot 上叠加 hover 色，不会触发合成（slot 永不 transform）
+                const iconEl = slotEl.children[0];
                 if (matched) {
-                    if (innerEl) {
-                        innerEl.style.background = 'rgba(120,180,255,0.10)';
-                        innerEl.style.boxShadow  = 'inset 0 0 0 1px rgba(120,180,255,0.22), 0 8px 30px rgba(120,180,255,0.08)';
-                    }
+                    slotEl.style.background = 'rgba(120,180,255,0.16)';
+                    slotEl.style.boxShadow  = 'inset 0 0 0 1px rgba(120,180,255,0.30), 0 8px 30px rgba(120,180,255,0.08)';
                     if (iconEl) { iconEl.style.opacity = '0.85'; iconEl.style.transform = 'scale(1)'; }
                 } else {
-                    if (innerEl) {
-                        innerEl.style.background = '';
-                        innerEl.style.boxShadow  = '';
-                    }
-                    if (iconEl) { iconEl.style.opacity = '0.25'; iconEl.style.transform = 'scale(0.9)'; }
+                    slotEl.style.background = 'var(--ys-card-bg)';
+                    slotEl.style.boxShadow  = 'inset 0 0 0 1px rgba(255,255,255,0.14)';
+                    if (iconEl) { iconEl.style.opacity = '0.28'; iconEl.style.transform = 'scale(0.9)'; }
                 }
             } else {
-                // 填充槽：有 backdropFilter+clipPath+border，不能加 transform，否则同样触发 GPU artifact
+                // 填充槽：只动 box-shadow，背景保持 var(--ys-card-bg) 不变
                 if (matched) {
-                    el.style.background = 'rgba(120,180,255,0.10)';
-                    el.style.boxShadow  = 'inset 0 0 0 1px rgba(120,180,255,0.15), 0 8px 30px rgba(120,180,255,0.08)';
+                    slotEl.style.boxShadow = 'inset 0 0 0 2px rgba(120,180,255,0.55), 0 8px 30px rgba(120,180,255,0.12)';
                 } else {
-                    el.style.background = '';
-                    el.style.boxShadow  = '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)';
+                    slotEl.style.boxShadow = '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)';
                 }
             }
         }
@@ -1094,26 +1089,44 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     };
 
     function buildPinnedSlotEl(data, idx) {
+        // 外层 wrapper：只承载 transform / opacity 动画（staggerSlotsIn、磁吸归位等）
+        // 与 backdrop-filter 物理隔离，杜绝同一元素同时持有 transform + backdrop-filter
+        // 导致的 GPU 合成 artifact（红绿灯高度抖动、变白、黑边等）
+        const wrapper = document.createElement('div');
+        wrapper.dataset.pinnedIdx = String(idx);
+        if (data) wrapper.dataset.pinnedData = '1';
+        Object.assign(wrapper.style, {
+            width:       '225px',
+            height:      '170px',
+            flexShrink:  '0',
+            position:    'relative',
+            transformOrigin: 'center center',
+        });
+
         const slot = document.createElement('div');
         slot.dataset.pinnedIdx  = String(idx);
         if (data) slot.dataset.pinnedData = '1';
         slot.classList.add('ys-pinned-slot');
         Object.assign(slot.style, {
-            width:        '225px',
-            height:       '170px',
+            width:        '100%',
+            height:       '100%',
             borderRadius: '14px',
             boxSizing:    'border-box',
             overflow:     'hidden',
-            flexShrink:   '0',
             userSelect:   'none',
             position:     'relative',
             outline:      'none',
             WebkitTapHighlightColor: 'transparent',
-            transition:   'transform 0.2s cubic-bezier(0.22,1,0.36,1), box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.15s ease',
+            background:           'var(--ys-card-bg)',
+            backdropFilter:       'saturate(180%) blur(30px)',
+            WebkitBackdropFilter: 'saturate(180%) blur(30px)',
+            boxShadow:    data
+                ? '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)'
+                : 'inset 0 0 0 1px rgba(255,255,255,0.14)',
+            transition:   'background 0.2s ease, box-shadow 0.2s ease',
         });
 
         if (!data) {
-            // 外层 slot 永远静止：只负责 clip-path 裁切，不参与任何动画
             Object.assign(slot.style, {
                 display:        'flex',
                 flexDirection:  'column',
@@ -1122,42 +1135,27 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 gap:            '8px',
                 cursor:         'default',
             });
-            // inner 层负责所有视觉和动画，border 用 inset shadow 替代，避免 border+transform+clip-path 的 GPU artifact
-            const inner = document.createElement('div');
-            inner.className = 'ys-slot-inner';
-            inner.style.cssText = [
-                'position:absolute;inset:0;border-radius:14px;pointer-events:none;',
-                'background:rgba(255,255,255,0.04);',
-                'box-shadow:inset 0 0 0 1px rgba(120,180,255,0.18);',
-                'transition:background 0.2s ease,box-shadow 0.2s ease;',
-            ].join('');
             const icon = document.createElement('div');
             icon.textContent = '📌';
-            icon.style.cssText = 'position:relative;font-size:20px;opacity:0.25;line-height:1;flex-shrink:0;transform:scale(0.9);transition:opacity 0.2s ease,transform 0.2s cubic-bezier(0.22,1,0.36,1);';
+            icon.style.cssText = 'font-size:20px;opacity:0.28;line-height:1;flex-shrink:0;transform:scale(0.9);transition:opacity 0.2s ease,transform 0.2s cubic-bezier(0.22,1,0.36,1);';
             const hint = document.createElement('div');
             hint.textContent = ysT('pinnedSlotHint') || 'Drop to Pin';
             Object.assign(hint.style, {
-                position:   'relative',
                 fontSize:   '10px',
                 color:      'var(--ys-text-secondary)',
-                opacity:    '0.5',
+                opacity:    '0.85',
                 textAlign:  'center',
                 lineHeight: '1.5',
                 padding:    '0 16px',
             });
-            slot.appendChild(inner);
             slot.appendChild(icon);
             slot.appendChild(hint);
         } else {
             Object.assign(slot.style, {
-                background:           'var(--ys-card-bg)',
-                backdropFilter:       'saturate(180%) blur(30px)',
-                WebkitBackdropFilter: 'saturate(180%) blur(30px)',
-                border:               '1px solid rgba(255,255,255,0.18)',
-                boxShadow:            '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)',
-                display:              'flex',
-                flexDirection:        'column',
-                cursor:               'pointer',
+                display:        'flex',
+                flexDirection:  'column',
+                cursor:         'pointer',
+                border:         '1px solid rgba(255,255,255,0.18)',
             });
 
             // ── 顶栏：仿浏览器 ──
@@ -1339,7 +1337,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                         floatEl.style.transform = 'rotate(-1.5deg) scale(1.04)';
                         document.body.appendChild(floatEl);
                         requestAnimationFrame(() => { if (floatEl) floatEl.style.opacity = '1'; });
-                        slot.style.opacity   = '0.4';
+                        wrapper.style.opacity = '0.4';
                     }
                     floatEl.style.left = `${me.clientX - 90}px`;
                     floatEl.style.top  = `${me.clientY - 30}px`;
@@ -1349,10 +1347,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 const onSlotUp = (ue) => {
                     document.removeEventListener('mousemove', onSlotMove);
                     document.removeEventListener('mouseup',   onSlotUp);
-                    slot.style.opacity   = '';
                     highlightPinnedTarget(null);
 
                     if (!isDragging) {
+                        wrapper.style.opacity = '';
                         if (floatEl) { floatEl.remove(); floatEl = null; }
                         if (data.tabId) {
                             hideSwitcher();
@@ -1363,19 +1361,50 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
                     const targetInfo = getPinnedSlotAt(ue.clientX, ue.clientY);
                     if (targetInfo && targetInfo.idx !== idx) {
-                        // 换位：缩略图普通淡出
+                        // ── 互换槽磁吸归位 ──
+                        // 源槽保持 dim 直到 swap 完成（避免出现"两份内容"的视觉重复）
+                        // floatEl 飞向目标 → render swap → 两侧 wrapper 同时 pop-in
+                        const sourceIdx     = idx;
+                        const swapTargetIdx = targetInfo.idx;
+                        const targetWrapper = targetInfo.el;
+                        const slotRect      = targetWrapper.getBoundingClientRect();
+
                         if (floatEl) {
-                            floatEl.style.opacity = '0';
-                            const _f = floatEl; floatEl = null;
-                            setTimeout(() => _f.remove(), 150);
+                            const thumbLeft = parseFloat(floatEl.style.left) || 0;
+                            const thumbTop  = parseFloat(floatEl.style.top)  || 0;
+                            const dx = (slotRect.left + slotRect.width  / 2) - (thumbLeft + 90);
+                            const dy = (slotRect.top  + slotRect.height / 2) - (thumbTop  + 50);
+                            floatEl.style.transition = 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 100ms cubic-bezier(0.4, 0, 1, 1) 180ms';
+                            floatEl.style.transform  = `translate(${dx}px, ${dy}px) scale(0.94)`;
+                            floatEl.style.opacity    = '0';
                         }
-                        const targetData = pinnedSlots[targetInfo.idx] || null;
-                        pinnedSlots[idx] = targetData;
-                        pinnedSlots[targetInfo.idx] = data;
-                        renderPinnedCol();
-                        chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
+                        const _f = floatEl; floatEl = null;
+
+                        setTimeout(() => {
+                            if (_f && _f.parentNode) _f.remove();
+
+                            const targetData = pinnedSlots[swapTargetIdx] || null;
+                            pinnedSlots[sourceIdx]     = targetData;
+                            pinnedSlots[swapTargetIdx] = data;
+                            renderPinnedCol();
+                            chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
+
+                            // 只让目标槽 pop-in：源槽只是被动接收对方内容，不该弹
+                            requestAnimationFrame(() => {
+                                const w = pinnedCol.children[swapTargetIdx];
+                                if (!w) return;
+                                w.style.transition = 'none';
+                                w.style.transform  = 'scale(0.92)';
+                                w.style.opacity    = '0.6';
+                                w.getBoundingClientRect();
+                                w.style.transition = 'transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease';
+                                w.style.transform  = 'scale(1)';
+                                w.style.opacity    = '1';
+                            });
+                        }, 280);
                     } else if (!targetInfo) {
                         // 拖出删除：垃圾桶动画——缩小旋转后消失
+                        wrapper.style.opacity = '';
                         if (floatEl) {
                             floatEl.style.transition = 'transform 0.3s cubic-bezier(0.55, 0, 1, 1), opacity 0.22s ease 0.08s';
                             floatEl.style.transform  = 'translate(0, 28px) scale(0.05) rotate(8deg)';
@@ -1387,6 +1416,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                         if (!pinnedSlots.some(s => s) && !isDragShowingPinnedCol) hidePinnedCol();
                     } else {
                         // 放回原位：普通淡出
+                        wrapper.style.opacity = '';
                         if (floatEl) {
                             floatEl.style.opacity = '0';
                             const _f = floatEl; floatEl = null;
@@ -1400,7 +1430,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             });
         }
 
-        return slot;
+        wrapper.appendChild(slot);
+        return wrapper;
     }
 
     function createDragThumbnail(tab) {
@@ -1674,16 +1705,22 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         } else {
             const targetPinnedSlot = !_upInCard ? getPinnedSlotAt(e.clientX, e.clientY) : null;
             if (targetPinnedSlot) {
-                // 飞入置顶槽动画
-                const slotRect  = targetPinnedSlot.el.getBoundingClientRect();
+                // ── 磁吸归位动画（参考 macOS Dock）──
+                // 1. floatEl 沿 apple-ease 飞向目标槽中心，末段轻微缩小并淡出
+                // 2. floatEl 消失时 setPinnedSlot 触发渲染，新 wrapper 立即 pop-in 弹出
+                // 3. wrapper 入场用 spring 曲线，制造"被接住后弹起"的归位感
+                const targetWrapper = targetPinnedSlot.el;
+                const targetIdx     = targetPinnedSlot.idx;
+                const slotRect  = targetWrapper.getBoundingClientRect();
                 const thumbLeft = parseFloat(floatEl.style.left) || 0;
                 const thumbTop  = parseFloat(floatEl.style.top)  || 0;
                 const dx = (slotRect.left + slotRect.width  / 2) - (thumbLeft + 90);
                 const dy = (slotRect.top  + slotRect.height / 2) - (thumbTop  + 50);
-                floatEl.style.transition = 'transform 0.26s cubic-bezier(0.4, 0, 1, 1), opacity 0.16s ease 0.1s';
-                floatEl.style.transform  = `translate(${dx}px, ${dy}px) scale(0.1)`;
+
+                // floatEl 飞入：280ms apple-ease，末段缩小+淡出（前 180ms 保持 opacity:1 才有"实体感"）
+                floatEl.style.transition = 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 100ms cubic-bezier(0.4, 0, 1, 1) 180ms';
+                floatEl.style.transform  = `translate(${dx}px, ${dy}px) scale(0.94)`;
                 floatEl.style.opacity    = '0';
-                setTimeout(() => floatEl.remove(), 300);
 
                 originEl.style.pointerEvents = '';
                 highlightPinnedTarget(null);
@@ -1701,8 +1738,27 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     pageLabel: tabPageLabelMap[parseInt(tabId, 10)] ?? tabPageLabelMap[String(tabId)] ?? null,
                 };
                 isDragShowingPinnedCol = false;
-                setPinnedSlot(targetPinnedSlot.idx, pinnedData);
-                renderCategoryPills();
+
+                // 与 floatEl 消失同步：渲染新 wrapper 并立刻 spring pop-in
+                const _floatRef = floatEl;
+                setTimeout(() => {
+                    if (_floatRef && _floatRef.parentNode) _floatRef.remove();
+                    setPinnedSlot(targetIdx, pinnedData);
+                    renderCategoryPills();
+
+                    // 抓到新 wrapper（同一 idx），spring pop-in：scale(0.92) → 1
+                    requestAnimationFrame(() => {
+                        const newWrapper = pinnedCol.children[targetIdx];
+                        if (!newWrapper) return;
+                        newWrapper.style.transition = 'none';
+                        newWrapper.style.transform  = 'scale(0.92)';
+                        newWrapper.style.opacity    = '0.6';
+                        newWrapper.getBoundingClientRect();
+                        newWrapper.style.transition = 'transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease';
+                        newWrapper.style.transform  = 'scale(1)';
+                        newWrapper.style.opacity    = '1';
+                    });
+                }, 280);
                 // 落入置顶槽后保持显示，让用户看到结果
             } else {
                 // 取消：缩略图淡出，恢复行
