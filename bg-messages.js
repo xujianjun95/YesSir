@@ -259,6 +259,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return true;
     }
 
+    // ── 获取所有 Chrome 标签组标题（用于校验 pill 同步） ──
+    else if (request.action === 'get_tab_group_titles') {
+        (async () => {
+            try {
+                const windows = await chrome.windows.getAll();
+                const titles = new Set();
+                for (const w of windows) {
+                    const groups = await chrome.tabGroups.query({ windowId: w.id });
+                    for (const g of groups) {
+                        if (g.title) titles.add(g.title);
+                    }
+                }
+                sendResponse({ titles: [...titles] });
+            } catch {
+                sendResponse({ titles: [] });
+            }
+        })();
+        return true;
+    }
+
     // ── 读取 AI 快照缓存（仅返回已命中结果，不阻塞） ──
     else if (request.action === 'get_ai_snapshot') {
         const tabList = Array.isArray(request.tabs) ? request.tabs : [];

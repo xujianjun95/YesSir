@@ -943,19 +943,28 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             }
         }
         const seen = new Set();
-        const topics = [];
+        let topics = [];
         tabs.forEach((t) => {
             const topic = switcherAiTopicMap[String(t.id)];
             if (topic && !seen.has(topic)) { seen.add(topic); topics.push(topic); }
         });
         if (topics.length === 0) return;
-        catBarTopics = topics;
-        catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
-        categoryBar.style.display = 'flex';
-        renderCategoryPills();
-        if (switcherActiveCategory !== null) {
-            renderList('', { restoreScroll: false, preferActive: true, animate: false });
-        }
+
+        // 以浏览器实际标签组为准，过滤掉不存在的分类
+        ysSendToBg({ action: 'get_tab_group_titles' }, {}, (res) => {
+            const groupTitles = res && res.titles ? new Set(res.titles) : null;
+            if (groupTitles) {
+                topics = topics.filter((t) => groupTitles.has(t));
+            }
+            if (topics.length === 0) return;
+            catBarTopics = topics;
+            catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
+            categoryBar.style.display = 'flex';
+            renderCategoryPills();
+            if (switcherActiveCategory !== null) {
+                renderList('', { restoreScroll: false, preferActive: true, animate: false });
+            }
+        });
     });
 
     // 供 background 推送 refresh_category_bar 消息时实时重建 pills
@@ -973,32 +982,47 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 }
             }
             const seen = new Set();
-            const topics = [];
+            let topics = [];
             tabs.forEach((t) => {
                 const topic = switcherAiTopicMap[String(t.id)];
                 if (topic && !seen.has(topic)) { seen.add(topic); topics.push(topic); }
             });
-            if (topics.length === 0) {
-                categoryBar.style.display = 'none';
-                if (switcherActiveCategory !== null) {
-                    switcherActiveCategory = null;
-                    renderList('', { restoreScroll: false, preferActive: true, animate: true });
+
+            // 以浏览器实际标签组为准，过滤掉不存在的分类
+            const _applyRefresh = (filteredTopics) => {
+                if (filteredTopics.length === 0) {
+                    categoryBar.style.display = 'none';
+                    if (switcherActiveCategory !== null) {
+                        switcherActiveCategory = null;
+                        renderList('', { restoreScroll: false, preferActive: true, animate: true });
+                    }
+                    return;
                 }
+                catBarTopics = filteredTopics;
+                catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
+                if (switcherActiveCategory !== null
+                    && switcherActiveCategory !== '其他'
+                    && !filteredTopics.includes(switcherActiveCategory)) {
+                    switcherActiveCategory = null;
+                    renderCategoryPills();
+                    renderList('', { restoreScroll: false, preferActive: true, animate: true });
+                } else {
+                    renderCategoryPills();
+                }
+                categoryBar.style.display = 'flex';
+            };
+
+            if (topics.length === 0) {
+                _applyRefresh(topics);
                 return;
             }
-            catBarTopics = topics;
-            catBarHasOther = tabs.some((t) => !switcherAiTopicMap[String(t.id)]);
-            // 当前选中的分类已被删除，重置到「全部」
-            if (switcherActiveCategory !== null
-                && switcherActiveCategory !== '其他'
-                && !topics.includes(switcherActiveCategory)) {
-                switcherActiveCategory = null;
-                renderCategoryPills();
-                renderList('', { restoreScroll: false, preferActive: true, animate: true });
-            } else {
-                renderCategoryPills();
-            }
-            categoryBar.style.display = 'flex';
+            ysSendToBg({ action: 'get_tab_group_titles' }, {}, (res) => {
+                const groupTitles = res && res.titles ? new Set(res.titles) : null;
+                if (groupTitles) {
+                    topics = topics.filter((t) => groupTitles.has(t));
+                }
+                _applyRefresh(topics);
+            });
         });
     };
 
