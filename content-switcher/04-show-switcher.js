@@ -1049,12 +1049,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     if (iconEl) iconEl.style.opacity = '0.28';
                 }
             } else {
-                // 填充槽：只动 box-shadow，背景保持 var(--ys-card-bg) 不变
-                if (matched) {
-                    slotEl.style.boxShadow = 'inset 0 0 0 2px rgba(120,180,255,0.55), 0 8px 30px rgba(120,180,255,0.12)';
-                } else {
-                    slotEl.style.boxShadow = '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)';
-                }
+                // 填充槽：描边层在 wrapper 内、slot 同级；切换 borderColor 即贴边描边
+                const outlineEl = wrapper.querySelector('.ys-slot-outline');
+                if (outlineEl) outlineEl.style.borderColor = matched ? 'rgba(120,180,255,0.55)' : 'transparent';
+                slotEl.style.boxShadow = '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)';
             }
         }
     }
@@ -1376,11 +1374,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                         }
                         const _f = floatEl; floatEl = null;
 
-                        // 目标槽微光响应：shadow 亮一下再恢复
-                        const targetSlotEl = targetWrapper.firstElementChild;
-                        if (targetSlotEl) {
-                            targetSlotEl.style.boxShadow = 'inset 0 0 0 2px rgba(120,180,255,0.40), 0 8px 30px rgba(120,180,255,0.10)';
-                            setTimeout(() => { targetSlotEl.style.boxShadow = ''; }, 260);
+                        // 目标槽微光响应：描边层贴边亮一下再恢复
+                        const targetOutlineEl = targetWrapper.querySelector('.ys-slot-outline');
+                        if (targetOutlineEl) {
+                            targetOutlineEl.style.borderColor = 'rgba(120,180,255,0.55)';
+                            setTimeout(() => { targetOutlineEl.style.borderColor = 'transparent'; }, 260);
                         }
 
                         setTimeout(() => {
@@ -1446,6 +1444,23 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         }
 
         wrapper.appendChild(slot);
+
+        // 贴边描边层：放在 wrapper 内、slot 同级。inset:0 对齐 wrapper（= slot 外缘），
+        // 完整覆盖 slot 自己的 1px 半透明 border，2px 蓝色描边能严丝合缝沿圆角贴边。
+        const outlineLayer = document.createElement('div');
+        outlineLayer.className = 'ys-slot-outline';
+        Object.assign(outlineLayer.style, {
+            position:      'absolute',
+            inset:         '0',
+            borderRadius:  '14px',
+            border:        '2px solid transparent',
+            pointerEvents: 'none',
+            boxSizing:     'border-box',
+            zIndex:        '10',
+            transition:    'border-color 0.22s cubic-bezier(0.16,1,0.3,1)',
+        });
+        wrapper.appendChild(outlineLayer);
+
         return wrapper;
     }
 
