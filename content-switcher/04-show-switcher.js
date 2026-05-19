@@ -1063,6 +1063,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         pinnedSlots[idx] = data;
         renderPinnedCol();
         chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
+        ysSendToBg({ action: 'track_event', feature: data ? 'pin_to_dock' : 'unpin_from_dock' }, { maxRetries: 1 }, () => {});
     }
 
     function renderPinnedCol() {
