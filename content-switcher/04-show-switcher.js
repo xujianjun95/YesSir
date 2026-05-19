@@ -1385,12 +1385,37 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                         setTimeout(() => {
                             if (_f && _f.parentNode) _f.remove();
 
+                            // ── FLIP Step 1: 记录旧位置 ──
+                            wrapper.style.opacity = '';
+                            const oldRects = [];
+                            for (let i = 0; i < pinnedCol.children.length; i++) {
+                                oldRects.push(pinnedCol.children[i].getBoundingClientRect());
+                            }
+
+                            // ── 执行 swap + 重建 DOM ──
                             const targetData = pinnedSlots[swapTargetIdx] || null;
                             pinnedSlots[sourceIdx]     = targetData;
                             pinnedSlots[swapTargetIdx] = data;
                             renderPinnedCol();
                             chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
-                        }, 260);
+
+                            // ── FLIP Step 2+3: Invert → Play ──
+                            const newWrappers = pinnedCol.children;
+                            for (let i = 0; i < newWrappers.length; i++) {
+                                const w = newWrappers[i];
+                                const newRect = w.getBoundingClientRect();
+                                const dx = oldRects[i].left - newRect.left;
+                                const dy = oldRects[i].top  - newRect.top;
+                                if (dx === 0 && dy === 0) continue;
+                                w.style.transition = 'none';
+                                w.style.transform  = `translate(${dx}px, ${dy}px) scale(0.98)`;
+                                w.getBoundingClientRect();
+                                requestAnimationFrame(() => {
+                                    w.style.transition = 'transform 300ms cubic-bezier(0.16,1,0.3,1)';
+                                    w.style.transform  = '';
+                                });
+                            }
+                        }, 380);
                     } else if (!targetInfo) {
                         // 拖出删除：垃圾桶动画——缩小旋转后消失
                         wrapper.style.opacity = '';
