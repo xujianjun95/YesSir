@@ -47,7 +47,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         backdropFilter: 'blur(10px)',
         WebkitBackdropFilter: 'blur(10px)',
         opacity:        '0',
-        transition:     'opacity 0.15s ease',
+        transition:     'opacity 0.34s cubic-bezier(0.16,1,0.3,1)',
         pointerEvents:  'auto',
         fontFamily:     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
         gap:            '28px',
@@ -80,8 +80,10 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         display:        'flex',
         flexDirection:  'column',
         overflow:       'hidden',
-        transform:      'scale(0.93) translateY(6px)',
-        transition:     'transform 0.18s cubic-bezier(0.34,1.3,0.64,1), background 0.3s ease, box-shadow 0.3s ease',
+        opacity:        '0',
+        transform:      'translateY(10px)',
+        filter:         'blur(8px)',
+        transition:     'transform 0.26s cubic-bezier(0.16,1,0.3,1), opacity 0.34s cubic-bezier(0.16,1,0.3,1), filter 0.38s cubic-bezier(0.16,1,0.3,1), background 0.3s ease, box-shadow 0.3s ease',
     });
 
     const header = document.createElement('div');
@@ -105,7 +107,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         position:relative; width:100%; border-radius:10px;
         border:1px solid var(--ys-search-border); background:var(--ys-search-bg);
         box-shadow:var(--ys-search-shadow);
-        transition:all 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+        transition:border-color 0.22s ease, box-shadow 0.22s ease;
         box-sizing:border-box; overflow:hidden;
       ">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);z-index:2;">
@@ -895,7 +897,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 border:       `1px solid ${isActive ? 'var(--ys-accent-hover)' : 'var(--ys-card-border)'}`,
                 background:   isActive ? 'var(--ys-accent-bg)' : 'var(--ys-search-bg)',
                 color:        isActive ? 'var(--ys-accent)' : 'var(--ys-text-secondary)',
-                transition:   'all 0.15s ease',
+                transition:   'all 0.22s cubic-bezier(0.16,1,0.3,1)',
                 outline:      'none',
                 whiteSpace:   'nowrap',
                 lineHeight:   '1.6',
@@ -1045,11 +1047,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 if (matched) {
                     slotEl.style.background = 'rgba(120,180,255,0.16)';
                     slotEl.style.boxShadow  = 'inset 0 0 0 1px rgba(120,180,255,0.30), 0 8px 30px rgba(120,180,255,0.08)';
-                    if (iconEl) { iconEl.style.opacity = '0.85'; iconEl.style.transform = 'scale(1)'; }
+                    if (iconEl) iconEl.style.opacity = '0.85';
                 } else {
-                    slotEl.style.background = 'var(--ys-card-bg)';
-                    slotEl.style.boxShadow  = 'inset 0 0 0 1px rgba(255,255,255,0.14)';
-                    if (iconEl) { iconEl.style.opacity = '0.28'; iconEl.style.transform = 'scale(0.9)'; }
+                    slotEl.style.background = 'var(--ys-search-bg)';
+                    slotEl.style.boxShadow  = 'inset 0 0 0 1px rgba(255,255,255,0.16)';
+                    if (iconEl) iconEl.style.opacity = '0.28';
                 }
             } else {
                 // 填充槽：只动 box-shadow，背景保持 var(--ys-card-bg) 不变
@@ -1117,13 +1119,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             position:     'relative',
             outline:      'none',
             WebkitTapHighlightColor: 'transparent',
-            background:           'var(--ys-card-bg)',
-            backdropFilter:       'saturate(180%) blur(30px)',
-            WebkitBackdropFilter: 'saturate(180%) blur(30px)',
-            boxShadow:    data
-                ? '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)'
-                : 'inset 0 0 0 1px rgba(255,255,255,0.14)',
-            transition:   'background 0.2s ease, box-shadow 0.2s ease',
+            transition:   'background 0.22s cubic-bezier(0.16,1,0.3,1), box-shadow 0.22s cubic-bezier(0.16,1,0.3,1)',
         });
 
         if (!data) {
@@ -1134,10 +1130,12 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 justifyContent: 'center',
                 gap:            '8px',
                 cursor:         'default',
+                background:     'var(--ys-search-bg)',
+                boxShadow:      'inset 0 0 0 1px rgba(255,255,255,0.16)',
             });
             const icon = document.createElement('div');
             icon.textContent = '📌';
-            icon.style.cssText = 'font-size:20px;opacity:0.28;line-height:1;flex-shrink:0;transform:scale(0.9);transition:opacity 0.2s ease,transform 0.2s cubic-bezier(0.22,1,0.36,1);';
+            icon.style.cssText = 'font-size:20px;opacity:0.28;line-height:1;flex-shrink:0;transition:opacity 0.22s cubic-bezier(0.16,1,0.3,1);';
             const hint = document.createElement('div');
             hint.textContent = ysT('pinnedSlotHint') || 'Drop to Pin';
             Object.assign(hint.style, {
@@ -1152,10 +1150,14 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             slot.appendChild(hint);
         } else {
             Object.assign(slot.style, {
-                display:        'flex',
-                flexDirection:  'column',
-                cursor:         'pointer',
-                border:         '1px solid rgba(255,255,255,0.18)',
+                display:              'flex',
+                flexDirection:        'column',
+                cursor:               'pointer',
+                border:               '1px solid rgba(255,255,255,0.18)',
+                background:           'var(--ys-card-bg)',
+                backdropFilter:       'saturate(180%) blur(30px)',
+                WebkitBackdropFilter: 'saturate(180%) blur(30px)',
+                boxShadow:            '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)',
             });
 
             // ── 顶栏：仿浏览器 ──
@@ -1361,9 +1363,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
                     const targetInfo = getPinnedSlotAt(ue.clientX, ue.clientY);
                     if (targetInfo && targetInfo.idx !== idx) {
-                        // ── 互换槽磁吸归位 ──
-                        // 源槽保持 dim 直到 swap 完成（避免出现"两份内容"的视觉重复）
-                        // floatEl 飞向目标 → render swap → 两侧 wrapper 同时 pop-in
+                        // ── 互换：floatEl 飞入目标槽，槽位本身不动 ──
                         const sourceIdx     = idx;
                         const swapTargetIdx = targetInfo.idx;
                         const targetWrapper = targetInfo.el;
@@ -1374,11 +1374,18 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                             const thumbTop  = parseFloat(floatEl.style.top)  || 0;
                             const dx = (slotRect.left + slotRect.width  / 2) - (thumbLeft + 90);
                             const dy = (slotRect.top  + slotRect.height / 2) - (thumbTop  + 50);
-                            floatEl.style.transition = 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 100ms cubic-bezier(0.4, 0, 1, 1) 180ms';
+                            floatEl.style.transition = 'transform 360ms cubic-bezier(0.16,1,0.3,1), opacity 160ms cubic-bezier(0.4,0,1,1) 200ms';
                             floatEl.style.transform  = `translate(${dx}px, ${dy}px) scale(0.94)`;
                             floatEl.style.opacity    = '0';
                         }
                         const _f = floatEl; floatEl = null;
+
+                        // 目标槽微光响应：shadow 亮一下再恢复
+                        const targetSlotEl = targetWrapper.firstElementChild;
+                        if (targetSlotEl) {
+                            targetSlotEl.style.boxShadow = 'inset 0 0 0 2px rgba(120,180,255,0.40), 0 8px 30px rgba(120,180,255,0.10)';
+                            setTimeout(() => { targetSlotEl.style.boxShadow = ''; }, 260);
+                        }
 
                         setTimeout(() => {
                             if (_f && _f.parentNode) _f.remove();
@@ -1388,20 +1395,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                             pinnedSlots[swapTargetIdx] = data;
                             renderPinnedCol();
                             chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
-
-                            // 只让目标槽 pop-in：源槽只是被动接收对方内容，不该弹
-                            requestAnimationFrame(() => {
-                                const w = pinnedCol.children[swapTargetIdx];
-                                if (!w) return;
-                                w.style.transition = 'none';
-                                w.style.transform  = 'scale(0.92)';
-                                w.style.opacity    = '0.6';
-                                w.getBoundingClientRect();
-                                w.style.transition = 'transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease';
-                                w.style.transform  = 'scale(1)';
-                                w.style.opacity    = '1';
-                            });
-                        }, 280);
+                        }, 260);
                     } else if (!targetInfo) {
                         // 拖出删除：垃圾桶动画——缩小旋转后消失
                         wrapper.style.opacity = '';
@@ -1679,7 +1673,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             const dx = (pillRect.left + pillRect.width  / 2) - (thumbLeft + 90);
             const dy = (pillRect.top  + pillRect.height / 2) - (thumbTop  + 50);
 
-            floatEl.style.transition = 'transform 0.28s cubic-bezier(0.4, 0, 1, 1), opacity 0.18s ease 0.12s';
+            floatEl.style.transition = 'transform 360ms cubic-bezier(0.16,1,0.3,1), opacity 160ms cubic-bezier(0.4,0,1,1) 200ms';
             floatEl.style.transform  = `translate(${dx}px, ${dy}px) scale(0.05)`;
             floatEl.style.opacity    = '0';
             setTimeout(() => floatEl.remove(), 320);
@@ -1705,10 +1699,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         } else {
             const targetPinnedSlot = !_upInCard ? getPinnedSlotAt(e.clientX, e.clientY) : null;
             if (targetPinnedSlot) {
-                // ── 磁吸归位动画（参考 macOS Dock）──
-                // 1. floatEl 沿 apple-ease 飞向目标槽中心，末段轻微缩小并淡出
-                // 2. floatEl 消失时 setPinnedSlot 触发渲染，新 wrapper 立即 pop-in 弹出
-                // 3. wrapper 入场用 spring 曲线，制造"被接住后弹起"的归位感
+                // ── 磁吸归位：floatEl 飞入，槽位稳定不动 ──
                 const targetWrapper = targetPinnedSlot.el;
                 const targetIdx     = targetPinnedSlot.idx;
                 const slotRect  = targetWrapper.getBoundingClientRect();
@@ -1717,8 +1708,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 const dx = (slotRect.left + slotRect.width  / 2) - (thumbLeft + 90);
                 const dy = (slotRect.top  + slotRect.height / 2) - (thumbTop  + 50);
 
-                // floatEl 飞入：280ms apple-ease，末段缩小+淡出（前 180ms 保持 opacity:1 才有"实体感"）
-                floatEl.style.transition = 'transform 280ms cubic-bezier(0.22, 1, 0.36, 1), opacity 100ms cubic-bezier(0.4, 0, 1, 1) 180ms';
+                // floatEl 飞入：260ms apple-ease，末段缩小+淡出
+                floatEl.style.transition = 'transform 360ms cubic-bezier(0.16,1,0.3,1), opacity 160ms cubic-bezier(0.4,0,1,1) 200ms';
                 floatEl.style.transform  = `translate(${dx}px, ${dy}px) scale(0.94)`;
                 floatEl.style.opacity    = '0';
 
@@ -1739,26 +1730,35 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 };
                 isDragShowingPinnedCol = false;
 
-                // 与 floatEl 消失同步：渲染新 wrapper 并立刻 spring pop-in
+                // 目标槽微光响应
+                const targetSlotEl = targetWrapper.firstElementChild;
+                if (targetSlotEl) {
+                    targetSlotEl.style.boxShadow = 'inset 0 0 0 2px rgba(120,180,255,0.40), 0 8px 30px rgba(120,180,255,0.10)';
+                    setTimeout(() => { targetSlotEl.style.boxShadow = ''; }, 260);
+                }
+
+                // floatEl 消失后渲染 pinned card，新内容淡入
                 const _floatRef = floatEl;
                 setTimeout(() => {
                     if (_floatRef && _floatRef.parentNode) _floatRef.remove();
                     setPinnedSlot(targetIdx, pinnedData);
                     renderCategoryPills();
 
-                    // 抓到新 wrapper（同一 idx），spring pop-in：scale(0.92) → 1
+                    // 新 pinned card 淡入：opacity 0→1, translateY 4px→0
                     requestAnimationFrame(() => {
                         const newWrapper = pinnedCol.children[targetIdx];
                         if (!newWrapper) return;
-                        newWrapper.style.transition = 'none';
-                        newWrapper.style.transform  = 'scale(0.92)';
-                        newWrapper.style.opacity    = '0.6';
-                        newWrapper.getBoundingClientRect();
-                        newWrapper.style.transition = 'transform 360ms cubic-bezier(0.34, 1.56, 0.64, 1), opacity 200ms ease';
-                        newWrapper.style.transform  = 'scale(1)';
-                        newWrapper.style.opacity    = '1';
+                        const newSlot = newWrapper.firstElementChild;
+                        if (!newSlot) return;
+                        newSlot.style.transition = 'none';
+                        newSlot.style.opacity     = '0';
+                        newSlot.style.transform   = 'translateY(4px)';
+                        newSlot.getBoundingClientRect();
+                        newSlot.style.transition = `transform 220ms ${APPLE_EASE}, opacity 260ms ${APPLE_EASE}`;
+                        newSlot.style.opacity     = '1';
+                        newSlot.style.transform   = 'translateY(0)';
                     });
-                }, 280);
+                }, 260);
                 // 落入置顶槽后保持显示，让用户看到结果
             } else {
                 // 取消：缩略图淡出，恢复行
@@ -1904,16 +1904,17 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         pointerEvents:   'none',
     });
 
-    const APPLE_EASE      = 'cubic-bezier(0.22, 1, 0.36, 1)';
-    const SHOW_DURATION   = 420;
-    const HIDE_DURATION   = 320;
+    const APPLE_EASE      = 'cubic-bezier(0.16, 1, 0.3, 1)';
+    const SHOW_DURATION   = 320;
+    const HIDE_DURATION   = 260;
+    const DOCK_DELAY      = 40;  // dock 比主面板晚出现的毫秒数
     const DOCK_GAP            = 28;  // dock 到主面板的间距
     const DOCK_WIDTH          = 237; // dock 宽度（slot 225 + padding 12）
     const CARD_WIDTH_BASE     = 700; // 主面板默认宽度
     const CARD_WIDTH_EXPANDED = 740; // 主面板「让出空间」时的扩张宽度
     // 主面板让出 (dock宽 + gap)/2，确保 pair 整体在 viewport 居中
     const CARD_SHIFT          = (DOCK_WIDTH + DOCK_GAP) / 2;
-    const DOCK_SLIDE          = 16;  // dock 入场时从外侧滑入的距离
+    const DOCK_SLIDE          = 8;   // dock 入场时从外侧滑入的距离
     const EDGE_SENSE_DIST     = 80;  // 光标到主面板边距 < 此值时，触发「感知」发光
     const BASE_SHADOW         = 'var(--ys-card-shadow)';
     let   _currentGlowSide    = null;
@@ -1946,14 +1947,16 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     function staggerSlotsIn() {
         const slots = Array.from(pinnedCol.children);
         slots.forEach((slot, i) => {
-            const delay = i * 70;
+            const delay = 30 + i * 20;
             slot.style.transition = 'none';
             slot.style.opacity    = '0';
-            slot.style.transform  = 'translateY(10px)';
+            slot.style.transform  = 'translateY(6px)';
+            slot.style.filter     = 'blur(4px)';
             slot.getBoundingClientRect();
-            slot.style.transition = `opacity 360ms ${APPLE_EASE} ${delay}ms, transform 460ms ${APPLE_EASE} ${delay}ms`;
+            slot.style.transition = `transform 220ms ${APPLE_EASE} ${delay}ms, opacity 280ms ${APPLE_EASE} ${delay}ms, filter 320ms ${APPLE_EASE} ${delay}ms`;
             slot.style.opacity    = '1';
             slot.style.transform  = 'translateY(0)';
+            slot.style.filter     = 'blur(0)';
         });
     }
 
@@ -1968,10 +1971,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         // 主面板：朝远离 dock 的方向轻移 + 扩张宽度（让出空间，而不是被推开）
         const cardX = side === 'left' ? CARD_SHIFT : -CARD_SHIFT;
         if (animate) {
-            card.style.transition = `transform ${SHOW_DURATION}ms ${APPLE_EASE}, width ${SHOW_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
+            card.style.transition = `transform 260ms ${APPLE_EASE}, opacity 340ms ${APPLE_EASE}, filter 380ms ${APPLE_EASE}, width ${SHOW_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
         }
-        // 非动画路径不动主面板的现有 transition（保留入场弹跳）
-        card.style.transform = `scale(1) translate(${cardX}px, 0)`;
+        card.style.opacity   = '1';
+        card.style.transform = `translate(${cardX}px, 0)`;
+        card.style.filter    = 'blur(0)';
         card.style.width     = CARD_WIDTH_EXPANDED + 'px';
 
         if (!animate) {
@@ -1980,27 +1984,29 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             pinnedCol.style.transition    = 'none';
             pinnedCol.style.opacity       = '1';
             pinnedCol.style.filter        = 'blur(0)';
-            pinnedCol.style.transform     = 'translateY(-50%) translate(0, 0) scale(1)';
+            pinnedCol.style.transform     = 'translateY(-50%) translate(0, 0)';
             pinnedCol.style.pointerEvents = 'auto';
             return;
         }
 
-        // dock 入场起点：blur + 从外侧微滑入
+        // dock 入场：opacity + translateX + blur，比主面板晚 DOCK_DELAY
         if (wasHidden || sideChanged) {
             const slideFrom = side === 'left' ? -DOCK_SLIDE : DOCK_SLIDE;
             pinnedCol.style.display    = 'flex';
             pinnedCol.style.transition = 'none';
             pinnedCol.style.opacity    = '0';
-            pinnedCol.style.filter     = 'blur(12px)';
-            pinnedCol.style.transform  = `translateY(-50%) translate(${slideFrom}px, 0) scale(0.96)`;
-            pinnedCol.getBoundingClientRect(); // 强制 reflow，锁定起点
+            pinnedCol.style.filter     = 'blur(6px)';
+            pinnedCol.style.transform  = `translateY(-50%) translate(${slideFrom}px, 0)`;
+            pinnedCol.getBoundingClientRect();
         }
 
-        pinnedCol.style.transition    = `opacity ${SHOW_DURATION}ms ${APPLE_EASE}, filter ${SHOW_DURATION}ms ${APPLE_EASE}, transform ${SHOW_DURATION}ms ${APPLE_EASE}`;
-        pinnedCol.style.opacity       = '1';
-        pinnedCol.style.filter        = 'blur(0)';
-        pinnedCol.style.transform     = 'translateY(-50%) translate(0, 0) scale(1)';
-        pinnedCol.style.pointerEvents = 'auto';
+        setTimeout(() => {
+            pinnedCol.style.transition    = `transform 260ms ${APPLE_EASE}, opacity 340ms ${APPLE_EASE}, filter 380ms ${APPLE_EASE}`;
+            pinnedCol.style.opacity       = '1';
+            pinnedCol.style.filter        = 'blur(0)';
+            pinnedCol.style.transform     = 'translateY(-50%) translate(0, 0)';
+            pinnedCol.style.pointerEvents = 'auto';
+        }, wasHidden || sideChanged ? DOCK_DELAY : 0);
 
         if (wasHidden || sideChanged) staggerSlotsIn();
     }
@@ -2008,18 +2014,19 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     function hidePinnedCol() {
         if (_pinnedHideTimer) { clearTimeout(_pinnedHideTimer); _pinnedHideTimer = null; }
 
-        // 主面板：回到中央 + 收回宽度
-        card.style.transition = `transform ${HIDE_DURATION}ms ${APPLE_EASE}, width ${HIDE_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
-        card.style.transform  = 'scale(1) translate(0, 0)';
-        card.style.width      = CARD_WIDTH_BASE + 'px';
-
-        // dock：朝外侧微滑 + 解析回 blur + 淡出
+        // dock 和主面板一起退场（分速：transform 最快，opacity 中间，blur 最慢）
         const slideTo = pinnedSide === 'left' ? -DOCK_SLIDE : DOCK_SLIDE;
-        pinnedCol.style.transition    = `opacity ${HIDE_DURATION}ms ${APPLE_EASE}, filter ${HIDE_DURATION}ms ${APPLE_EASE}, transform ${HIDE_DURATION}ms ${APPLE_EASE}`;
+        pinnedCol.style.transition    = `transform 220ms ${APPLE_EASE}, opacity 280ms ${APPLE_EASE}, filter 320ms ${APPLE_EASE}`;
         pinnedCol.style.opacity       = '0';
-        pinnedCol.style.filter        = 'blur(12px)';
-        pinnedCol.style.transform     = `translateY(-50%) translate(${slideTo}px, 0) scale(0.96)`;
+        pinnedCol.style.filter        = 'blur(6px)';
+        pinnedCol.style.transform     = `translateY(-50%) translate(${slideTo}px, 0)`;
         pinnedCol.style.pointerEvents = 'none';
+
+        card.style.transition = `transform 220ms ${APPLE_EASE}, opacity 280ms ${APPLE_EASE}, filter 320ms ${APPLE_EASE}, width ${HIDE_DURATION}ms ${APPLE_EASE}, background 0.3s ease, box-shadow 0.3s ease`;
+        card.style.opacity   = '1';
+        card.style.transform = 'translate(0, 0)';
+        card.style.filter    = 'blur(0)';
+        card.style.width     = CARD_WIDTH_BASE + 'px';
 
         _pinnedHideTimer = setTimeout(() => {
             pinnedCol.style.display = 'none';
@@ -2383,20 +2390,25 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         scrollTop: savedScrollTop,
     });
 
+    // 双 rAF：第一帧让浏览器绘制初始态（opacity:0, blur, translateY），
+    // 第二帧才触发 transition，保证动画一定生效
     requestAnimationFrame(() => {
-        overlay.style.opacity = '1';
-        // 若置顶 dock 已在显示，入场动画需保留主面板的横向位移 + 扩张宽度，否则会和 dock 重叠
-        const hasDockData = pinnedSlots.some(s => s);
-        const initialShiftX = hasDockData
-            ? (pinnedSide === 'left' ? CARD_SHIFT : -CARD_SHIFT)
-            : 0;
-        card.style.transform = `scale(1) translate(${initialShiftX}px, 0)`;
-        if (hasDockData) card.style.width = CARD_WIDTH_EXPANDED + 'px';
-        lockedCardMinHeight = card.offsetHeight + 'px';
-        card.style.minHeight = lockedCardMinHeight;
-        setTimeout(() => {
-            if (searchInput) searchInput.focus();
-        }, 50);
+        requestAnimationFrame(() => {
+            overlay.style.opacity = '1';
+            const hasDockData = pinnedSlots.some(s => s);
+            const initialShiftX = hasDockData
+                ? (pinnedSide === 'left' ? CARD_SHIFT : -CARD_SHIFT)
+                : 0;
+            card.style.opacity   = '1';
+            card.style.transform = `translate(${initialShiftX}px, 0)`;
+            card.style.filter    = 'blur(0)';
+            if (hasDockData) card.style.width = CARD_WIDTH_EXPANDED + 'px';
+            lockedCardMinHeight = card.offsetHeight + 'px';
+            card.style.minHeight = lockedCardMinHeight;
+            setTimeout(() => {
+                if (searchInput) searchInput.focus();
+            }, 50);
+        });
     });
 
     const tabsForAi = tabs.map((t) => ({ id: t.id, title: t.title || '', url: t.url || '' }));

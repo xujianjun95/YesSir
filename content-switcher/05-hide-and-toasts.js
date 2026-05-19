@@ -37,8 +37,12 @@ function hideSwitcher(opts) {
     }
 
     overlay.style.opacity = '0';
-    if (card) card.style.transform = 'scale(0.93) translateY(6px)';
-    setTimeout(() => overlay.remove(), 160);
+    if (card) {
+        card.style.opacity   = '0';
+        card.style.transform = 'translateY(6px)';
+        card.style.filter    = 'blur(8px)';
+    }
+    setTimeout(() => overlay.remove(), 300);
 }
 
 function initSwitcherHighlight() {
