@@ -732,6 +732,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     listContainer.id = 'ys-switcher-list';
     Object.assign(listContainer.style, {
         overflowY:  'auto',
+        overflowX:  'hidden',
         padding:    '0 20px',
         flexGrow:   '1',
         scrollbarWidth: 'none',
@@ -1035,8 +1036,34 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         if (!pinnedCol) return;
         for (const el of pinnedCol.children) {
             const matched = slot && parseInt(el.dataset.pinnedIdx, 10) === slot.idx;
-            el.style.outline       = matched ? '2px solid var(--ys-accent)' : '';
-            el.style.outlineOffset = matched ? '2px' : '';
+            const isEmpty = !el.dataset.pinnedData;
+            if (isEmpty) {
+                // 空槽：只动 inner，外层 slot 永远静止
+                const innerEl = el.querySelector('.ys-slot-inner');
+                const iconEl  = el.children[1];  // [0]=inner, [1]=icon
+                if (matched) {
+                    if (innerEl) {
+                        innerEl.style.background = 'rgba(120,180,255,0.10)';
+                        innerEl.style.boxShadow  = 'inset 0 0 0 1px rgba(120,180,255,0.22), 0 8px 30px rgba(120,180,255,0.08)';
+                    }
+                    if (iconEl) { iconEl.style.opacity = '0.85'; iconEl.style.transform = 'scale(1)'; }
+                } else {
+                    if (innerEl) {
+                        innerEl.style.background = '';
+                        innerEl.style.boxShadow  = '';
+                    }
+                    if (iconEl) { iconEl.style.opacity = '0.25'; iconEl.style.transform = 'scale(0.9)'; }
+                }
+            } else {
+                // 填充槽：有 backdropFilter+clipPath+border，不能加 transform，否则同样触发 GPU artifact
+                if (matched) {
+                    el.style.background = 'rgba(120,180,255,0.10)';
+                    el.style.boxShadow  = 'inset 0 0 0 1px rgba(120,180,255,0.15), 0 8px 30px rgba(120,180,255,0.08)';
+                } else {
+                    el.style.background = '';
+                    el.style.boxShadow  = '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)';
+                }
+            }
         }
     }
 
@@ -1070,6 +1097,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         const slot = document.createElement('div');
         slot.dataset.pinnedIdx  = String(idx);
         if (data) slot.dataset.pinnedData = '1';
+        slot.classList.add('ys-pinned-slot');
         Object.assign(slot.style, {
             width:        '225px',
             height:       '170px',
@@ -1079,49 +1107,53 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             flexShrink:   '0',
             userSelect:   'none',
             position:     'relative',
-            transition:   'transform 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease',
+            outline:      'none',
+            WebkitTapHighlightColor: 'transparent',
+            transition:   'transform 0.2s cubic-bezier(0.22,1,0.36,1), box-shadow 0.2s ease, background 0.2s ease, border-color 0.2s ease, opacity 0.15s ease',
         });
 
         if (!data) {
+            // 外层 slot 永远静止：只负责 clip-path 裁切，不参与任何动画
             Object.assign(slot.style, {
-                border:               '1.5px dashed var(--ys-divider)',
-                background:           'var(--ys-card-bg)',
-                backdropFilter:       'saturate(180%) blur(30px)',
-                WebkitBackdropFilter: 'saturate(180%) blur(30px)',
-                display:              'flex',
-                flexDirection:        'column',
-                alignItems:           'center',
-                justifyContent:       'center',
-                gap:                  '8px',
-                cursor:               'default',
+                display:        'flex',
+                flexDirection:  'column',
+                alignItems:     'center',
+                justifyContent: 'center',
+                gap:            '8px',
+                cursor:         'default',
             });
+            // inner 层负责所有视觉和动画，border 用 inset shadow 替代，避免 border+transform+clip-path 的 GPU artifact
+            const inner = document.createElement('div');
+            inner.className = 'ys-slot-inner';
+            inner.style.cssText = [
+                'position:absolute;inset:0;border-radius:14px;pointer-events:none;',
+                'background:rgba(255,255,255,0.04);',
+                'box-shadow:inset 0 0 0 1px rgba(120,180,255,0.18);',
+                'transition:background 0.2s ease,box-shadow 0.2s ease;',
+            ].join('');
             const icon = document.createElement('div');
             icon.textContent = '📌';
-            icon.style.cssText = 'font-size:20px;opacity:0.28;line-height:1;flex-shrink:0;';
+            icon.style.cssText = 'position:relative;font-size:20px;opacity:0.25;line-height:1;flex-shrink:0;transform:scale(0.9);transition:opacity 0.2s ease,transform 0.2s cubic-bezier(0.22,1,0.36,1);';
             const hint = document.createElement('div');
-            hint.textContent = ysT('pinnedSlotHint') || '拖入标签页可置顶显示';
+            hint.textContent = ysT('pinnedSlotHint') || 'Drop to Pin';
             Object.assign(hint.style, {
+                position:   'relative',
                 fontSize:   '10px',
                 color:      'var(--ys-text-secondary)',
-                opacity:    '0.85',
+                opacity:    '0.5',
                 textAlign:  'center',
                 lineHeight: '1.5',
                 padding:    '0 16px',
             });
+            slot.appendChild(inner);
             slot.appendChild(icon);
             slot.appendChild(hint);
-            slot.addEventListener('mouseenter', () => {
-                slot.style.borderColor = 'var(--ys-accent)';
-            });
-            slot.addEventListener('mouseleave', () => {
-                slot.style.borderColor = 'var(--ys-divider)';
-            });
         } else {
             Object.assign(slot.style, {
                 background:           'var(--ys-card-bg)',
                 backdropFilter:       'saturate(180%) blur(30px)',
                 WebkitBackdropFilter: 'saturate(180%) blur(30px)',
-                border:               '1px solid var(--ys-card-border)',
+                border:               '1px solid rgba(255,255,255,0.18)',
                 boxShadow:            '0 4px 20px rgba(0,0,0,0.16), 0 1px 5px rgba(0,0,0,0.08)',
                 display:              'flex',
                 flexDirection:        'column',
@@ -1308,7 +1340,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                         document.body.appendChild(floatEl);
                         requestAnimationFrame(() => { if (floatEl) floatEl.style.opacity = '1'; });
                         slot.style.opacity   = '0.4';
-                        slot.style.transform = 'scale(0.97)';
                     }
                     floatEl.style.left = `${me.clientX - 90}px`;
                     floatEl.style.top  = `${me.clientY - 30}px`;
@@ -1319,7 +1350,6 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     document.removeEventListener('mousemove', onSlotMove);
                     document.removeEventListener('mouseup',   onSlotUp);
                     slot.style.opacity   = '';
-                    slot.style.transform = '';
                     highlightPinnedTarget(null);
 
                     if (!isDragging) {
@@ -1863,11 +1893,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             const delay = i * 70;
             slot.style.transition = 'none';
             slot.style.opacity    = '0';
-            slot.style.transform  = 'translateY(8px) scale(0.96)';
+            slot.style.transform  = 'translateY(10px)';
             slot.getBoundingClientRect();
             slot.style.transition = `opacity 360ms ${APPLE_EASE} ${delay}ms, transform 460ms ${APPLE_EASE} ${delay}ms`;
             slot.style.opacity    = '1';
-            slot.style.transform  = 'translateY(0) scale(1)';
+            slot.style.transform  = 'translateY(0)';
         });
     }
 

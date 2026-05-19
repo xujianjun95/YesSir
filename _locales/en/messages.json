@@ -270,21 +270,21 @@
     "message": "🫡 YesSir — Quick Start"
   },
   "onboardingOpen": {
-    "message": "Double-tap $1 → open the tab manager panel"
+    "message": "Double-tap $1 → open the tab manager panel."
   },
   "onboardingClose": {
-    "message": "$1 + double-click blank area → close the current tab"
+    "message": "$1 + double-click blank area → close the current tab."
   },
   "onboardingDrag": {
     "message": "AI grouping → drag tabs to reclassify, YesSir remembers your preferences and gets smarter over time!"
   },
   "onboardingPin": {
-    "message": "Drag to pin → drag any tab in the panel to pin it, keep key tasks front and center"
+    "message": "Drag to pin → drag any tab in the panel to pin it, keep key tasks front and center~"
   },
   "onboardingHint": {
     "message": "Click × in the top-right to close this tip."
   },
   "pinnedSlotHint": {
-    "message": "Drop a tab to pin it here"
+    "message": "Drop to Pin"
   }
 }

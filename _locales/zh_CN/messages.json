@@ -270,21 +270,21 @@
     "message": "🫡 YesSir 使用指引"
   },
   "onboardingOpen": {
-    "message": "双击 $1 → 快速唤醒标签管理面板"
+    "message": "双击 $1 → 快速唤醒标签管理面板。"
   },
   "onboardingClose": {
-    "message": "$1 + 双击空白处 → 快捷关闭当前标签页"
+    "message": "$1 + 双击空白处 → 快捷关闭当前标签页。"
   },
   "onboardingDrag": {
     "message": "AI 智能分组 → 自由拖拽标签调整分类，YesSir 将自动记住您的使用偏好，越用越好用！"
   },
   "onboardingPin": {
-    "message": "拖拽置顶 → 在面板内轻松拖拽即可置顶，核心任务一目了然"
+    "message": "拖拽置顶 → 在面板内轻松拖拽即可置顶，核心任务一目了然～"
   },
   "onboardingHint": {
     "message": "点击右上角 × 可关闭此提示"
   },
   "pinnedSlotHint": {
-    "message": "拖入标签页可置顶显示"
+    "message": "拖入置顶"
   }
 }

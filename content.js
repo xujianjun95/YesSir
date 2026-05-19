@@ -124,6 +124,17 @@ function ensureYsThemeStylesInjected() {
             ${darkVars}
           }
         }
+
+        /* 置顶槽：彻底关掉浏览器/宿主页默认的 outline/focus ring/tap highlight，避免拖拽时出现黑边 */
+        .ys-pinned-slot,
+        .ys-pinned-slot:focus,
+        .ys-pinned-slot:focus-visible,
+        .ys-pinned-slot:focus-within,
+        .ys-pinned-slot:active,
+        .ys-pinned-slot * {
+          outline: none !important;
+          -webkit-tap-highlight-color: transparent !important;
+        }
         `;
     document.head.appendChild(style);
     ysEnsureSystemThemeMediaListener();
