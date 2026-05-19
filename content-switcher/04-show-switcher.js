@@ -1931,7 +1931,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         flexDirection:   'column',
         justifyContent:  'space-between',
         flexShrink:      '0',
-        padding:         '4px 6px',
+        padding:         '0 6px',
         boxSizing:       'border-box',
         opacity:         '0',
         filter:          'blur(12px)',
@@ -2075,10 +2075,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     // 立即渲染空槽，保证拖拽触发显示时已有内容（不依赖 storage 回调）
     renderPinnedCol();
 
-    // 列高度跟卡片高度同步
+    // 列高度跟卡片高度同步：3 个 170 槽的自然总高作为保底，避免 card 太矮时槽位被压扁
     const syncPinnedColHeight = () => {
         const h = card.offsetHeight;
-        if (h > 0) pinnedCol.style.height = h + 'px';
+        const minH = YS_PINNED_COUNT * 170;
+        if (h > 0) pinnedCol.style.height = Math.max(h, minH) + 'px';
     };
     const pinnedColRO = new ResizeObserver(syncPinnedColHeight);
     pinnedColRO.observe(card);
