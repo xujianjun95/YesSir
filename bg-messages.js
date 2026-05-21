@@ -112,7 +112,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
     // ── 统一记录函数：记录一次“使用” (关闭或切换) ──
     function recordUsage(callback) {
-        const today = new Date().toISOString().slice(0, 10);
+        // 与遥测埋点统一用本地日期（getLocalDateKey 见 bg-telemetry.js）。
+        // 旧实现用 UTC，东八区凌晨 0~8 点会和 ysDailyCounters 错位一天
+        const today = getLocalDateKey();
         chrome.storage.local.get({ closeCount: 0, dailyStats: {} }, function(result) {
             let newCount = result.closeCount + 1;
             let dailyStats = result.dailyStats;

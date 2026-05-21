@@ -81,14 +81,20 @@ async function sendTelemetry(eventType, extra = {}) {
             ...extra,
         };
         // 用 bg-ai-network.js 里的 fetchWithTimeout，避免上报服务慢/挂时把 SW 撑活
-        await fetchWithTimeout(TELEMETRY_ENDPOINT, {
+        const res = await fetchWithTimeout(TELEMETRY_ENDPOINT, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
         }, 6000);
+        // fetch 对 HTTP 错误状态码不会 reject，必须显式检查 res.ok：
+        // 服务端 5xx / nginx 502 也算上报失败，否则 flush 会误判成功而删掉本地数据
+        if (!res || !res.ok) {
+            console.log('[telemetry] send failed: HTTP', res && res.status);
+            return false;
+        }
         return true;
     } catch (error) {
-        // 遥测上报失败不影响主功能；仅打日志便于排查。返回 false 让调用方决定是否重试
+        // 网络层错误（超时 / 连接断）会走到这里；返回 false 让调用方决定是否重试
         console.log('[telemetry] send failed:', error && error.message ? error.message : error);
         return false;
     }

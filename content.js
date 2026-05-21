@@ -297,20 +297,26 @@ function ysRuntimeSendMessageRetry(payload, opts, cb) {
     const max = opts && opts.maxRetries != null ? opts.maxRetries : 4;
     let attempt = 0;
     function run() {
-        chrome.runtime.sendMessage(payload, (res) => {
-            const err = chrome.runtime.lastError;
-            if (err && attempt < max - 1) {
-                attempt++;
-                const delay = [50, 120, 280, 400][attempt - 1] || 500;
-                setTimeout(run, delay);
-                return;
-            }
-            if (err) {
-                if (cb) cb(null, err.message || 'Extension not responding');
-                return;
-            }
-            if (cb) cb(res, null);
-        });
+        try {
+            chrome.runtime.sendMessage(payload, (res) => {
+                const err = chrome.runtime.lastError;
+                if (err && attempt < max - 1) {
+                    attempt++;
+                    const delay = [50, 120, 280, 400][attempt - 1] || 500;
+                    setTimeout(run, delay);
+                    return;
+                }
+                if (err) {
+                    if (cb) cb(null, err.message || 'Extension not responding');
+                    return;
+                }
+                if (cb) cb(res, null);
+            });
+        } catch (_) {
+            // 扩展更新/禁用后旧 content script 仍存活，chrome.runtime 失效会
+            // 同步抛 'Extension context invalidated'；重试无意义，直接回调失败
+            if (cb) cb(null, 'invalidated');
+        }
     }
     run();
 }
@@ -322,13 +328,19 @@ window.__ysRuntimeSendMessageRetry = ysRuntimeSendMessageRetry;
         const now = Date.now();
         if (now - lastPing < 1800) return;
         lastPing = now;
-        chrome.runtime.sendMessage({ action: 'ping' }, () => {
-            void chrome.runtime.lastError;
-        });
+        try {
+            chrome.runtime.sendMessage({ action: 'ping' }, () => {
+                void chrome.runtime.lastError;
+            });
+        } catch (_) {
+            // 扩展上下文已失效：卸掉监听不再 ping，避免每次切回页面都抛错
+            document.removeEventListener('visibilitychange', onVisible);
+        }
     };
-    document.addEventListener('visibilitychange', () => {
+    const onVisible = () => {
         if (document.visibilityState === 'visible') ping();
-    });
+    };
+    document.addEventListener('visibilitychange', onVisible);
     window.addEventListener('pageshow', (e) => {
         if (e.persisted) ping();
     });
@@ -954,7 +966,10 @@ function initFloatingWidget() {
 document.addEventListener('dblclick', function(event) {
     if (isModHeld(event)) {
         event.preventDefault();
-        chrome.runtime.sendMessage({ action: "close_and_toast" });
+        // 扩展更新/禁用后旧 content script 仍存活，runtime 失效会同步抛错
+        try {
+            chrome.runtime.sendMessage({ action: "close_and_toast" });
+        } catch (_) { /* Extension context invalidated，忽略 */ }
         // 埋点：用户首次成功触发「修饰键 + 双击关闭」手势 → 只上报一次，用于算激活率
         ysRuntimeSendMessageRetry(
             { action: 'track_event', feature: 'first_close', kind: 'first_use' },
@@ -1092,6 +1107,14 @@ document.addEventListener('keydown', function(event) {
 
     // 修饰键 + E：捕获阶段优先拦截，避免被搜索框等吃掉（事件吞噬）
     if (isModHeld(event) && event.code === 'KeyE') {
+        // E 是非修饰键，无论是否拦截都先打断「双击修饰键」序列
+        lastModPressTime = 0;
+        // 焦点在输入框/富文本编辑器里时，把 Cmd/Ctrl+E 让给宿主页
+        //（Notion 行内代码、VSCode Web 等都用这个键），不拦截
+        if (event.target && event.target.closest &&
+            event.target.closest('input,textarea,[contenteditable],[role="textbox"]')) {
+            return;
+        }
         event.preventDefault();
         event.stopPropagation();
         if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
@@ -1156,6 +1179,10 @@ document.addEventListener('keydown', function(event) {
         } else {
             lastModPressTime = now;
         }
+    } else if (event.key && !['Meta', 'Control', 'Alt', 'Shift', 'AltGraph', 'CapsLock'].includes(event.key)) {
+        // 按下非修饰键（如 Cmd+S 里的 S）→ 打断「双击修饰键」序列，
+        // 避免连续做两次组合键操作时，两个修饰键 keydown 被误判为双击
+        lastModPressTime = 0;
     }
 }, true);
 
