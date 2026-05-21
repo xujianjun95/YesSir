@@ -96,6 +96,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     await trackFirstUse(feature);
                 } else {
                     await incrementDailyCounter(feature);
+                    // 面板打开：在累计次数（feature_daily）之外，再做一次「每日去重」
+                    // 上报，用于精确统计「面板打开 DAU」。两个口径互不影响。
+                    if (feature === 'switcher_open') {
+                        await trackPanelOpenDaily();
+                    }
                 }
                 sendResponse({ ok: true });
             } catch (_) {

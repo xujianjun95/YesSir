@@ -701,6 +701,8 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 if (typeof showYsOnboarding !== 'function') return;
                 const mk = typeof modifierKey !== 'undefined' ? modifierKey : 'meta';
                 const ml = (typeof MOD_LABELS !== 'undefined' && MOD_LABELS[mk]) || mk;
+                // 埋点：用户从设置菜单手动再次打开使用指引
+                ysSendToBg({ action: 'track_event', feature: 'onboarding_reopen' }, { maxRetries: 1 }, () => {});
                 showYsOnboarding(ml, null);
             }));
 

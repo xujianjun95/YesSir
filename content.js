@@ -1221,6 +1221,12 @@ function checkAndShowOnboarding() {
         chrome.storage.local.set({ [PENDING_KEY]: false });
         const modKey = normalizeStoredModifierKey(res.modifierKey);
         const modLabel = MOD_LABELS[modKey] || modKey;
+        // 埋点：新装用户的新手引导展示了一次（激活漏斗 install → 看到引导 → 用功能）
+        ysRuntimeSendMessageRetry(
+            { action: 'track_event', feature: 'onboarding_shown' },
+            { maxRetries: 1 },
+            () => {},
+        );
         showYsOnboarding(modLabel, DISMISSED_KEY);
     });
 }
@@ -1285,6 +1291,12 @@ function showYsOnboarding(modLabel, dismissedKey) {
     });
 
     const dismiss = () => {
+        // 埋点：用户主动点 × 关闭引导（漏斗：看到引导后多少人直接关掉）
+        ysRuntimeSendMessageRetry(
+            { action: 'track_event', feature: 'onboarding_dismissed' },
+            { maxRetries: 1 },
+            () => {},
+        );
         if (dismissedKey) chrome.storage.local.set({ [dismissedKey]: true });
         widget.style.opacity = '0';
         widget.style.transform = 'translateY(14px)';

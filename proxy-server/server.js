@@ -26,6 +26,36 @@ const PORT = parseInt(process.env.PORT || '3001', 10);
 const LIMIT_AGGREGATE = parseInt(process.env.DAILY_LIMIT_AGGREGATE || '10', 10);
 const LIMIT_SEARCH = parseInt(process.env.DAILY_LIMIT_SEARCH || '10', 10);
 
+// 卸载落地页：用户卸载扩展时 Chrome 会打开 /yessir/uninstall，回这个极简感谢页
+const UNINSTALL_PAGE_HTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YesSir</title>
+<style>
+  html,body{height:100%;margin:0}
+  body{display:flex;align-items:center;justify-content:center;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC",sans-serif;
+    background:#f5f5f3;color:#2d374e}
+  .card{text-align:center;padding:48px 40px;max-width:380px}
+  .logo{font-size:40px;margin-bottom:16px}
+  h1{font-size:20px;font-weight:700;margin:0 0 10px}
+  p{font-size:14px;line-height:1.8;color:#6a7286;margin:0}
+  @media(prefers-color-scheme:dark){
+    body{background:#1e1e1e;color:#e8e8e8}p{color:#9a9a9a}
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">&#128075;</div>
+    <h1>YesSir &#24050;&#21368;&#36733;</h1>
+    <p>&#24863;&#35874;&#20320;&#26366;&#32463;&#30340;&#20351;&#29992;&#12290;<br>&#26399;&#24453;&#19979;&#27425;&#20877;&#35265;&#12290;</p>
+  </div>
+</body>
+</html>`;
+
 if (!DEEPSEEK_API_KEY) {
     console.error('[YesSir Proxy] 错误：未配置 DEEPSEEK_API_KEY 环境变量，服务无法启动');
     process.exit(1);
@@ -197,6 +227,9 @@ const server = http.createServer(async (req, res) => {
         const count = Number.isFinite(countRaw) && countRaw > 0 ? Math.floor(countRaw) : 0;
         const dateRaw = String((parsed && parsed.date) || '').trim();
         const date = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : '';
+        // 透传 startup 事件的环境字段，用于分群与流失归因
+        const platform = String((parsed && parsed.platform) || '').trim().slice(0, 16);
+        const language = String((parsed && parsed.language) || '').trim().slice(0, 8);
 
         const logEntry = JSON.stringify({
             timestamp: new Date().toISOString(),
@@ -206,6 +239,8 @@ const server = http.createServer(async (req, res) => {
             ...(feature ? { feature } : {}),
             ...(count > 0 ? { count } : {}),
             ...(date ? { date } : {}),
+            ...(platform ? { platform } : {}),
+            ...(language ? { language } : {}),
             ip: getClientIp(req),
         }) + '\n';
         const logFile = path.join(__dirname, 'telemetry.log');
@@ -215,6 +250,28 @@ const server = http.createServer(async (req, res) => {
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true }));
+        return;
+    }
+
+    // ─── 卸载埋点：用户卸载扩展时 Chrome 打开此 URL（chrome.runtime.setUninstallURL）───
+    // 记一条 uninstall 日志（写入同一个 telemetry.log），并回一个极简感谢页。
+    if (req.method === 'GET' && parsedUrl.pathname === '/yessir/uninstall') {
+        const uuid = String(parsedUrl.searchParams.get('uuid') || '').trim().slice(0, 64);
+        const version = String(parsedUrl.searchParams.get('v') || '').trim().slice(0, 32);
+        if (uuid) {
+            const logEntry = JSON.stringify({
+                timestamp: new Date().toISOString(),
+                uuid,
+                event: 'uninstall',
+                version,
+                ip: getClientIp(req),
+            }) + '\n';
+            fs.appendFile(path.join(__dirname, 'telemetry.log'), logEntry, (err) => {
+                if (err) console.error('[YesSir Proxy] 写入 uninstall 日志失败:', err.message);
+            });
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(UNINSTALL_PAGE_HTML);
         return;
     }
 

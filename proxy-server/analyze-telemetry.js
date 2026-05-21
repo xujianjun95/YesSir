@@ -1,14 +1,18 @@
 #!/usr/bin/env node
 /**
- * 读取 telemetry.log，输出四类统计：
- *   1. 每日基础指标（install / update / DAU）
- *   2. 累计用户数（去重历史 install 的 uuid 数）
- *   3. 功能首次激活率（first_use 类事件的累计独立用户数 / 累计用户数）
- *   4. 每日功能点击量（feature_daily 类事件，按日期 × feature 汇总）
+ * 读取 telemetry.log，输出统计：
+ *   1. 每日基础指标（安装 / 更新 / 启动 / 面板DAU / 卸载 / 活跃）
+ *   2. 累计指标（累计装机、累计卸载、当前存活估算、卸载率）
+ *   3. 留存（D1 / D7 / D30，基于 startup 宽口径，经典 Day-N）
+ *   4. 核心功能首次激活率（first_use 独立用户 / 累计装机）
+ *   5. 每日功能点击量（feature_daily，按日期 × feature 透视）
+ *   6. 平台 / 语言 分布
+ *
+ * 注：埋点的 event / feature 是英文标识符，仅在本脚本输出时映射成中文（见 LABELS），
+ *     telemetry.log 与客户端上报的字段一律保持英文不变。
  *
  * 用法：
- *   node analyze-telemetry.js
- *   node analyze-telemetry.js ./telemetry.log
+ *   node analyze-telemetry.js [./telemetry.log]
  */
 const fs = require('fs');
 const path = require('path');
@@ -22,31 +26,62 @@ if (!fs.existsSync(logFile)) {
     process.exit(1);
 }
 
+// ─── 英文埋点标识 → 中文展示名（只影响输出，不改日志/上报） ───────────────────
+const LABELS = {
+    // event
+    install: '安装', update: '更新', startup: '启动', uninstall: '卸载',
+    first_use: '首次使用', feature_daily: '每日功能', panel_open: '打开面板',
+    // feature_daily 的 feature
+    switcher_open: '打开面板', ai_aggregate: 'AI聚合', web_search: '网页搜索',
+    undo: '后悔药', drag_reclassify: '拖拽重分类', rename_group: '重命名分组',
+    pin_to_dock: '置顶', unpin_from_dock: '取消置顶',
+    onboarding_shown: '引导展示', onboarding_dismissed: '引导关闭',
+    onboarding_reopen: '引导重开',
+    // first_use 的 feature
+    first_close: '首次关闭标签', first_switcher_open: '首次打开面板',
+    unknown: '未知(旧版无feature字段)',
+};
+const label = (k) => LABELS[k] || k;
+
+const TODAY = new Date().toISOString().slice(0, 10);
+function addDays(dateStr, n) {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + n);
+    return d.toISOString().slice(0, 10);
+}
+
 const content = fs.readFileSync(logFile, 'utf-8');
 const lines = content.split(/\r?\n/).filter(Boolean);
 
 // ─── 累加结构 ────────────────────────────────────────────────────────────────
-const daily = new Map();                    // date -> { install, update, startup, startupUsers, allUsers }
-const allInstallUuids = new Set();          // 全期：累计安装过的 uuid（≈ 累计用户）
-const firstUseUuids = new Map();            // feature -> Set<uuid>，全期独立首次使用过该功能的用户
-const featureDaily = new Map();             // date -> Map<feature, sumClicks>，feature_daily 上报的按日点击数
-const featureDailyUuids = new Map();        // date -> Map<feature, Set<uuid>>，feature_daily 独立用户数
+const daily = new Map();              // date -> 每日各项计数
+const allInstallUuids = new Set();    // 全期累计安装过的 uuid
+const allUninstallUuids = new Set();  // 全期累计卸载过的 uuid
+const firstUseUuids = new Map();      // feature -> Set<uuid>，独立首次使用
+const featureDaily = new Map();       // date -> Map<feature, sumCount>
+const userLifecycle = new Map();      // uuid -> { installDate, activeDates:Set }，算留存用
+const platformUuids = new Map();      // platform -> Set<uuid>
+const languageUuids = new Map();      // language -> Set<uuid>
 
 let invalidLines = 0;
 
 function ensureDay(dateKey) {
     if (!daily.has(dateKey)) {
         daily.set(dateKey, {
-            install: 0,
-            update: 0,
-            startup: 0,
-            startupUsers: new Set(),
+            install: 0, update: 0, startup: 0, uninstall: 0,
+            startupUsers: new Set(), updateUsers: new Set(),
+            uninstallUsers: new Set(), panelOpenUsers: new Set(),
             allUsers: new Set(),
         });
     }
     return daily.get(dateKey);
 }
-
+function ensureLife(uuid) {
+    if (!userLifecycle.has(uuid)) {
+        userLifecycle.set(uuid, { installDate: '', activeDates: new Set() });
+    }
+    return userLifecycle.get(uuid);
+}
 function ensureFeatureDay(dateKey) {
     if (!featureDaily.has(dateKey)) featureDaily.set(dateKey, new Map());
     return featureDaily.get(dateKey);
@@ -80,12 +115,47 @@ for (const line of lines) {
 
     if (event === 'install') {
         day.install += 1;
-        if (uuid) allInstallUuids.add(uuid);
+        if (uuid) {
+            allInstallUuids.add(uuid);
+            const life = ensureLife(uuid);
+            if (!life.installDate || dateKey < life.installDate) life.installDate = dateKey;
+            life.activeDates.add(dateKey);
+        }
     } else if (event === 'update') {
         day.update += 1;
+        if (uuid) {
+            day.updateUsers.add(uuid);
+            ensureLife(uuid).activeDates.add(dateKey);
+        }
     } else if (event === 'startup') {
         day.startup += 1;
-        if (uuid) day.startupUsers.add(uuid);
+        if (uuid) {
+            day.startupUsers.add(uuid);
+            ensureLife(uuid).activeDates.add(dateKey);
+        }
+        // startup 携带的环境字段：平台 / 语言
+        const plat = String(row.platform || '').trim();
+        const lang = String(row.language || '').trim();
+        if (uuid && plat) {
+            if (!platformUuids.has(plat)) platformUuids.set(plat, new Set());
+            platformUuids.get(plat).add(uuid);
+        }
+        if (uuid && lang) {
+            if (!languageUuids.has(lang)) languageUuids.set(lang, new Set());
+            languageUuids.get(lang).add(uuid);
+        }
+    } else if (event === 'uninstall') {
+        day.uninstall += 1;
+        if (uuid) {
+            day.uninstallUsers.add(uuid);
+            allUninstallUuids.add(uuid);
+        }
+    } else if (event === 'panel_open') {
+        // 每日去重事件：当天首次打开面板实时上报，直接数人头 → 精确面板 DAU
+        if (uuid) {
+            day.panelOpenUsers.add(uuid);
+            ensureLife(uuid).activeDates.add(dateKey);
+        }
     } else if (event === 'first_use') {
         // 客户端在首次成功使用某功能时发；按 feature 累积独立用户
         const feature = String(row.feature || '').trim() || 'unknown';
@@ -95,84 +165,123 @@ for (const line of lines) {
         // 客户端次日 flush 的按日累计点击数：feature + count + date(=点击发生那一天)
         const feature = String(row.feature || '').trim();
         const count = Number(row.count) || 0;
-        // row.date 是客户端记录的"点击发生日"；优先用它而不是上报时间
         const clickDate = String(row.date || '').trim() || dateKey;
         if (!feature || count <= 0) continue;
         const bucket = ensureFeatureDay(clickDate);
         bucket.set(feature, (bucket.get(feature) || 0) + count);
-        // 同时追踪独立 UUID
-        if (uuid) {
-            if (!featureDailyUuids.has(clickDate)) featureDailyUuids.set(clickDate, new Map());
-            const uuidBucket = featureDailyUuids.get(clickDate);
-            if (!uuidBucket.has(feature)) uuidBucket.set(feature, new Set());
-            uuidBucket.get(feature).add(uuid);
-        }
     }
 }
-
-// ─── 输出 1：每日基础指标 ─────────────────────────────────────────────────────
-const baseRows = Array.from(daily.entries())
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, v]) => {
-        const panelUuids = featureDailyUuids.get(date)?.get('switcher_open')?.size ?? 0;
-        return {
-            date,
-            install: v.install,
-            update: v.update,
-            startup_events: v.startup,
-            dau_startup_uuids: v.startupUsers.size,
-            panel_open_uuids: panelUuids,
-            active_uuids_all_events: v.allUsers.size,
-        };
-    });
 
 console.log(`Telemetry 日志: ${logFile}`);
 console.log(`总行数: ${lines.length} | 异常行: ${invalidLines}`);
 
-if (baseRows.length === 0) {
+const sortedDates = Array.from(daily.keys()).sort((a, b) => a.localeCompare(b));
+if (sortedDates.length === 0) {
     console.log('暂无可统计数据。');
     process.exit(0);
 }
 
+// ─── 输出 1：每日基础指标 ─────────────────────────────────────────────────────
+const baseRows = sortedDates.map((date) => {
+    const v = daily.get(date);
+    return {
+        日期: date,
+        安装: v.install,
+        更新次数: v.update,
+        更新用户: v.updateUsers.size,
+        启动次数: v.startup,
+        '日活(启动)': v.startupUsers.size,
+        面板DAU: v.panelOpenUsers.size,
+        卸载: v.uninstall,
+        活跃用户: v.allUsers.size,
+    };
+});
 console.log('\n=== 每日基础指标 ===');
 console.table(baseRows);
 
-// ─── 输出 2：累计用户数 ───────────────────────────────────────────────────────
+// ─── 输出 2：累计指标 ─────────────────────────────────────────────────────────
+const survived = [...allInstallUuids].filter((u) => !allUninstallUuids.has(u)).length;
+const churnRate = allInstallUuids.size
+    ? ((allInstallUuids.size - survived) / allInstallUuids.size * 100).toFixed(1) + '%'
+    : '—';
 console.log('\n=== 累计指标 ===');
 console.table([{
-    total_install_uuids: allInstallUuids.size,
-    note: '历史 install 事件去重后的 uuid 数；近似等于累计装机用户',
+    累计装机: allInstallUuids.size,
+    累计卸载: allUninstallUuids.size,
+    当前存活估算: survived,
+    卸载率: churnRate,
 }]);
 
-// ─── 输出 3：核心功能首次激活率 ───────────────────────────────────────────────
-// 激活率定义：用过该手势的独立用户 / 累计安装用户。反映新用户找到并用上核心功能的比例。
+// ─── 输出 3：留存（经典 Day-N，基于 startup 宽口径） ──────────────────────────
+// 「活跃」= 当天有 install/update/startup/panel_open 任意事件。startup 是宽口径
+// （浏览器开着即上报），故留存偏乐观；面板 DAU(panel_open) 攒够数据后可换窄口径。
+const RET_DAYS = [1, 7, 30];
+const ret = {};
+RET_DAYS.forEach((n) => { ret[n] = { hit: 0, total: 0 }; });
+for (const life of userLifecycle.values()) {
+    if (!life.installDate) continue; // 无 install 记录（日志轮转前安装的）不计入
+    for (const n of RET_DAYS) {
+        const target = addDays(life.installDate, n);
+        if (target > TODAY) continue; // 第 N 天还没到，不计入分母
+        ret[n].total += 1;
+        if (life.activeDates.has(target)) ret[n].hit += 1;
+    }
+}
+const retRows = RET_DAYS.map((n) => ({
+    指标: `D${n} 留存`,
+    样本数: ret[n].total,
+    留存用户: ret[n].hit,
+    留存率: ret[n].total ? (ret[n].hit / ret[n].total * 100).toFixed(1) + '%' : '—',
+}));
+console.log('\n=== 留存（经典 Day-N，基于 startup 宽口径） ===');
+console.table(retRows);
+
+// ─── 输出 4：核心功能首次激活率 ───────────────────────────────────────────────
 if (firstUseUuids.size > 0) {
     const totalUsers = allInstallUuids.size || 1; // 防止除零
-    const activationRows = Array.from(firstUseUuids.entries()).map(([feature, set]) => ({
-        feature,
-        activated_users: set.size,
-        activation_rate: `${(set.size / totalUsers * 100).toFixed(1)}%`,
-    }));
-    console.log('\n=== 核心功能激活率（first_use 独立用户 / 累计装机用户） ===');
+    const activationRows = Array.from(firstUseUuids.entries())
+        .sort((a, b) => b[1].size - a[1].size)
+        .map(([feature, set]) => ({
+            功能: label(feature),
+            激活用户数: set.size,
+            激活率: `${(set.size / totalUsers * 100).toFixed(1)}%`,
+        }));
+    console.log('\n=== 核心功能激活率（first_use 独立用户 / 累计装机） ===');
     console.table(activationRows);
 }
 
-// ─── 输出 4：每日功能点击量 ───────────────────────────────────────────────────
-// feature_daily 是客户端"次日上报昨天"的累计；这里按日期 × feature 透视
+// ─── 输出 5：每日功能点击量 ───────────────────────────────────────────────────
 if (featureDaily.size > 0) {
     const allFeatures = new Set();
     featureDaily.forEach((bucket) => bucket.forEach((_, f) => allFeatures.add(f)));
     const featureCols = Array.from(allFeatures).sort();
 
-    const clickRows = Array.from(featureDaily.entries())
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([date, bucket]) => {
-            const row = { date };
+    const clickRows = Array.from(featureDaily.keys())
+        .sort((a, b) => a.localeCompare(b))
+        .map((date) => {
+            const row = { 日期: date };
+            const bucket = featureDaily.get(date);
             featureCols.forEach((f) => {
-                row[f] = bucket.get(f) || 0;
+                row[label(f)] = bucket.get(f) || 0;
             });
             return row;
         });
     console.log('\n=== 每日功能点击量 ===');
     console.table(clickRows);
+}
+
+// ─── 输出 6：平台 / 语言 分布 ─────────────────────────────────────────────────
+if (platformUuids.size > 0) {
+    const rows = Array.from(platformUuids.entries())
+        .sort((a, b) => b[1].size - a[1].size)
+        .map(([p, s]) => ({ 平台: p, 独立用户数: s.size }));
+    console.log('\n=== 平台分布（按 startup 独立用户） ===');
+    console.table(rows);
+}
+if (languageUuids.size > 0) {
+    const rows = Array.from(languageUuids.entries())
+        .sort((a, b) => b[1].size - a[1].size)
+        .map(([l, s]) => ({ 语言: l, 独立用户数: s.size }));
+    console.log('\n=== 语言分布（按 startup 独立用户） ===');
+    console.table(rows);
 }
