@@ -59,6 +59,7 @@ const allInstallUuids = new Set();    // 全期累计安装过的 uuid
 const allUninstallUuids = new Set();  // 全期累计卸载过的 uuid
 const firstUseUuids = new Map();      // feature -> Set<uuid>，独立首次使用
 const featureDaily = new Map();       // date -> Map<feature, sumCount>
+const featureDailyUuids = new Map();  // date -> Map<feature, Set<uuid>>，功能使用人数
 const userLifecycle = new Map();      // uuid -> { installDate, activeDates:Set }，算留存用
 const platformUuids = new Map();      // platform -> Set<uuid>
 const languageUuids = new Map();      // language -> Set<uuid>
@@ -169,6 +170,13 @@ for (const line of lines) {
         if (!feature || count <= 0) continue;
         const bucket = ensureFeatureDay(clickDate);
         bucket.set(feature, (bucket.get(feature) || 0) + count);
+        // 同步累计独立用户：feature_daily 上报带 uuid，按 (日期, feature) 去重
+        if (uuid) {
+            if (!featureDailyUuids.has(clickDate)) featureDailyUuids.set(clickDate, new Map());
+            const ub = featureDailyUuids.get(clickDate);
+            if (!ub.has(feature)) ub.set(feature, new Set());
+            ub.get(feature).add(uuid);
+        }
     }
 }
 
@@ -270,7 +278,28 @@ if (featureDaily.size > 0) {
     console.table(clickRows);
 }
 
-// ─── 输出 6：平台 / 语言 分布 ─────────────────────────────────────────────────
+// ─── 输出 6：每日功能使用人数（feature_daily 独立用户） ──────────────────────
+// 与「点击量」同源同滞后（次日 flush），区别是按 uuid 去重 → 数人头而非次数。
+if (featureDailyUuids.size > 0) {
+    const allFeatures = new Set();
+    featureDailyUuids.forEach((bucket) => bucket.forEach((_, f) => allFeatures.add(f)));
+    const featureCols = Array.from(allFeatures).sort();
+
+    const userRows = Array.from(featureDailyUuids.keys())
+        .sort((a, b) => a.localeCompare(b))
+        .map((date) => {
+            const row = { 日期: date };
+            const bucket = featureDailyUuids.get(date);
+            featureCols.forEach((f) => {
+                row[label(f)] = bucket.has(f) ? bucket.get(f).size : 0;
+            });
+            return row;
+        });
+    console.log('\n=== 每日功能使用人数（独立用户） ===');
+    console.table(userRows);
+}
+
+// ─── 输出 7：平台 / 语言 分布 ─────────────────────────────────────────────────
 if (platformUuids.size > 0) {
     const rows = Array.from(platformUuids.entries())
         .sort((a, b) => b[1].size - a[1].size)
