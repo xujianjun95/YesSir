@@ -157,12 +157,6 @@ for (const line of lines) {
             day.uninstallUsers.add(uuid);
             allUninstallUuids.add(uuid);
         }
-    } else if (event === 'panel_open') {
-        // 每日去重事件：当天首次打开面板实时上报，直接数人头 → 精确面板 DAU
-        if (uuid) {
-            day.panelOpenUsers.add(uuid);
-            ensureLife(uuid).activeDates.add(dateKey);
-        }
     } else if (event === 'first_use') {
         // 客户端在首次成功使用某功能时发；按 feature 累积独立用户
         const feature = String(row.feature || '').trim() || 'unknown';

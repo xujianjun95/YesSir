@@ -31,8 +31,6 @@ const TELEMETRY_STARTUP_DATE_KEY = 'ysLastTelemetryStartupDate';
 const DAILY_COUNTERS_KEY = 'ysDailyCounters';
 // "首次使用"类事件已上报标记，结构：{ first_close: 1716000000000, first_switcher_open: ... }
 const FIRST_USE_REPORTED_KEY = 'ysFirstUseReported';
-// "面板打开"每日去重上报的最后日期（YYYY-MM-DD），同一天只上报一次 panel_open
-const PANEL_OPEN_DATE_KEY = 'ysLastPanelOpenDate';
 
 function getLocalDateKey() {
     const now = new Date();
@@ -174,23 +172,6 @@ async function trackFirstUse(feature) {
     }
 }
 
-/**
- * 每日去重类事件：当天首次打开面板时实时上报一次 panel_open，按本地日期去重。
- * 与 feature_daily 的区别：不累计次数、不滞后到次日 → analyze 端直接 count uuid
- * 即得精确的「面板打开 DAU」。
- */
-async function trackPanelOpenDaily() {
-    try {
-        const today = getLocalDateKey();
-        const stored = await chrome.storage.local.get(PANEL_OPEN_DATE_KEY);
-        if (stored[PANEL_OPEN_DATE_KEY] === today) return; // 今天已上报过
-        const ok = await sendTelemetry('panel_open');
-        // 上报成功才记日期；失败则今天下次开面板会重试
-        if (ok) await chrome.storage.local.set({ [PANEL_OPEN_DATE_KEY]: today });
-    } catch (error) {
-        console.log('[telemetry] trackPanelOpenDaily failed:', error && error.message ? error.message : error);
-    }
-}
 
 // ─── 安装/更新事件：Chrome 触发，全生命周期各一次 ───────────────────────────────
 chrome.runtime.onInstalled.addListener((details) => {
