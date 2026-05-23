@@ -26,6 +26,11 @@ function hideSwitcher(opts) {
         document.removeEventListener('mousemove', switcherMouseMoveHandler, true);
         switcherMouseMoveHandler = null;
     }
+    // 释放 pinnedColRO，避免孤儿 RO 持续 hold 已 remove 的 card
+    if (pinnedColRO) {
+        try { pinnedColRO.disconnect(); } catch (_) {}
+        pinnedColRO = null;
+    }
 
     const overlay = document.getElementById('ys-switcher-overlay');
     if (!overlay) return;

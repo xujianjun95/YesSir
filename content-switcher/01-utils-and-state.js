@@ -23,6 +23,8 @@ let switcherSelIdx   = 0;
 let switcherCurrentWindowId = null;
 let switcherKeydownHandler = null;
 let switcherMouseMoveHandler = null;
+// 04 创建、05 在 hideSwitcher 时 disconnect，避免开关面板 N 次堆 N 个孤儿 RO
+let pinnedColRO = null;
 /** 使用方向键导航后，忽略鼠标 hover 对行高亮/favicon/关闭钮的影响，仅随键盘选中行变化 */
 let switcherKeyboardNavActive = false;
 /** 当前面板会话：暴露给委托事件用来「原地删行」，避免关一个标签就整块重建面板 */

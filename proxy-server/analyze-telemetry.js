@@ -59,9 +59,11 @@ const allInstallUuids = new Set();    // 全期累计安装过的 uuid
 const allUninstallUuids = new Set();  // 全期累计卸载过的 uuid
 const firstUseUuids = new Map();      // feature -> Set<uuid>，独立首次使用
 const featureDaily = new Map();       // date -> Map<feature, sumCount>
+const featureDailyUuids = new Map();  // date -> Map<feature, Set<uuid>>，功能使用人数
 const userLifecycle = new Map();      // uuid -> { installDate, activeDates:Set }，算留存用
 const platformUuids = new Map();      // platform -> Set<uuid>
 const languageUuids = new Map();      // language -> Set<uuid>
+const latestVersionByUuid = new Map(); // uuid -> { version, timestamp }，按最后一次上报估算当前版本
 
 let invalidLines = 0;
 
@@ -99,6 +101,7 @@ for (const line of lines) {
     const ts = String(row.timestamp || '').trim();
     const event = String(row.event || '').trim();
     const uuid = String(row.uuid || '').trim();
+    const version = String(row.version || '').trim();
     if (!ts || !event) {
         invalidLines += 1;
         continue;
@@ -112,6 +115,10 @@ for (const line of lines) {
 
     const day = ensureDay(dateKey);
     if (uuid) day.allUsers.add(uuid);
+    if (uuid && version) {
+        const prev = latestVersionByUuid.get(uuid);
+        if (!prev || ts >= prev.timestamp) latestVersionByUuid.set(uuid, { version, timestamp: ts });
+    }
 
     if (event === 'install') {
         day.install += 1;
@@ -150,12 +157,6 @@ for (const line of lines) {
             day.uninstallUsers.add(uuid);
             allUninstallUuids.add(uuid);
         }
-    } else if (event === 'panel_open') {
-        // 每日去重事件：当天首次打开面板实时上报，直接数人头 → 精确面板 DAU
-        if (uuid) {
-            day.panelOpenUsers.add(uuid);
-            ensureLife(uuid).activeDates.add(dateKey);
-        }
     } else if (event === 'first_use') {
         // 客户端在首次成功使用某功能时发；按 feature 累积独立用户
         const feature = String(row.feature || '').trim() || 'unknown';
@@ -167,8 +168,20 @@ for (const line of lines) {
         const count = Number(row.count) || 0;
         const clickDate = String(row.date || '').trim() || dateKey;
         if (!feature || count <= 0) continue;
+        const clickDay = ensureDay(clickDate);
+        if (uuid) {
+            clickDay.allUsers.add(uuid);
+            ensureLife(uuid).activeDates.add(clickDate);
+        }
         const bucket = ensureFeatureDay(clickDate);
         bucket.set(feature, (bucket.get(feature) || 0) + count);
+        // 同步累计独立用户：feature_daily 上报带 uuid，按 (日期, feature) 去重
+        if (uuid) {
+            if (!featureDailyUuids.has(clickDate)) featureDailyUuids.set(clickDate, new Map());
+            const ub = featureDailyUuids.get(clickDate);
+            if (!ub.has(feature)) ub.set(feature, new Set());
+            ub.get(feature).add(uuid);
+        }
     }
 }
 
@@ -184,6 +197,15 @@ if (sortedDates.length === 0) {
 // ─── 输出 1：每日基础指标 ─────────────────────────────────────────────────────
 const baseRows = sortedDates.map((date) => {
     const v = daily.get(date);
+    // 面板用户三路兜底合并：
+    //   1) panel_open 事件（按日去重，最精确）—— 客户端 trackPanelOpenDaily 走这条
+    //   2) feature_daily 里的 switcher_open uuids —— 老数据/event 上报失败时的兜底
+    //   3) feature_daily 里的 panel_open uuids —— 防止客户端误把 panel_open 当 feature 发
+    const panelUsers = new Set(v.panelOpenUsers);
+    for (const alias of ['switcher_open', 'panel_open']) {
+        const uuids = featureDailyUuids.get(date)?.get(alias);
+        if (uuids) for (const uuid of uuids) panelUsers.add(uuid);
+    }
     return {
         日期: date,
         安装: v.install,
@@ -191,7 +213,7 @@ const baseRows = sortedDates.map((date) => {
         更新用户: v.updateUsers.size,
         启动次数: v.startup,
         '日活(启动)': v.startupUsers.size,
-        面板DAU: v.panelOpenUsers.size,
+        面板用户: panelUsers.size,
         卸载: v.uninstall,
         活跃用户: v.allUsers.size,
     };
@@ -253,7 +275,9 @@ if (firstUseUuids.size > 0) {
 // ─── 输出 5：每日功能点击量 ───────────────────────────────────────────────────
 if (featureDaily.size > 0) {
     const allFeatures = new Set();
-    featureDaily.forEach((bucket) => bucket.forEach((_, f) => allFeatures.add(f)));
+    featureDaily.forEach((bucket) => bucket.forEach((_, f) => {
+        if (f !== 'switcher_open') allFeatures.add(f);
+    }));
     const featureCols = Array.from(allFeatures).sort();
 
     const clickRows = Array.from(featureDaily.keys())
@@ -265,12 +289,60 @@ if (featureDaily.size > 0) {
                 row[label(f)] = bucket.get(f) || 0;
             });
             return row;
-        });
-    console.log('\n=== 每日功能点击量 ===');
-    console.table(clickRows);
+        })
+        .filter((row) => Object.keys(row).length > 1);
+    if (clickRows.length > 0) {
+        console.log('\n=== 每日功能点击量（不含打开面板；打开面板看用户数） ===');
+        console.table(clickRows);
+    }
 }
 
-// ─── 输出 6：平台 / 语言 分布 ─────────────────────────────────────────────────
+// ─── 输出 6：每日功能使用人数（feature_daily 独立用户） ──────────────────────
+// 与「点击量」同源同滞后（次日 flush），区别是按 uuid 去重 → 数人头而非次数。
+if (featureDailyUuids.size > 0) {
+    const allFeatures = new Set();
+    featureDailyUuids.forEach((bucket) => bucket.forEach((_, f) => allFeatures.add(f)));
+    const featureCols = Array.from(allFeatures).sort();
+
+    const userRows = Array.from(featureDailyUuids.keys())
+        .sort((a, b) => a.localeCompare(b))
+        .map((date) => {
+            const row = { 日期: date };
+            const bucket = featureDailyUuids.get(date);
+            featureCols.forEach((f) => {
+                row[label(f)] = bucket.has(f) ? bucket.get(f).size : 0;
+            });
+            return row;
+        });
+    console.log('\n=== 每日功能使用人数（独立用户） ===');
+    console.table(userRows);
+}
+
+// ─── 输出 7：当前用户版本分布 ────────────────────────────────────────────────
+// 每条 telemetry 都带 version；这里按每个 uuid 最后一次上报的 version 估算当前版本。
+// 对不再活跃的用户无法主动探测，只能以最后一次看到的版本为准。
+if (latestVersionByUuid.size > 0) {
+    const versionUuids = new Map();
+    for (const [uuid, meta] of latestVersionByUuid.entries()) {
+        const v = meta.version || 'unknown';
+        if (!versionUuids.has(v)) versionUuids.set(v, new Set());
+        versionUuids.get(v).add(uuid);
+    }
+    const rows = Array.from(versionUuids.entries())
+        .sort((a, b) => {
+            const byUsers = b[1].size - a[1].size;
+            return byUsers || b[0].localeCompare(a[0]);
+        })
+        .map(([v, s]) => ({
+            版本: v,
+            用户数: s.size,
+            占比: `${(s.size / latestVersionByUuid.size * 100).toFixed(1)}%`,
+        }));
+    console.log('\n=== 当前用户版本分布（按每个 uuid 最后一次上报估算） ===');
+    console.table(rows);
+}
+
+// ─── 输出 8：平台 / 语言 分布 ─────────────────────────────────────────────────
 if (platformUuids.size > 0) {
     const rows = Array.from(platformUuids.entries())
         .sort((a, b) => b[1].size - a[1].size)

@@ -96,11 +96,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                     await trackFirstUse(feature);
                 } else {
                     await incrementDailyCounter(feature);
-                    // 面板打开：在累计次数（feature_daily）之外，再做一次「每日去重」
-                    // 上报，用于精确统计「面板打开 DAU」。两个口径互不影响。
-                    if (feature === 'switcher_open') {
-                        await trackPanelOpenDaily();
-                    }
                 }
                 sendResponse({ ok: true });
             } catch (_) {
@@ -324,7 +319,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                             await chrome.tabs.group({ tabIds: [tabIdNum], groupId: target.id });
                         } else {
                             const newGroupId = await chrome.tabs.group({ tabIds: [tabIdNum] });
-                            await chrome.tabGroups.update(newGroupId, {
+                            await updateTabGroupProgrammatically(newGroupId, {
                                 title: newTopic,
                                 color: TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
                             });
