@@ -2083,7 +2083,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         const minH = YS_PINNED_COUNT * 170;
         if (h > 0) pinnedCol.style.height = Math.max(h, minH) + 'px';
     };
-    const pinnedColRO = new ResizeObserver(syncPinnedColHeight);
+    // pinnedColRO 提到 01 模块作用域，hideSwitcher 里统一 disconnect
+    if (pinnedColRO) { try { pinnedColRO.disconnect(); } catch (_) {} }
+    pinnedColRO = new ResizeObserver(syncPinnedColHeight);
     pinnedColRO.observe(card);
     requestAnimationFrame(syncPinnedColHeight);
 
