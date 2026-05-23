@@ -203,10 +203,14 @@ if (sortedDates.length === 0) {
 // ─── 输出 1：每日基础指标 ─────────────────────────────────────────────────────
 const baseRows = sortedDates.map((date) => {
     const v = daily.get(date);
+    // 面板用户三路兜底合并：
+    //   1) panel_open 事件（按日去重，最精确）—— 客户端 trackPanelOpenDaily 走这条
+    //   2) feature_daily 里的 switcher_open uuids —— 老数据/event 上报失败时的兜底
+    //   3) feature_daily 里的 panel_open uuids —— 防止客户端误把 panel_open 当 feature 发
     const panelUsers = new Set(v.panelOpenUsers);
-    const switcherOpenUsers = featureDailyUuids.get(date)?.get('switcher_open');
-    if (switcherOpenUsers) {
-        for (const uuid of switcherOpenUsers) panelUsers.add(uuid);
+    for (const alias of ['switcher_open', 'panel_open']) {
+        const uuids = featureDailyUuids.get(date)?.get(alias);
+        if (uuids) for (const uuid of uuids) panelUsers.add(uuid);
     }
     return {
         日期: date,
