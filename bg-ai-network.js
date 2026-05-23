@@ -1161,6 +1161,13 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     for (const [gId, set] of _groupTabsMap) {
         if (set.has(tabId)) { set.delete(tabId); if (set.size === 0) _groupTabsMap.delete(gId); break; }
     }
+    // 清除该 tab 的 AI 快照缓存：Chrome 关闭后 tab id 会被回收复用，
+    // 不清的话新开的标签可能命中旧 entry，被错误归到上一个标签的 AI 分类
+    const idStr = String(tabId);
+    if (aiSnapshotCache.entries && aiSnapshotCache.entries[idStr]) {
+        delete aiSnapshotCache.entries[idStr];
+        void persistAiSnapshotCache();
+    }
 });
 
 // 用户在 Chrome 原生改了分组名 → 更新用户偏好 + 刷新面板
