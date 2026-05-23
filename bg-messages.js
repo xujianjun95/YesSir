@@ -324,7 +324,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
                             await chrome.tabs.group({ tabIds: [tabIdNum], groupId: target.id });
                         } else {
                             const newGroupId = await chrome.tabs.group({ tabIds: [tabIdNum] });
-                            await chrome.tabGroups.update(newGroupId, {
+                            await updateTabGroupProgrammatically(newGroupId, {
                                 title: newTopic,
                                 color: TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
                             });

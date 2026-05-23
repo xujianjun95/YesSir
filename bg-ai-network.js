@@ -727,6 +727,19 @@ async function getSmartSiteName(title, url, apiKey, preloadedSiteNames) {
 }
 
 const TAB_GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan', 'orange'];
+const _programmaticTabGroupTitleUpdates = new Set();
+
+async function updateTabGroupProgrammatically(groupId, updateProperties) {
+    const hasTitleUpdate = updateProperties && Object.prototype.hasOwnProperty.call(updateProperties, 'title');
+    if (hasTitleUpdate) _programmaticTabGroupTitleUpdates.add(groupId);
+    try {
+        return await chrome.tabGroups.update(groupId, updateProperties);
+    } finally {
+        if (hasTitleUpdate) {
+            setTimeout(() => _programmaticTabGroupTitleUpdates.delete(groupId), 5000);
+        }
+    }
+}
 
 function parseDeepSeekJsonContent(raw) {
     let s = String(raw || '').trim();
@@ -1034,7 +1047,7 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId,
             }
             try {
                 const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId: wId } });
-                await chrome.tabGroups.update(groupId, {
+                await updateTabGroupProgrammatically(groupId, {
                     title,
                     color: TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
                     collapsed: shouldCollapseTabGroup(tabIds, activeTabId),
@@ -1051,7 +1064,7 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId,
         if (orphanTabIds.length < 2) continue;
         try {
             const groupId = await chrome.tabs.group({ tabIds: orphanTabIds, createProperties: { windowId: wId } });
-            await chrome.tabGroups.update(groupId, {
+            await updateTabGroupProgrammatically(groupId, {
                 title: orphanTitle || '🗂️ 零碎浏览',
                 color: 'grey',
                 collapsed: shouldCollapseTabGroup(orphanTabIds, activeTabId),
@@ -1088,6 +1101,7 @@ async function fetchSearchSuggestions(query) {
 // ─── Chrome 标签组删除时同步清除 AI topic ────────────────────────────────────
 // groupId → Set<tabId>：事件触发时 Chrome 已无法查询组内成员，须提前维护
 const _groupTabsMap = new Map();
+const _groupTitleMap = new Map();
 
 function _groupMapAdd(tabId, groupId) {
     if (!groupId || groupId < 0) return;
@@ -1108,6 +1122,12 @@ chrome.tabs.query({}, (tabs) => {
     if (chrome.runtime.lastError || !Array.isArray(tabs)) return;
     for (const t of tabs) {
         if (t.groupId && t.groupId > 0) _groupMapAdd(t.id, t.groupId);
+    }
+});
+chrome.tabGroups.query({}, (groups) => {
+    if (chrome.runtime.lastError || !Array.isArray(groups)) return;
+    for (const g of groups) {
+        if (g && g.id != null) _groupTitleMap.set(g.id, String(g.title || '').trim());
     }
 });
 
@@ -1146,6 +1166,12 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // 用户在 Chrome 原生改了分组名 → 更新用户偏好 + 刷新面板
 chrome.tabGroups.onUpdated.addListener((group) => {
     const newTitle = (group.title || '').trim();
+    const oldTitle = _groupTitleMap.has(group.id) ? _groupTitleMap.get(group.id) : null;
+    _groupTitleMap.set(group.id, newTitle);
+
+    // tabGroups.onUpdated also fires for collapse/color changes. Count only real
+    // title changes, and ignore titles set by our own grouping flows.
+    if (oldTitle === null || oldTitle === newTitle || _programmaticTabGroupTitleUpdates.has(group.id)) return;
     if (!newTitle) return;
 
     const tabIdsInGroup = _groupTabsMap.get(group.id);
@@ -1213,6 +1239,8 @@ chrome.tabGroups.onUpdated.addListener((group) => {
 chrome.tabGroups.onRemoved.addListener((group) => {
     const tabIdsFromMap = _groupTabsMap.get(group.id);
     _groupTabsMap.delete(group.id);
+    _groupTitleMap.delete(group.id);
+    _programmaticTabGroupTitleUpdates.delete(group.id);
 
     chrome.storage.local.get('aiSnapshotV1', (res) => {
         const raw = res && res.aiSnapshotV1;
