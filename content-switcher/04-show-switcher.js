@@ -50,6 +50,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         transition:     'opacity 0.34s cubic-bezier(0.16,1,0.3,1)',
         pointerEvents:  'auto',
         fontFamily:     '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        lineHeight:     '1.4',
         gap:            '28px',
     });
 
@@ -116,7 +117,9 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         <input id="ys-search-input" type="text" placeholder="${ysSwitcherPlaceholderDefault()}" style="
           width:100%; padding:9px 12px 9px 34px;
           border:none; background:transparent;
-          font-size:13px; color:var(--ys-text-primary); outline:none;
+          font-size:13px; line-height:1.4; color:var(--ys-text-primary); outline:none;
+          font-family:inherit; height:auto; min-height:0; max-height:none;
+          appearance:none; -webkit-appearance:none;
           box-sizing:border-box; position:relative; z-index:1;
           transition:transform 0.12s ease-in, opacity 0.12s ease-in;
         ">
