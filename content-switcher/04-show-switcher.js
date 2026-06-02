@@ -76,7 +76,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         borderRadius:   '20px',
         boxShadow:      'var(--ys-card-shadow)',
         width:          '700px',
-        maxHeight:      '80vh',
+        height:         'min(620px, 80vh)',
         display:        'flex',
         flexDirection:  'column',
         overflow:       'hidden',
