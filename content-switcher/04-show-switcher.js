@@ -2107,25 +2107,23 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             }
             if (saved.side === 'right') pinnedSide = 'right';
         }
-        // 双保险：校验每个 slot 的 tabId 是否仍存活，剔除 bg prune 漏网或广播丢失的死置顶
-        chrome.tabs.query({}, (allTabs) => {
-            if (!chrome.runtime.lastError && Array.isArray(allTabs)) {
-                const aliveIds = new Set(allTabs.map((t) => t.id));
-                let changed = false;
-                for (let i = 0; i < YS_PINNED_COUNT; i++) {
-                    if (pinnedSlots[i] && !aliveIds.has(pinnedSlots[i].tabId)) {
-                        pinnedSlots[i] = null;
-                        changed = true;
-                    }
-                }
-                if (changed) {
-                    chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
-                }
+        // 双保险：校验每个 slot 的 tabId 是否仍存活，剔除 bg prune 漏网或广播丢失的死置顶。
+        // content script 没有 chrome.tabs 权限（chrome.tabs 为 undefined），不能直接 query；
+        // 直接用 showSwitcher 传入的全量 tabs（get_tabs 已 query 所有窗口）同步校验，更可靠。
+        const aliveIds = new Set((tabs || []).map((t) => t.id));
+        let pinnedChanged = false;
+        for (let i = 0; i < YS_PINNED_COUNT; i++) {
+            if (pinnedSlots[i] && !aliveIds.has(pinnedSlots[i].tabId)) {
+                pinnedSlots[i] = null;
+                pinnedChanged = true;
             }
-            renderPinnedCol();
-            // 有任意置顶数据则一直展示；无数据保持隐藏，仅拖拽时临时出现
-            if (pinnedSlots.some(s => s)) showPinnedColOnSide(pinnedSide, false);
-        });
+        }
+        if (pinnedChanged) {
+            chrome.storage.local.set({ [YS_PINNED_KEY]: { slots: pinnedSlots, side: pinnedSide } });
+        }
+        renderPinnedCol();
+        // 有任意置顶数据则一直展示；无数据保持隐藏，仅拖拽时临时出现
+        if (pinnedSlots.some(s => s)) showPinnedColOnSide(pinnedSide, false);
     });
 
     let lockedCardMinHeight = '';
