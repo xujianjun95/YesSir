@@ -94,6 +94,37 @@ chrome.tabs.onRemoved.addListener(async (tabId) => {
     });
 });
 
+// SW 启动时清理已失效的置顶 tabId。
+// 浏览器重启后 tab.id 全部重新分配，storage 里 ysPinnedTabs 保留的是上次 session 的 id，
+// 100% 失效，必须在面板初始化前清掉，否则用户看到的是"显示老 favicon 但点不动"的死置顶。
+(async () => {
+    try {
+        const stored = await chrome.storage.local.get('ysPinnedTabs');
+        const pinned = stored && stored.ysPinnedTabs;
+        if (!pinned) return;
+        const tabs = await chrome.tabs.query({});
+        const aliveIds = new Set((tabs || []).map((t) => t.id));
+        const prune = (arr) => (Array.isArray(arr) ? arr.map((s) => (s && aliveIds.has(s.tabId) ? s : null)) : arr);
+        let toWrite = null;
+        if (Array.isArray(pinned.slots)) {
+            const pruned = prune(pinned.slots);
+            if (pruned.some((s, i) => s !== pinned.slots[i])) {
+                toWrite = { slots: pruned, side: pinned.side || 'left' };
+            }
+        } else if (pinned.left || pinned.right) {
+            const l = prune(pinned.left || []);
+            const r = prune(pinned.right || []);
+            const diff = (a, b) => (a || []).some((s, i) => s !== (b || [])[i]);
+            if (diff(l, pinned.left) || diff(r, pinned.right)) {
+                toWrite = { left: l, right: r };
+            }
+        }
+        if (toWrite) await chrome.storage.local.set({ ysPinnedTabs: toWrite });
+    } catch (err) {
+        console.warn('启动时 prune 置顶失败:', err);
+    }
+})();
+
 chrome.windows.onFocusChanged.addListener((windowId) => {
     if (windowId === chrome.windows.WINDOW_ID_NONE) return;
     chrome.tabs.query({ active: true, windowId }, (tabs) => {
