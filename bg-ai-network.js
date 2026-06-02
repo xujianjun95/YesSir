@@ -800,6 +800,22 @@ function titleIsAmbiguous(title) {
 }
 
 /**
+ * 按总 tab 数动态计算目标 topic 数量区间。
+ * 原 prompt 写死 3-5 个，导致 30+ tab 全塌进「研发工具」这种巨型大类，
+ * 用户找不到东西。按 tab 量分档放宽上限，仍保留聚合倾向。
+ */
+function computeTopicTargetRange(n) {
+    if (n <= 3)  return { min: 1, max: 1 };
+    if (n <= 5)  return { min: 1, max: 2 };
+    if (n <= 10) return { min: 2, max: 3 };
+    if (n <= 15) return { min: 2, max: 4 };
+    if (n <= 25) return { min: 3, max: 6 };
+    if (n <= 40) return { min: 5, max: 8 };
+    return { min: 6, max: 10 };
+}
+
+
+/**
  * 批量聚类：一次请求拿到各标签的 topic，再按窗口分别 chrome.tabs.group（跨窗口不可同组）。
  * @param {number|undefined} restrictWindowId 若传入，仅处理该窗口内的标签（避免与其它窗口混组、或误搬移标签）。
  * @param {number|null|undefined} activeTabId 发起聚合操作时的标签 id；其所在组展开，其余折叠。
@@ -882,6 +898,8 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
         ...Object.values(userPrefs).filter(Boolean),
     ]));
 
+    const topicTarget = computeTopicTargetRange(httpTabs.length);
+
     try {
         if (toQuery.length > 0) {
             const tabLines = toQuery.map((t) => {
@@ -927,7 +945,7 @@ Correct example:
 Grouping rules:
 - Primary goal: merge. Find common ground across tabs and assign as many as possible to the SAME topic string.
 - Never one-tab-one-topic. E.g. bank dividends + stock reports + finance sites → all go to "📈 Investing"; Cursor + GitHub + Claude → all go to "💻 Dev Tools".
-- Keep total distinct topics to 3–5 within one batch; share topics aggressively.${existingSection}${userPrefSection}`
+- For this batch of ${httpTabs.length} tabs, aim for ${topicTarget.min}–${topicTarget.max} distinct topics in total (including any existing topics listed below). With more tabs, split overly-broad categories into more specific sub-topics (e.g. "💻 Dev Tools" → "🐙 GitHub PRs" / "📚 Tech Docs" / "🐛 Debugging") so each topic stays meaningful and easy to scan.${existingSection}${userPrefSection}`
                 : `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
 
 用户会以「每行一条标签页」的格式提供输入，格式为：id|title|url 或 id|title|url|desc:<页面描述>（title/desc 中原有的 "|" 已被替换为空格）。\`desc:\` 是可选字段，仅在标题信息量不足时附带，是该页面 meta description 的截断，作为补充判据；存在时请优先据其判断页面内容。你必须为每个 id 返回一行结果。
@@ -945,8 +963,8 @@ Grouping rules:
 【强制聚合规则】
 - 首要目标是合并同类项：尽最大努力发现网页之间的共性，把尽可能多的页面归入**相同**的 topic 字符串。
 - 模型默认倾向于发散描述；你必须主动做收敛归纳（Convergence），禁止「一页一个冷门 topic」。
-- 绝不允许「一页一类」。例如：关于「华夏银行分红」「紫金矿业财报」「东方财富」的页面必须统一归入 "📈 投资调研"；关于 Cursor、GitHub、Claude 的页面应统一归入 "💻 研发工具"。
-- 同一批标签里，不同 topic 的种数尽量控制在 3～5 个以内；能共用同一个 topic 就不要拆。${existingSection}${userPrefSection}`;
+- 绝不允许「一页一类」。例如：关于「华夏银行分红」「紫金矿业财报」「东方财富」的页面必须统一归入 "📈 投资调研"。
+- 本批共 ${httpTabs.length} 个标签，目标 distinct topic 总数 ${topicTarget.min}～${topicTarget.max} 个（含下方「已有 topic」）。当 tab 较多时，把过于宽泛的大类拆成更具体的子主题（例如 "💻 研发工具" → "🐙 GitHub PR" / "📚 技术文档" / "🐛 报错排查"），让每个 topic 都言之有物、扫一眼就知道里面是啥，不要为了凑数把不同性质的页面塞进同一个泛标签。${existingSection}${userPrefSection}`;
 
             const response = await callDeepSeekApi({
                     model: 'deepseek-chat',
@@ -954,7 +972,7 @@ Grouping rules:
                         { role: 'system', content: systemPrompt },
                         { role: 'user', content: tabLines },
                     ],
-                    temperature: 0.3,
+                    temperature: 0,
                 }, apiKey, { feature: 'aggregate' });
 
             const data = await response.json().catch(() => ({}));
@@ -1129,6 +1147,13 @@ chrome.tabGroups.query({}, (groups) => {
     for (const g of groups) {
         if (g && g.id != null) _groupTitleMap.set(g.id, String(g.title || '').trim());
     }
+});
+
+// 用户在 Chrome 原生标签栏「新建组 + 命名」时，onUpdated 里 oldTitle 取自 _groupTitleMap，
+// 没有这一步预登记的话会拿到 null，被防御 return 卡死，导致用户手动新建的分组无法写入偏好。
+chrome.tabGroups.onCreated.addListener((group) => {
+    if (!group || group.id == null) return;
+    _groupTitleMap.set(group.id, String(group.title || '').trim());
 });
 
 // 记录当前哪些 tab 打开了切换面板。广播只发给它们，避免给一百个无关标签都打消息。
