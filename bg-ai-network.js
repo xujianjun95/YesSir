@@ -814,6 +814,19 @@ function computeTopicTargetRange(n) {
     return { min: 6, max: 10 };
 }
 
+/**
+ * 系统保留的「收纳盒 / 兜底」分类名（零碎浏览 / 未分组 / Misc）。
+ * 这类名字只是 UI 兜底，绝不能被当成正常 topic 写入缓存/偏好，
+ * 更不能作为「已有 topic」喂回 LLM——否则会雪球式地把越来越多标签吸进零碎浏览。
+ */
+function isReservedTopic(topic) {
+    const t = String(topic || '').trim();
+    if (!t) return true;
+    if (/零碎浏览|未分组|未分类/.test(t)) return true;
+    if (/\bmisc(ellaneous)?\b/i.test(t)) return true;
+    return false;
+}
+
 
 /**
  * 批量聚类：一次请求拿到各标签的 topic，再按窗口分别 chrome.tabs.group（跨窗口不可同组）。
@@ -863,9 +876,10 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
         const idStr = String(t.id);
         const sig = buildTabSignature(t);
         const cached = entries[idStr];
-        if (cached && cached.sig === sig && cached[topicField]) {
+        if (cached && cached.sig === sig && cached[topicField] && !isReservedTopic(cached[topicField])) {
             results.push({ id: t.id, topic: cached[topicField] });
         } else {
+            // 含被污染成「零碎浏览」等保留名的缓存：作废，重新送 LLM 分类（自愈）
             toQuery.push(t);
         }
     }
@@ -876,7 +890,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
     for (const t of toQuery) {
         const domain = getDomainFromUrl(t.url);
         const prefTopic = domain && userPrefs[domain];
-        if (prefTopic) {
+        if (prefTopic && !isReservedTopic(prefTopic)) {
             results.push({ id: t.id, topic: prefTopic });
             const idStr = String(t.id);
             aiSnapshotCache.entries[idStr] = {
@@ -896,7 +910,7 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
     const existingTopics = Array.from(new Set([
         ...results.map((x) => x.topic).filter(Boolean),
         ...Object.values(userPrefs).filter(Boolean),
-    ]));
+    ])).filter((tp) => !isReservedTopic(tp));
 
     const topicTarget = computeTopicTargetRange(httpTabs.length);
 
@@ -917,10 +931,11 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
                     ? `\n\nExisting topics — reuse exactly (same string, same Emoji):\n${existingTopics.map((s) => `- ${s}`).join('\n')}\nIf a new tab fits any existing topic, use that exact string. Only create a new topic when none of them fit.`
                     : `\n\n【已有 topic — 必须优先复用，禁止改字】\n${existingTopics.map((s) => `- ${s}`).join('\n')}\n新标签能归入以上任意一条就直接用，字符串完全一致（含 Emoji）；仅在确实无法归类时才创造新 topic。`
                 : '';
-            const userPrefSection = Object.keys(userPrefs).length > 0
+            const _cleanPrefEntries = Object.entries(userPrefs).filter(([, t]) => !isReservedTopic(t));
+            const userPrefSection = _cleanPrefEntries.length > 0
                 ? isEnglishMode
-                    ? `\n\nUser-defined site categories — must follow strictly:\n${Object.entries(userPrefs).map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
-                    : `\n\n【用户手动设定的网站分类 — 必须严格遵守】\n${Object.entries(userPrefs).map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
+                    ? `\n\nUser-defined site categories — must follow strictly:\n${_cleanPrefEntries.map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
+                    : `\n\n【用户手动设定的网站分类 — 必须严格遵守】\n${_cleanPrefEntries.map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
                 : '';
 
             const systemPrompt = isEnglishMode
@@ -945,7 +960,10 @@ Correct example:
 Grouping rules:
 - Primary goal: merge. Find common ground across tabs and assign as many as possible to the SAME topic string.
 - Never one-tab-one-topic. E.g. bank dividends + stock reports + finance sites → all go to "📈 Investing"; Cursor + GitHub + Claude → all go to "💻 Dev Tools".
-- For this batch of ${httpTabs.length} tabs, aim for ${topicTarget.min}–${topicTarget.max} distinct topics in total (including any existing topics listed below). With more tabs, split overly-broad categories into more specific sub-topics (e.g. "💻 Dev Tools" → "🐙 GitHub PRs" / "📚 Tech Docs" / "🐛 Debugging") so each topic stays meaningful and easy to scan.${existingSection}${userPrefSection}`
+- For this batch of ${httpTabs.length} tabs, aim for ${topicTarget.min}–${topicTarget.max} distinct topics in total (including any existing topics listed below).
+- Pages from the SAME site or service MUST share one topic — e.g. several Alibaba Cloud pages, or several GitHub pages, stay together even if one is a console, one is docs, and one is billing. Never split them apart just because the sub-product or page purpose differs.
+- Every topic must hold at least 2 tabs to be worth creating; a topic that ends up with only 1 tab gets dumped into a "Misc" catch-all, so always prefer merging up into a broader category over making a tiny one-tab topic.
+- Only split a category into more specific sub-topics when there are many tabs AND that category is clearly bloated (e.g. "💻 Dev Tools" → "🐙 GitHub PRs" / "📚 Tech Docs"). With few tabs, always merge.${existingSection}${userPrefSection}`
                 : `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
 
 用户会以「每行一条标签页」的格式提供输入，格式为：id|title|url 或 id|title|url|desc:<页面描述>（title/desc 中原有的 "|" 已被替换为空格）。\`desc:\` 是可选字段，仅在标题信息量不足时附带，是该页面 meta description 的截断，作为补充判据；存在时请优先据其判断页面内容。你必须为每个 id 返回一行结果。
@@ -964,7 +982,10 @@ Grouping rules:
 - 首要目标是合并同类项：尽最大努力发现网页之间的共性，把尽可能多的页面归入**相同**的 topic 字符串。
 - 模型默认倾向于发散描述；你必须主动做收敛归纳（Convergence），禁止「一页一个冷门 topic」。
 - 绝不允许「一页一类」。例如：关于「华夏银行分红」「紫金矿业财报」「东方财富」的页面必须统一归入 "📈 投资调研"。
-- 本批共 ${httpTabs.length} 个标签，目标 distinct topic 总数 ${topicTarget.min}～${topicTarget.max} 个（含下方「已有 topic」）。当 tab 较多时，把过于宽泛的大类拆成更具体的子主题（例如 "💻 研发工具" → "🐙 GitHub PR" / "📚 技术文档" / "🐛 报错排查"），让每个 topic 都言之有物、扫一眼就知道里面是啥，不要为了凑数把不同性质的页面塞进同一个泛标签。${existingSection}${userPrefSection}`;
+- 本批共 ${httpTabs.length} 个标签，目标 distinct topic 总数 ${topicTarget.min}～${topicTarget.max} 个（含下方「已有 topic」）。
+- 同一个网站、同一个服务的多个页面，必须归入同一个 topic——例如多个阿里云页面（控制台、文档、账单）、多个 GitHub 页面，绝不能因为「子产品不同 / 页面性质不同」就拆开成几个分类。
+- 每个 topic 至少要装下 2 个标签才值得建组；只装 1 个标签的 topic 会被并入「零碎浏览」杂项组，所以宁可向上聚合到更大的类，也不要制造只有 1 个标签的细碎 topic。
+- 仅当标签很多、并且某个大类明显臃肿时，才把它拆成更具体的子主题（例如 "💻 研发工具" → "🐙 GitHub PR" / "📚 技术文档"）；标签少时一律优先聚合。${existingSection}${userPrefSection}`;
 
             const response = await callDeepSeekApi({
                     model: 'deepseek-chat',
@@ -1005,6 +1026,7 @@ Grouping rules:
             for (const r of llmResults) {
                 if (!queryIdSet.has(r.id)) continue;
                 results.push({ id: r.id, topic: r.topic });
+                if (isReservedTopic(r.topic)) continue; // 收纳盒名不写缓存，避免雪球式固化
                 const idStr = String(r.id);
                 cacheUpdates[idStr] = {
                     ...(entries[idStr] || {}),
@@ -1149,11 +1171,27 @@ chrome.tabGroups.query({}, (groups) => {
     }
 });
 
-// 用户在 Chrome 原生标签栏「新建组 + 命名」时，onUpdated 里 oldTitle 取自 _groupTitleMap，
-// 没有这一步预登记的话会拿到 null，被防御 return 卡死，导致用户手动新建的分组无法写入偏好。
-chrome.tabGroups.onCreated.addListener((group) => {
-    if (!group || group.id == null) return;
-    _groupTitleMap.set(group.id, String(group.title || '').trim());
+// 注意：这里曾有一个 chrome.tabGroups.onCreated 监听给每个新建组预登记标题，用于支持
+// 「用户原生新建组并命名」写偏好。但它给 AI 程序化建的组也登记了标题，摧毁了下方 onUpdated
+// 里「oldTitle === null 就不写偏好」的强防御——AI 建组（含「零碎浏览」、AI 乱生成的标题）
+// 被当成用户改名，把垃圾灌进 ysUserTopicPrefs，形成「越分越多标签被吸进零碎浏览」的黑洞。
+// 已移除该监听以恢复强防御：AI 建组首次命名时 oldTitle 必为 null → 不写偏好；用户手动改
+// 组名是第二次 onUpdated（oldTitle 非 null）→ 正常写偏好，核心偏好学习不受影响。
+
+// 一次性清洗历史脏偏好：value 为系统保留名（零碎浏览/未分组/Misc）的条目是上述漏洞期写入的，
+// 会污染 AI 分组的 existingTopics。SW 启动时清掉，幂等，无脏数据时空跑。
+chrome.storage.local.get(['ysUserTopicPrefs', 'ysUserTopicPrefs_en'], (res) => {
+    if (chrome.runtime.lastError) return;
+    const writes = {};
+    for (const key of ['ysUserTopicPrefs', 'ysUserTopicPrefs_en']) {
+        const prefs = (res && res[key]) || {};
+        let changed = false;
+        for (const [domain, topic] of Object.entries(prefs)) {
+            if (isReservedTopic(topic)) { delete prefs[domain]; changed = true; }
+        }
+        if (changed) writes[key] = prefs;
+    }
+    if (Object.keys(writes).length > 0) chrome.storage.local.set(writes);
 });
 
 // 记录当前哪些 tab 打开了切换面板。广播只发给它们，避免给一百个无关标签都打消息。
@@ -1204,7 +1242,7 @@ chrome.tabGroups.onUpdated.addListener((group) => {
     // tabGroups.onUpdated also fires for collapse/color changes. Count only real
     // title changes, and ignore titles set by our own grouping flows.
     if (oldTitle === null || oldTitle === newTitle || _programmaticTabGroupTitleUpdates.has(group.id)) return;
-    if (!newTitle) return;
+    if (!newTitle || isReservedTopic(newTitle)) return;
 
     const tabIdsInGroup = _groupTabsMap.get(group.id);
     if (!tabIdsInGroup || tabIdsInGroup.size === 0) return;
