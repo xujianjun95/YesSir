@@ -976,15 +976,34 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         });
     }
 
+    // 系统保留的「收纳盒/兜底」组名（零碎浏览/未分组/Misc），不作为 pill 展示，归入「其他」。
+    // 与 background 侧 bg-ai-network.js:isReservedTopic 对齐。
+    function _isReservedCategory(name) {
+        const t = String(name || '').trim();
+        if (!t) return true;
+        if (/零碎浏览|未分组|未分类/.test(t)) return true;
+        if (/\bmisc(ellaneous)?\b/i.test(t)) return true;
+        return false;
+    }
+
     function _buildTopicMap(raw) {
         switcherAiTopicMap = {};
-        if (!raw || !raw.entries) return;
-        const tabIds = new Set(tabs.map((t) => String(t.id)));
         const _isEn = ysGetResolvedLanguage() === 'en';
-        for (const [tabId, entry] of Object.entries(raw.entries)) {
-            const topic = _isEn ? (entry.topic_en || '') : (entry.topic || '');
-            if (tabIds.has(tabId) && topic) switcherAiTopicMap[tabId] = topic;
-        }
+        const entries = (raw && raw.entries) || {};
+        tabs.forEach((t) => {
+            const tabId = String(t.id);
+            // tab 已在真实 Chrome 标签组里 → 组名权威（随会话恢复，不依赖易失缓存）。
+            // 保留名（零碎浏览等）直接归「其他」，且不再回退缓存，避免脏缓存制造幽灵 pill。
+            const liveTitle = String(t.groupTitle || '').trim();
+            if (liveTitle) {
+                if (!_isReservedCategory(liveTitle)) switcherAiTopicMap[tabId] = liveTitle;
+                return;
+            }
+            // 完全未分组时，回退到 AI 快照缓存（已分类但尚未建组的场景）
+            const entry = entries[tabId];
+            const topic = entry ? (_isEn ? (entry.topic_en || '') : (entry.topic || '')) : '';
+            if (topic && !_isReservedCategory(topic)) switcherAiTopicMap[tabId] = topic;
+        });
     }
 
     // ── 初次渲染分类 pill ─────────────────────────────────────────────────────
@@ -996,9 +1015,19 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     // 供 background 推送 refresh_category_bar 消息时实时重建 pills
     window.__ysRefreshCategoryBar = () => {
         if (!switcherVisible) return;
-        chrome.storage.local.get('aiSnapshotV1', (storageRes) => {
-            _buildTopicMap(storageRes && storageRes.aiSnapshotV1);
-            _syncCategoryBar(_collectTopics(), true);
+        // 先用最新的真实组标题刷新本地 tab 快照（组名变更/删组/拖拽后必须重取），再结合缓存重建
+        ysSendToBg({ action: 'get_tabs' }, {}, (tabsRes) => {
+            if (tabsRes && Array.isArray(tabsRes.tabs)) {
+                const freshById = new Map(tabsRes.tabs.map((t) => [String(t.id), String(t.groupTitle || '')]));
+                tabs.forEach((t) => {
+                    const gt = freshById.get(String(t.id));
+                    if (gt !== undefined) t.groupTitle = gt;
+                });
+            }
+            chrome.storage.local.get('aiSnapshotV1', (storageRes) => {
+                _buildTopicMap(storageRes && storageRes.aiSnapshotV1);
+                _syncCategoryBar(_collectTopics(), true);
+            });
         });
     };
 
@@ -1725,6 +1754,11 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
 
             if (newTopic === null) delete switcherAiTopicMap[tabIdStr];
             else switcherAiTopicMap[tabIdStr] = newTopic;
+
+            // 同步本地 tab 的 groupTitle 快照，避免随后 refresh_category_bar 用旧快照
+            // 经 _buildTopicMap 把拖拽结果覆盖回原分类
+            const _draggedTab = tabs.find((t) => String(t.id) === tabIdStr);
+            if (_draggedTab) _draggedTab.groupTitle = newTopic || '';
 
             persistTopicChange(tabIdStr, dragTab, newTopic);
             flashDropPill(targetPill);

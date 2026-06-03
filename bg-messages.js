@@ -223,41 +223,53 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     // ── 获取所有窗口标签页（用于全局看板） ──
     else if (request.action === "get_tabs") {
         const currentWindowId = sender.tab ? sender.tab.windowId : null;
-        chrome.tabs.query({}, function(tabs) {
-            tabs.forEach((t) => saveFaviconToCache(t.url, t.favIconUrl));
-            const sortedTabs = tabs.slice().sort((a, b) => {
-                if (a.windowId !== b.windowId) return a.windowId - b.windowId;
-                return a.index - b.index;
-            });
-            const uniqueWindowIds = [...new Set(sortedTabs.map(t => t.windowId))];
-            const windowMap = {};
+        (async () => {
+            // 真实标签组标题（id → title）：pill 以此为准，避免依赖易失的 aiSnapshotV1 缓存
+            const groupTitleById = {};
+            try {
+                const groups = await chrome.tabGroups.query({});
+                for (const g of groups) if (g && g.id != null) groupTitleById[g.id] = String(g.title || '').trim();
+            } catch (_) {}
 
-            uniqueWindowIds.forEach((id) => {
-                if (currentWindowId !== null && id === currentWindowId) {
-                    windowMap[id] = bgT('windowLabelCurrent');
-                } else {
-                    windowMap[id] = bgT('windowLabelOther');
-                }
-            });
+            chrome.tabs.query({}, function(tabs) {
+                tabs.forEach((t) => saveFaviconToCache(t.url, t.favIconUrl));
+                const sortedTabs = tabs.slice().sort((a, b) => {
+                    if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+                    return a.index - b.index;
+                });
+                const uniqueWindowIds = [...new Set(sortedTabs.map(t => t.windowId))];
+                const windowMap = {};
 
-            sendResponse({
-                currentWindowId,
-                tabs: sortedTabs.map(t => {
-                    const domain = getDomainFromUrl(t.url);
-                    const fallbackIcon = domain ? String(faviconCache[domain] || '') : '';
-                    return {
-                        id:         t.id,
-                        windowId:   t.windowId,
-                        windowName: windowMap[t.windowId] || '',
-                        index:      t.index,
-                        title:      t.title || bgT('footerUntitled'),
-                        url:        t.url   || '',
-                        active:     t.active,
-                        favIconUrl: t.favIconUrl || fallbackIcon,
-                    };
-                })
+                uniqueWindowIds.forEach((id) => {
+                    if (currentWindowId !== null && id === currentWindowId) {
+                        windowMap[id] = bgT('windowLabelCurrent');
+                    } else {
+                        windowMap[id] = bgT('windowLabelOther');
+                    }
+                });
+
+                sendResponse({
+                    currentWindowId,
+                    tabs: sortedTabs.map(t => {
+                        const domain = getDomainFromUrl(t.url);
+                        const fallbackIcon = domain ? String(faviconCache[domain] || '') : '';
+                        const hasGroup = typeof t.groupId === 'number' && t.groupId > 0;
+                        return {
+                            id:         t.id,
+                            windowId:   t.windowId,
+                            windowName: windowMap[t.windowId] || '',
+                            index:      t.index,
+                            title:      t.title || bgT('footerUntitled'),
+                            url:        t.url   || '',
+                            active:     t.active,
+                            favIconUrl: t.favIconUrl || fallbackIcon,
+                            groupId:    hasGroup ? t.groupId : -1,
+                            groupTitle: hasGroup ? (groupTitleById[t.groupId] || '') : '',
+                        };
+                    })
+                });
             });
-        });
+        })();
         return true;
     }
 
