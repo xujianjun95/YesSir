@@ -594,7 +594,7 @@ async function computeAiSnapshotForTabs(tabs) {
         if (siteName) siteNames[id] = siteName;
 
         updates[id] = {
-            ...(cached || {}),
+            ...(isSigMatch ? cached : {}),
             sig,
             siteName: siteName || '',
             updatedAt: Date.now(),

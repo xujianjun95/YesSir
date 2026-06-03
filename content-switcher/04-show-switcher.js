@@ -2540,7 +2540,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         if (err) return;
         applyAiSnapshotToView(res);
     });
-    ysSendToBg({ action: 'prewarm_ai_snapshot', tabs: tabsForAi }, {}, (res, err) => {
+    ysSendToBg({ action: 'prewarm_ai_current_window', tabs: tabsForAi }, {}, (res, err) => {
         if (err) return;
         applyAiSnapshotToView(res);
     });

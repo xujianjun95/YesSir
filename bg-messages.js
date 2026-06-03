@@ -381,26 +381,40 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             const nowTs = Date.now();
             const lastTs = _prewarmLastAt.get(windowKey) || 0;
             if (nowTs - lastTs < PREWARM_INTERVAL_MS) {
-                sendResponse({ success: true, skipped: true, reason: 'throttled' });
+                const tabList = Array.isArray(request.tabs) ? request.tabs : [];
+                sendResponse({
+                    success: true,
+                    skipped: true,
+                    reason: 'throttled',
+                    ...(tabList.length > 0 ? buildAiSnapshotFromCache(tabList) : {}),
+                });
                 return;
             }
             const inflight = _prewarmInflight.get(windowKey);
             if (inflight) {
-                try { await inflight; sendResponse({ success: true, skipped: true, reason: 'inflight' }); }
+                try {
+                    const result = await inflight;
+                    sendResponse({ success: true, skipped: true, reason: 'inflight', ...(result || {}) });
+                }
                 catch (_) { sendResponse({ success: false, error: 'inflight_failed' }); }
                 return;
             }
 
             const query = sourceWindowId === null ? {} : { windowId: sourceWindowId };
             const job = (async () => {
-                const tabs = await new Promise((resolve) => chrome.tabs.query(query, resolve));
-                if (chrome.runtime.lastError) throw new Error(chrome.runtime.lastError.message);
-                const tabList = (tabs || []).map((t) => ({
+                const requestTabs = Array.isArray(request.tabs) ? request.tabs : [];
+                let tabList = requestTabs.map((t) => ({
                     id: t.id, title: t.title || '', url: t.url || '',
-                }));
+                })).filter((t) => t.id != null);
+                if (tabList.length === 0) {
+                    const tabs = await new Promise((resolve) => chrome.tabs.query(query, resolve));
+                    if (chrome.runtime.lastError) throw new Error(chrome.runtime.lastError.message);
+                    tabList = (tabs || []).map((t) => ({
+                        id: t.id, title: t.title || '', url: t.url || '',
+                    }));
+                }
                 if (tabList.length === 0) return { skipped: true };
-                await computeAiSnapshotForTabs(tabList);
-                return {};
+                return await computeAiSnapshotForTabs(tabList);
             })();
             _prewarmInflight.set(windowKey, job);
 

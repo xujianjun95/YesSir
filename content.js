@@ -78,7 +78,7 @@ function ensureYsThemeStylesInjected() {
     style.textContent = `
         :root {
           --ys-overlay-bg: rgba(160, 175, 200, 0.16);
-          --ys-card-bg: rgba(248, 248, 246, 0.38);
+          --ys-card-bg: rgba(255, 255, 255, 0.68);
           --ys-card-border: rgba(255, 255, 255, 0.52);
           --ys-card-shadow: 0 24px 64px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
           --ys-divider: rgba(0, 0, 0, 0.05);
@@ -86,11 +86,11 @@ function ensureYsThemeStylesInjected() {
           --ys-text-primary: rgba(40, 50, 70, 0.9);
           --ys-text-secondary: rgba(80, 92, 120, 0.72);
           --ys-text-muted: rgba(100, 110, 130, 0.6);
-          --ys-search-bg: rgba(255, 255, 255, 0.25);
+          --ys-search-bg: rgba(255, 255, 255, 0.58);
           --ys-search-border: rgba(255, 255, 255, 0.65);
           --ys-search-icon: rgba(120, 130, 150, 0.6);
           --ys-search-shadow: inset 0 1px 2px rgba(0,0,0,0.02), 0 1px 3px rgba(0,0,0,0.02);
-          --ys-search-focus-bg: rgba(255, 255, 255, 0.45);
+          --ys-search-focus-bg: rgba(255, 255, 255, 0.78);
           --ys-search-focus-border: rgba(80, 110, 220, 0.4);
           --ys-search-focus-shadow: 0 0 0 3px rgba(80, 110, 220, 0.12), inset 0 1px 2px rgba(0,0,0,0.01);
           --ys-accent: rgba(80, 110, 220, 0.9);
@@ -103,7 +103,7 @@ function ensureYsThemeStylesInjected() {
           --ys-btn-hover: rgba(0, 0, 0, 0.08);
           --ys-btn-border: rgba(0, 0, 0, 0.06);
           --ys-btn-text: rgba(80, 90, 110, 0.9);
-          --ys-settings-bg: rgba(255, 255, 255, 0.85);
+          --ys-settings-bg: rgba(255, 255, 255, 0.84);
           --ys-settings-border: rgba(255, 255, 255, 0.8);
           --ys-settings-shadow: 0 8px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.5);
           --ys-settings-item-hover: rgba(80, 110, 220, 0.08);
