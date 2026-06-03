@@ -13,11 +13,28 @@ function getTabGroupDomainKey(url) {
     try {
         if (url && String(url).startsWith('http')) {
             const u = new URL(url);
+            // IP / 内网主机没有品牌，与 content 侧 getTabDomainKey 一致，统一归入「本地网页/其他」
+            if (isBrandlessHost(u.hostname)) return '本地网页/其他';
             const parts = u.hostname.split('.');
             domain = parts.length >= 2 ? parts.slice(-2).join('.') : u.hostname;
         }
     } catch (e) {}
     return domain;
+}
+
+/**
+ * IP 地址 / localhost / 单段内网主机名等「没有品牌可言」的 host。
+ * 这类 host 送去问 LLM「这是哪个网站」只会得到「无法确认品牌」之类的废话，
+ * 还会被当成站点名缓存下来污染面板，必须在调用 LLM 前短路掉。
+ */
+function isBrandlessHost(domain) {
+    const d = String(domain || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+    if (!d) return true;
+    if (d === 'localhost' || d.endsWith('.localhost') || d.endsWith('.local')) return true;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(d)) return true; // IPv4
+    if (d.includes(':')) return true;                    // IPv6
+    if (!d.includes('.')) return true;                   // 单段内网主机名
+    return false;
 }
 
 function normalizeSiteName(rawName, url = '') {
@@ -32,6 +49,10 @@ function normalizeSiteName(rawName, url = '') {
         .trim();
 
     if (!name) return null;
+
+    // 模型偶发「无法确认品牌 / 不确定 / 未知」之类的否定回答，不是品牌名，直接丢弃
+    if (/无法|不确定|未知|不知道|无品牌|没有品牌|无法识别|cannot|unknown|not\s+sure|no\s+brand/i.test(name)) return null;
+
     if (name.length > 20) name = name.slice(0, 20).trim();
 
     const domain = getDomainFromUrl(url);

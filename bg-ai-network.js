@@ -453,6 +453,17 @@ function buildTabSignature(tab) {
     }
 }
 
+/**
+ * 净化历史快照里的 siteName：IP/内网主机不该有品牌名，模型否定回答（「无法确认品牌」等）
+ * 也不是品牌名。旧版本可能已把这些脏值连同 tab 缓存进 aiSnapshotV1，这里读取时统一过滤，
+ * 让脏快照自愈，避免面板继续显示废话。
+ */
+function sanitizeCachedSiteName(siteName, url) {
+    if (!siteName) return '';
+    if (isBrandlessHost(getDomainFromUrl(url))) return '';
+    return normalizeSiteName(siteName, url) || '';
+}
+
 function buildAiSnapshotFromCache(tabs) {
     const siteNames = {};
     const labels = {};
@@ -462,7 +473,8 @@ function buildAiSnapshotFromCache(tabs) {
         const cached = entries[id];
         if (!cached) return;
         if (cached.sig !== buildTabSignature(tab)) return;
-        if (cached.siteName) siteNames[id] = cached.siteName;
+        const cleanName = sanitizeCachedSiteName(cached.siteName, tab.url);
+        if (cleanName) siteNames[id] = cleanName;
         /* 尚无 pageLabel 字段的旧条目不强行兜底，等与 prewarm/recompute */
         if (cached.pageLabel === undefined || cached.pageLabel === null) return;
         labels[id] = coerceAndFinalizePageLabel(cached.pageLabel, tab);
@@ -564,7 +576,7 @@ async function computeAiSnapshotForTabs(tabs) {
         const cached = entries[id];
         const isSigMatch = !!(cached && cached.sig === sig);
 
-        let siteName = isSigMatch ? cached.siteName : '';
+        let siteName = isSigMatch ? sanitizeCachedSiteName(cached.siteName, tab.url) : '';
         if (siteName === undefined || siteName === null) siteName = '';
         if (!siteName) {
             const domain = getDomainFromUrl(tab.url);
@@ -682,6 +694,10 @@ async function computeAiSnapshotForTabs(tabs) {
 async function getSmartSiteName(title, url, apiKey, preloadedSiteNames) {
     const keywordName = inferSiteNameByKeyword(title, url);
     if (keywordName) return keywordName;
+
+    // IP / localhost / 内网主机没有品牌可言，绝不送 LLM——否则会拿到「无法确认品牌」之类的
+    // 废话被当成站点名。放在读缓存之前，顺带绕过历史污染缓存（旧版给 IP 存过的脏值）。
+    if (isBrandlessHost(getDomainFromUrl(url))) return null;
 
     const cacheKey = siteNameCacheKey(url);
     let rawCached;
@@ -1059,7 +1075,21 @@ Grouping rules:
         }
 
         const orphanTitle = isEnglishMode ? '🗂️ Misc' : '🗂️ 零碎浏览';
-        const groupCount = await performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId, orphanTitle);
+        const { groupCount, orphanTabIds } = await performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId, orphanTitle);
+
+        // 缓存与真实分组对齐：只有 1 个标签的 topic 不会单独建组，而是落进「零碎浏览」孤儿组
+        // （或干脆不成组）。但上面已把这些标签的描述性 topic（如「📈 投资」）写进了缓存，真实组名
+        // 却是「🗂️ 零碎浏览」——面板 pill 按真实组名过滤时会把它们整批剔除，导致「有缓存却无对应
+        // pill」的幽灵，严重时把 categoryBar 整个滤空。这里把孤儿标签的描述性 topic 从缓存抹掉，
+        // 让它们在面板里归入「其他」，与 Chrome 实际看到的分组保持一致。
+        if (orphanTabIds && orphanTabIds.length > 0) {
+            let dirty = false;
+            for (const id of orphanTabIds) {
+                const e = aiSnapshotCache.entries[String(id)];
+                if (e && e[topicField]) { delete e[topicField]; dirty = true; }
+            }
+            if (dirty) persistAiSnapshotCache();
+        }
         return { groupCount };
     } catch (error) {
         console.error('批量聚类失败:', error);
@@ -1099,6 +1129,11 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId,
         }
     }
 
+    // 所有单标签孤儿 id（无论最终是否真的成组），用于让调用方把缓存里的描述性 topic 抹掉，
+    // 保持缓存与真实分组一致。
+    const allOrphanTabIds = [];
+    for (const ids of orphansByWindow.values()) allOrphanTabIds.push(...ids);
+
     // 长尾收纳：每窗口内孤儿 ≥2 个时，归入灰色折叠组；若包含当前标签则展开该组
     for (const [wId, orphanTabIds] of orphansByWindow) {
         if (orphanTabIds.length < 2) continue;
@@ -1115,7 +1150,7 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId,
         }
     }
 
-    return groupCount;
+    return { groupCount, orphanTabIds: allOrphanTabIds };
 }
 
 async function fetchSearchSuggestions(query) {

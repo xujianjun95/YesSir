@@ -46,11 +46,27 @@ const GROUP_DOMAIN_BRANDING = {
     },
 };
 
+/**
+ * IP / localhost / 单段内网主机名等「没有品牌、不该按域名分组」的 host。
+ * 与 background 侧 rules.js:isBrandlessHost 保持一致。
+ */
+function isBrandlessHostName(hostname) {
+    const d = String(hostname || '').trim().toLowerCase().replace(/^\[|\]$/g, '');
+    if (!d) return true;
+    if (d === 'localhost' || d.endsWith('.localhost') || d.endsWith('.local')) return true;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(d)) return true; // IPv4
+    if (d.includes(':')) return true;                    // IPv6
+    if (!d.includes('.')) return true;                   // 单段内网主机名
+    return false;
+}
+
 function getTabDomainKey(tab) {
     let domain = '本地网页/其他';
     try {
         if (tab.url && tab.url.startsWith('http')) {
             const url = new URL(tab.url);
+            // IP / 内网主机没有品牌，末两段截断会得到「16.118」这类怪键，统一归入「本地网页/其他」
+            if (isBrandlessHostName(url.hostname)) return '本地网页/其他';
             const parts = url.hostname.split('.');
             domain = parts.length >= 2 ? parts.slice(-2).join('.') : url.hostname;
         }
