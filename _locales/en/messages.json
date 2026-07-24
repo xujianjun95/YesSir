@@ -1,9 +1,9 @@
 {
   "extensionName": {
-    "message": "AI Tab Groups, Semantic Search, CrossWindow, Double-Click to Close – YesSir"
+    "message": "YesSir - Tab Groups, AI Search & Quick Switch"
   },
   "extensionDescription": {
-    "message": "YesSir: AI-powered cross-window tab organization, auto-grouping, fast switching, double-click to close, semantic search, and a frosted-glass UI—so your tabs stay under control."
+    "message": "Too many tabs? YesSir uses AI to group and organize them across windows, so you can search, switch, and close tabs with ease."
   },
   "panelTitle": {
     "message": "\"🫡 YesSir\" Tab Manager"
