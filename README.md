@@ -22,4 +22,4 @@
 > 新用户无需自备 API Key 即可试用 AI 功能（每日免费额度），也可在设置中填入自己的 Key 解锁完整体验。
 > 界面支持 简体中文 / English。
 
-当前版本：**v1.5.4**（更新日志见 [CHANGELOG.md](./CHANGELOG.md)）
+当前版本：**v1.5.5**（更新日志见 [CHANGELOG.md](./CHANGELOG.md)）

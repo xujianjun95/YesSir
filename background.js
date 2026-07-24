@@ -2,6 +2,7 @@
 importScripts('rules.js');
 importScripts('bg-core.js');
 importScripts('bg-telemetry.js');
+importScripts('bg-grouping-rules.js');
 importScripts('bg-ai-network.js');
 importScripts('bg-i18n.js');
 importScripts('bg-messages.js');

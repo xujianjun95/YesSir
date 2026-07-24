@@ -139,7 +139,10 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     const title  = (t.title  || '').toLowerCase();
                     const url    = (t.url    || '').toLowerCase();
                     const domain = getTabDomainKey(t).toLowerCase();
-                    const siteName = (domainToSiteNameMap[domain] || '').toLowerCase();
+                    const siteName = ysResolveDomainDisplayName(
+                        domain,
+                        domainToSiteNameMap[domain],
+                    ).toLowerCase();
                     const searchStr = foldDiacritics(`${title} ${url} ${domain} ${siteName}`);
                     return normalizedKws.some((kw) => matchesAiKeywordInString(searchStr, kw));
                 });
@@ -148,7 +151,10 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     const title  = (t.title  || '').toLowerCase();
                     const url    = (t.url    || '').toLowerCase();
                     const domain = getTabDomainKey(t).toLowerCase();
-                    const siteName = (domainToSiteNameMap[domain] || '').toLowerCase();
+                    const siteName = ysResolveDomainDisplayName(
+                        domain,
+                        domainToSiteNameMap[domain],
+                    ).toLowerCase();
                     return title.includes(keyword)
                         || url.includes(keyword)
                         || domain.includes(keyword)
@@ -294,15 +300,14 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                 const groupRow = document.createElement('div');
                 groupRow.className = 'ys-group-row';
                 Object.assign(groupRow.style, {
-                    display: 'grid',
-                    gridTemplateColumns: '130px minmax(0, 1fr)',
-                    columnGap: '14px',
+                    display: 'flex',
+                    flexDirection: 'column',
                     width: '100%',
                     boxSizing: 'border-box',
-                    padding: '12px 6px',
+                    padding: '0 6px',
+                    marginBottom: '4px',
                     background: 'transparent',
                     border: 'none',
-                    borderBottom: '1px solid rgba(0, 0, 0, 0.03)',
                     boxShadow: 'none',
                 });
     
@@ -310,12 +315,14 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                 leftCol.className = 'ys-group-left';
                 Object.assign(leftCol.style, {
                     minWidth: '0',
+                    width: '100%',
                     display: 'flex',
-                    alignItems: 'flex-start',
+                    alignItems: 'center',
                     gap: '0',
-                    paddingTop: '9px',
+                    padding: '12px 12px 8px',
+                    boxSizing: 'border-box',
+                    background: 'transparent',
                     opacity: '1',
-                    transition: 'opacity 0.2s ease',
                 });
     
                 const domainRow = document.createElement('div');
@@ -323,64 +330,170 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                 Object.assign(domainRow.style, {
                     display: 'flex',
                     alignItems: 'center',
-                    gap: '8px',
+                    gap: '0',
                     width: '100%',
                 });
-    
-                const iconDiv = document.createElement('div');
-                Object.assign(iconDiv.style, {
-                    width: '18px', height: '18px', flexShrink: '0',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    background: 'var(--ys-btn-bg)', borderRadius: '4px',
-                    fontSize: '10px', fontWeight: 'bold', color: 'var(--ys-text-secondary)'
-                });
-                if (group.icon) {
-                    const img = document.createElement('img');
-                    img.src = group.icon; img.width = 14; img.height = 14;
-                    Object.assign(img.style, {
-                        width: '14px',
-                        height: '14px',
-                        objectFit: 'contain',
-                        flexShrink: '0',
-                        borderRadius: '2px',
-                        display: 'block',
-                    });
-                    img.onerror = () => {
-                        img.remove();
-                        if (group.domain === '本地网页/其他') {
-                            iconDiv.textContent = '📄';
-                            iconDiv.style.fontSize = '11px';
-                        } else if (group.displayNameOverride) {
-                            iconDiv.textContent = group.displayNameOverride.charAt(0);
-                            iconDiv.style.fontSize = '11px';
-                        } else {
-                            iconDiv.textContent = group.domain[0].toUpperCase();
-                        }
-                    };
-                    iconDiv.appendChild(img);
-                } else if (group.domain === '本地网页/其他') {
-                    iconDiv.textContent = '📄';
-                    iconDiv.style.fontSize = '11px';
-                } else {
-                    iconDiv.textContent = group.domain[0].toUpperCase();
-                }
     
                 const domainText = document.createElement('div');
                 domainText.className = 'ys-domain-label';
                 Object.assign(domainText.style, {
-                    flex: '1',
+                    flex: '0 1 auto',
                     minWidth: '0',
-                    fontSize: '13px', fontWeight: '500', color: 'var(--ys-text-primary)',
+                    maxWidth: '70%',
+                    fontSize: '13px', fontWeight: '650', color: 'var(--ys-text-primary)',
                     lineHeight: '1.4',
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
+                    cursor: 'text',
+                    userSelect: 'none',
+                    WebkitUserSelect: 'none',
                 });
-                const displayDomainName = group.displayNameOverride || domainToSiteNameMap[group.domain] || group.domain;
+                const displayDomainName = ysResolveDomainDisplayName(
+                    group.domain,
+                    domainToSiteNameMap[group.domain],
+                );
                 domainText.textContent = displayDomainName;
+                domainText.title = ysT('domainNameEditHint');
+
+                const titleDivider = document.createElement('span');
+                titleDivider.className = 'ys-domain-title-divider';
+                titleDivider.setAttribute('aria-hidden', 'true');
+                Object.assign(titleDivider.style, {
+                    flex: '1',
+                    minWidth: '10px',
+                    height: '1px',
+                    marginLeft: '12px',
+                    background: 'var(--ys-divider)',
+                    opacity: '0.60',
+                    pointerEvents: 'none',
+                });
+
+                const editHint = document.createElement('span');
+                editHint.className = 'ys-domain-edit-hint';
+                editHint.textContent = '✎';
+                editHint.setAttribute('aria-hidden', 'true');
+                editHint.title = ysT('domainNameEditHint');
+                Object.assign(editHint.style, {
+                    width: '18px',
+                    height: '18px',
+                    flexShrink: '0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    marginLeft: '6px',
+                    color: 'var(--ys-text-secondary)',
+                    background: 'transparent',
+                    fontSize: '13px',
+                    lineHeight: '1',
+                    opacity: '0',
+                    pointerEvents: 'none',
+                    transform: 'translateX(2px)',
+                    transition: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+                        ? 'none'
+                        : 'opacity 0.16s ease, transform 0.16s ease',
+                });
+
+                const setEditHintVisible = (visible) => {
+                    editHint.style.opacity = visible ? '0.72' : '0';
+                    editHint.style.transform = visible ? 'translateX(0)' : 'translateX(2px)';
+                };
+                domainRow.addEventListener('mouseenter', () => setEditHintVisible(true));
+                domainRow.addEventListener('mouseleave', () => {
+                    if (!domainRow.querySelector('.ys-domain-name-input')) setEditHintVisible(false);
+                });
+                domainRow.addEventListener('focusin', () => setEditHintVisible(true));
+                domainRow.addEventListener('focusout', () => {
+                    setTimeout(() => {
+                        if (!domainRow.contains(document.activeElement)) setEditHintVisible(false);
+                    }, 0);
+                });
+
+                domainText.addEventListener('dblclick', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    if (domainRow.querySelector('.ys-domain-name-input')) return;
+
+                    titleDivider.style.display = 'none';
+                    setEditHintVisible(true);
+                    const input = document.createElement('input');
+                    input.className = 'ys-domain-name-input';
+                    input.type = 'text';
+                    input.maxLength = YS_DOMAIN_DISPLAY_NAME_MAX_LENGTH;
+                    input.value = ysResolveDomainDisplayName(
+                        group.domain,
+                        domainToSiteNameMap[group.domain],
+                    );
+                    input.placeholder = ysT('domainNameEditPlaceholder');
+                    input.setAttribute('aria-label', ysT('domainNameEditAriaLabel'));
+                    Object.assign(input.style, {
+                        flex: '1',
+                        minWidth: '0',
+                        width: '100%',
+                        height: '24px',
+                        boxSizing: 'border-box',
+                        padding: '2px 6px',
+                        border: '1px solid var(--ys-search-focus-border)',
+                        borderRadius: '6px',
+                        outline: 'none',
+                        background: 'var(--ys-search-focus-bg)',
+                        color: 'var(--ys-text-primary)',
+                        boxShadow: 'var(--ys-search-focus-shadow)',
+                        font: 'inherit',
+                        fontSize: '13px',
+                        lineHeight: '1.4',
+                    });
+
+                    let finished = false;
+                    const finishEditing = (shouldSave) => {
+                        if (finished) return;
+                        finished = true;
+                        const nextName = input.value.trim();
+                        if (!shouldSave) {
+                            titleDivider.style.display = '';
+                            input.replaceWith(domainText);
+                            return;
+                        }
+
+                        input.disabled = true;
+                        ysSaveDomainDisplayNameOverride(group.domain, nextName, (success) => {
+                            if (!input.isConnected) return;
+                            titleDivider.style.display = '';
+                            if (!success) {
+                                input.replaceWith(domainText);
+                                showCustomToast(ysT('domainNameSaveFailed'), 3200);
+                                return;
+                            }
+                            domainText.textContent = ysResolveDomainDisplayName(
+                                group.domain,
+                                domainToSiteNameMap[group.domain],
+                            );
+                            input.replaceWith(domainText);
+                        });
+                    };
+
+                    input.addEventListener('keydown', (inputEvent) => {
+                        inputEvent.stopPropagation();
+                        if (inputEvent.key === 'Enter') {
+                            inputEvent.preventDefault();
+                            finishEditing(true);
+                        } else if (inputEvent.key === 'Escape') {
+                            inputEvent.preventDefault();
+                            finishEditing(false);
+                        }
+                    });
+                    input.addEventListener('mousedown', (inputEvent) => inputEvent.stopPropagation());
+                    input.addEventListener('dblclick', (inputEvent) => inputEvent.stopPropagation());
+                    input.addEventListener('blur', () => finishEditing(true));
+
+                    domainText.replaceWith(input);
+                    input.focus();
+                    input.select();
+                });
     
-                domainRow.appendChild(iconDiv);
                 domainRow.appendChild(domainText);
+                domainRow.appendChild(titleDivider);
+                domainRow.appendChild(editHint);
                 leftCol.appendChild(domainRow);
     
                 const rightCol = document.createElement('div');
@@ -389,6 +502,7 @@ function ysSwitcherAttachListRenderBundle(mode, listContainer, card, slot, tabs)
                     display: 'flex',
                     flexDirection: 'column',
                     gap: '2px',
+                    paddingLeft: '26px',
                     paddingTop: '0',
                     paddingBottom: '0',
                 });

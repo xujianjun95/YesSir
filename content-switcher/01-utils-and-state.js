@@ -35,8 +35,13 @@ let switcherActiveCategory = null;
 let switcherAiTopicMap = {};
 /** domain -> AI 提取的网站名称 */
 let domainToSiteNameMap = {};
+/** domain -> 用户自定义的网站分组显示名称；按站点键持久化，标签全部关闭后仍可复用 */
+let domainDisplayNameOverrides = {};
 /** tabId -> AI 生成的页面功能标签 */
 let tabPageLabelMap = {};
+
+const YS_DOMAIN_DISPLAY_NAME_OVERRIDES_KEY = 'ysDomainDisplayNameOverridesV1';
+const YS_DOMAIN_DISPLAY_NAME_MAX_LENGTH = 40;
 
 /** 同一二级域名下多子品牌（如 music.163.com / news.163.com）时，左侧分组统一用母品牌名与 favicon */
 const GROUP_DOMAIN_BRANDING = {
@@ -45,6 +50,65 @@ const GROUP_DOMAIN_BRANDING = {
         iconUrl: 'https://www.163.com/favicon.ico',
     },
 };
+
+function ysSanitizeDomainDisplayNameOverrides(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    const sanitized = {};
+    Object.entries(value).forEach(([rawDomain, rawName]) => {
+        const domain = String(rawDomain || '').trim().toLowerCase().slice(0, 253);
+        const name = String(rawName || '').trim().slice(0, YS_DOMAIN_DISPLAY_NAME_MAX_LENGTH);
+        if (domain && name) sanitized[domain] = name;
+    });
+    return sanitized;
+}
+
+function ysResolveDomainDisplayName(domain, aiSiteName = '') {
+    const normalizedDomain = String(domain || '').trim().toLowerCase();
+    return domainDisplayNameOverrides[normalizedDomain]
+        || GROUP_DOMAIN_BRANDING[normalizedDomain]?.displayName
+        || String(aiSiteName || '').trim()
+        || domain;
+}
+
+function ysLoadDomainDisplayNameOverrides(callback) {
+    chrome.storage.local.get({ [YS_DOMAIN_DISPLAY_NAME_OVERRIDES_KEY]: {} }, (result) => {
+        const error = chrome.runtime.lastError;
+        if (error) {
+            callback?.(false, error.message || String(error));
+            return;
+        }
+        domainDisplayNameOverrides = ysSanitizeDomainDisplayNameOverrides(
+            result && result[YS_DOMAIN_DISPLAY_NAME_OVERRIDES_KEY],
+        );
+        callback?.(true, null);
+    });
+}
+
+function ysSaveDomainDisplayNameOverride(domain, value, callback) {
+    const normalizedDomain = String(domain || '').trim().toLowerCase().slice(0, 253);
+    if (!normalizedDomain) {
+        callback?.(false, 'invalid_domain');
+        return;
+    }
+
+    const normalizedName = String(value || '').trim().slice(0, YS_DOMAIN_DISPLAY_NAME_MAX_LENGTH);
+    const nextOverrides = { ...domainDisplayNameOverrides };
+    if (normalizedName) nextOverrides[normalizedDomain] = normalizedName;
+    else delete nextOverrides[normalizedDomain];
+
+    chrome.storage.local.set(
+        { [YS_DOMAIN_DISPLAY_NAME_OVERRIDES_KEY]: nextOverrides },
+        () => {
+            const error = chrome.runtime.lastError;
+            if (error) {
+                callback?.(false, error.message || String(error));
+                return;
+            }
+            domainDisplayNameOverrides = nextOverrides;
+            callback?.(true, null);
+        },
+    );
+}
 
 /**
  * IP / localhost / 单段内网主机名等「没有品牌、不该按域名分组」的 host。
@@ -215,4 +279,3 @@ function groupTabsByDomain(tabs) {
     });
     return groups;
 }
-

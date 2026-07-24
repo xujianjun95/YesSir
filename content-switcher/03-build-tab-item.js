@@ -55,7 +55,7 @@ function buildTabItem(tab, globalIdx, container) {
         display:        'flex',
         alignItems:     'center',
         justifyContent: 'flex-start',
-        minHeight:      '36px',
+        minHeight:      '44px',
         padding:        '8px 12px',
         borderRadius:   '8px',
         cursor:         'pointer',

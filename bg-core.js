@@ -16,6 +16,7 @@ function normalizeHistoryItem(item) {
         tabId,
         windowId,
         title: item.title ? String(item.title) : '(无标题)',
+        url: item.url ? String(item.url) : '',
         favIconUrl: item.favIconUrl ? String(item.favIconUrl) : '',
     };
 }
@@ -61,8 +62,10 @@ function updateGlobalTab(tabId) {
                 tabId: tab.id,
                 windowId: tab.windowId,
                 title: tab.title || '(无标题)',
+                url: tab.url || '',
                 favIconUrl: tab.favIconUrl || '',
             };
+            saveFaviconToCache(tab.url, tab.favIconUrl);
             void persistGlobalTabHistory();
         });
     })();

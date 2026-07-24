@@ -119,12 +119,6 @@ function ensureYsThemeStylesInjected() {
           ${darkVars}
         }
 
-        @media (prefers-color-scheme: dark) {
-          :root:not([data-ys-theme="light"]) {
-            ${darkVars}
-          }
-        }
-
         /* 置顶槽：彻底关掉浏览器/宿主页默认的 outline/focus ring/tap highlight，避免拖拽时出现黑边 */
         .ys-pinned-slot,
         .ys-pinned-slot:focus,
@@ -137,42 +131,14 @@ function ensureYsThemeStylesInjected() {
         }
         `;
     document.head.appendChild(style);
-    ysEnsureSystemThemeMediaListener();
 }
 
-/**
- * Storage 中为 system 时在 DOM 上映射成 dark/light。
- * :root[data-ys-theme=dark] 不依赖宿主页的 @media，避免站点 color-scheme: light 导致系统深色下仍误判为浅色。
- */
-function ysResolvedThemeFromStored(mode) {
-    const m = mode || 'system';
-    if (m === 'dark' || m === 'light') return m;
-    try {
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    } catch (_) {
-        return 'light';
-    }
+function ysNormalizeThemeMode(mode) {
+    return mode === 'dark' ? 'dark' : 'light';
 }
 
 function ysApplyDataThemeAttr(storedThemeMode) {
-    document.documentElement.setAttribute(
-        'data-ys-theme',
-        ysResolvedThemeFromStored(storedThemeMode != null ? storedThemeMode : 'system'),
-    );
-}
-
-function ysEnsureSystemThemeMediaListener() {
-    if (window.__ysSysThemeMqBound || !window.matchMedia) return;
-    window.__ysSysThemeMqBound = true;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => {
-        chrome.storage.local.get({ themeMode: 'system' }, (res) => {
-            if ((res.themeMode || 'system') !== 'system') return;
-            ysApplyDataThemeAttr('system');
-        });
-    };
-    if (mq.addEventListener) mq.addEventListener('change', onChange);
-    else if (mq.addListener) mq.addListener(onChange);
+    document.documentElement.setAttribute('data-ys-theme', ysNormalizeThemeMode(storedThemeMode));
 }
 
 let modifierKey = defaultModifierKeyForPlatform();
@@ -350,7 +316,7 @@ window.__ysRuntimeSendMessageRetry = ysRuntimeSendMessageRetry;
 // ─── Settings Modals ──────────────────────────────────────────────────────────
 
 // 统一的弹窗工厂函数，保持毛玻璃 UI 风格一致
-function openYsModal(title, renderContent) {
+function openYsModal(title, renderContent, options = {}) {
     const overlay = document.createElement('div');
     Object.assign(overlay.style, {
         position: 'fixed', inset: '0', zIndex: '2147483648',
@@ -368,14 +334,24 @@ function openYsModal(title, renderContent) {
         border: '1px solid var(--ys-card-border, rgba(255, 255, 255, 0.8))', borderRadius: '16px',
         boxShadow: 'var(--ys-card-shadow, 0 24px 48px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.8))',
         position: 'absolute',
-        width: '320px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px',
+        width: options.width || '320px',
+        maxWidth: options.maxWidth || 'calc(100vw - 32px)',
+        height: options.height || 'auto',
+        maxHeight: options.maxHeight || 'calc(100vh - 32px)',
+        boxSizing: 'border-box',
+        padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px',
+        overflow: 'hidden',
         transform: 'scale(0.95) translateY(10px)', transition: 'all 0.25s cubic-bezier(0.34,1.3,0.64,1)'
     });
+    modal.setAttribute('role', options.role || 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', title);
 
     const header = document.createElement('div');
     header.style.display = 'flex';
     header.style.justifyContent = 'space-between';
     header.style.alignItems = 'center';
+    header.style.flexShrink = '0';
     header.innerHTML = `
         <span style="font-size:15px;font-weight:600;color:var(--ys-text-title, rgba(40,50,70,0.95));">${title}</span>
         <div class="ys-modal-close" style="cursor:pointer;width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:var(--ys-btn-bg, rgba(0,0,0,0.04));color:var(--ys-text-secondary, rgba(100,110,130,0.8));font-size:16px;line-height:1;transition:background 0.15s;">×</div>`;
@@ -383,6 +359,17 @@ function openYsModal(title, renderContent) {
     modal.appendChild(header);
 
     const contentBody = document.createElement('div');
+    if (options.scrollable) {
+        contentBody.style.flex = '1';
+        contentBody.style.minHeight = '0';
+        contentBody.style.maxHeight = options.contentMaxHeight || 'calc(100vh - 104px)';
+        contentBody.style.overflowY = 'auto';
+        contentBody.style.overscrollBehavior = 'contain';
+        contentBody.style.scrollbarWidth = 'thin';
+        contentBody.style.scrollbarColor = 'var(--ys-divider) transparent';
+        contentBody.style.WebkitOverflowScrolling = 'touch';
+        contentBody.style.paddingRight = '6px';
+    }
     renderContent(contentBody, close);
     modal.appendChild(contentBody);
 
@@ -393,38 +380,54 @@ function openYsModal(title, renderContent) {
         const margin = 16;
         const vw = window.innerWidth;
         const vh = window.innerHeight;
-        const modalRect = modal.getBoundingClientRect();
+        // offset 尺寸不受入场 scale 影响，避免长弹窗动画结束后超出视口。
+        const modalWidth = modal.offsetWidth;
+        const modalHeight = modal.offsetHeight;
         const switcherCard = document.getElementById('ys-switcher-card');
         let centerX = vw / 2;
         let centerY = vh / 2;
 
-        if (switcherCard && switcherCard.isConnected) {
+        if (!options.centerInViewport && switcherCard && switcherCard.isConnected) {
             const cardRect = switcherCard.getBoundingClientRect();
             centerX = cardRect.left + (cardRect.width / 2);
             centerY = cardRect.top + (cardRect.height / 2);
         }
 
-        const left = Math.max(margin, Math.min(vw - margin - modalRect.width, centerX - (modalRect.width / 2)));
-        const top = Math.max(margin, Math.min(vh - margin - modalRect.height, centerY - (modalRect.height / 2)));
+        const left = Math.max(margin, Math.min(vw - margin - modalWidth, centerX - (modalWidth / 2)));
+        const top = Math.max(margin, Math.min(vh - margin - modalHeight, centerY - (modalHeight / 2)));
         modal.style.left = `${left}px`;
         modal.style.top = `${top}px`;
     };
     positionModal();
     window.addEventListener('resize', positionModal);
+    const modalResizeObserver = typeof ResizeObserver === 'function'
+        ? new ResizeObserver(positionModal)
+        : null;
+    modalResizeObserver?.observe(modal);
 
     const closeBtn = header.querySelector('.ys-modal-close');
     closeBtn.addEventListener('mouseenter', () => closeBtn.style.background = 'var(--ys-btn-hover, rgba(0,0,0,0.08))');
     closeBtn.addEventListener('mouseleave', () => closeBtn.style.background = 'var(--ys-btn-bg, rgba(0,0,0,0.04))');
     closeBtn.addEventListener('click', close);
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+    const stopOverlayScrollThrough = (event) => {
+        if (options.scrollable && contentBody.contains(event.target)) return;
+        event.preventDefault();
+        event.stopPropagation();
+    };
+    overlay.addEventListener('wheel', stopOverlayScrollThrough, { passive: false });
+    overlay.addEventListener('touchmove', stopOverlayScrollThrough, { passive: false });
 
     requestAnimationFrame(() => {
         overlay.style.opacity = '1';
         modal.style.transform = 'scale(1) translateY(0)';
+        positionModal();
     });
+    modal.addEventListener('transitionend', positionModal, { once: true });
 
     function close() {
         window.removeEventListener('resize', positionModal);
+        modalResizeObserver?.disconnect();
         modal.style.transform = 'scale(0.95) translateY(10px)';
         overlay.style.opacity = '0';
         setTimeout(() => overlay.remove(), 200);
@@ -563,8 +566,12 @@ let _ysFloatWidgetStorageHooked = false;
 
 function initFloatingWidget() {
     ensureYsThemeStylesInjected();
-    chrome.storage.local.get({ themeMode: 'system' }, (res) => {
-        ysApplyDataThemeAttr(res.themeMode);
+    chrome.storage.local.get({ themeMode: 'light' }, (res) => {
+        const normalizedThemeMode = ysNormalizeThemeMode(res.themeMode);
+        ysApplyDataThemeAttr(normalizedThemeMode);
+        if (res.themeMode !== normalizedThemeMode) {
+            chrome.storage.local.set({ themeMode: normalizedThemeMode });
+        }
     });
     if (!_ysFloatWidgetStorageHooked) {
         _ysFloatWidgetStorageHooked = true;
@@ -1109,12 +1116,11 @@ document.addEventListener('keydown', function(event) {
     if (isModHeld(event) && event.code === 'KeyE') {
         // E 是非修饰键，无论是否拦截都先打断「双击修饰键」序列
         lastModPressTime = 0;
-        // 焦点在输入框/富文本编辑器里时，把 Cmd/Ctrl+E 让给宿主页
-        //（Notion 行内代码、VSCode Web 等都用这个键），不拦截
-        if (event.target && event.target.closest &&
-            event.target.closest('input,textarea,[contenteditable],[role="textbox"]')) {
-            return;
-        }
+        // 宿主页输入框继续保留自己的 Cmd/Ctrl+E；面板搜索框则始终执行“快速切回”。
+        const isSwitcherSearchInput = event.target?.id === 'ys-search-input';
+        const isEditableTarget = Boolean(event.target && event.target.closest &&
+            event.target.closest('input,textarea,[contenteditable],[role="textbox"]'));
+        if (isEditableTarget && !isSwitcherSearchInput) return;
         event.preventDefault();
         event.stopPropagation();
         if (typeof hideSwitcher === 'function' && typeof switcherVisible !== 'undefined' && switcherVisible) {
@@ -1138,7 +1144,16 @@ document.addEventListener('keydown', function(event) {
         return;
     }
 
-    if (event.key === 'Escape' && typeof switcherVisible !== 'undefined' && switcherVisible) {
+    const activeElement = document.activeElement;
+    const isDomainNameEditing = !!activeElement
+        && activeElement.classList
+        && activeElement.classList.contains('ys-domain-name-input');
+    if (
+        event.key === 'Escape'
+        && typeof switcherVisible !== 'undefined'
+        && switcherVisible
+        && !isDomainNameEditing
+    ) {
         if (typeof hideSwitcher === 'function') hideSwitcher();
         return;
     }
@@ -1374,7 +1389,8 @@ function checkAndShowPostUpdateOnboarding() {
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 function bootstrap() {
-    initFloatingWidget();
+    // 统计浮窗暂时停用，保留完整实现以便后续恢复。
+    // initFloatingWidget();
     // 不在页面加载时预热 AI：每开一个新标签都触发会把免费配额（10 次/天）瞬间打光。
     // 预热移到用户双击修饰键、确认要呼出面板的那一刻（见 keydown 监听）。
     checkAndShowOnboarding();

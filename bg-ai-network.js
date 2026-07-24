@@ -815,19 +815,9 @@ function titleIsAmbiguous(title) {
     return false;
 }
 
-/**
- * 按总 tab 数动态计算目标 topic 数量区间。
- * 原 prompt 写死 3-5 个，导致 30+ tab 全塌进「研发工具」这种巨型大类，
- * 用户找不到东西。按 tab 量分档放宽上限，仍保留聚合倾向。
- */
+/** 主动分组保持简单稳定：少量标签允许 1～3 组，其余统一收敛到 3～6 组。 */
 function computeTopicTargetRange(n) {
-    if (n <= 3)  return { min: 1, max: 1 };
-    if (n <= 5)  return { min: 1, max: 2 };
-    if (n <= 10) return { min: 2, max: 3 };
-    if (n <= 15) return { min: 2, max: 4 };
-    if (n <= 25) return { min: 3, max: 6 };
-    if (n <= 40) return { min: 5, max: 8 };
-    return { min: 6, max: 10 };
+    return n <= 5 ? { min: 1, max: 3 } : { min: 3, max: 6 };
 }
 
 /**
@@ -883,52 +873,21 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
     });
     // 中文 topic 存 entry.topic，英文 topic 存 entry.topic_en，互不干扰
     const topicField = isEnglishMode ? 'topic_en' : 'topic';
+    const activeCustomRules = await ysGetActiveCustomGroupingRules();
+    const structuredRuleResult = ysApplyStructuredGroupingRules(activeCustomRules, httpTabs);
+    const customRuleContext = ysBuildCustomGroupingRuleContext(activeCustomRules, isEnglishMode);
+    const configuredCategoryColors = {
+        ...customRuleContext.categoryColors,
+        ...structuredRuleResult.categoryColors,
+    };
 
-    // —— 缓存分流：签名匹配且已写过对应语言 topic 的跳过 LLM，其余走 LLM ——
+    // 用户主动点击分组时必须重新审视全部标签，避免旧缓存和历史分组把结果锁死。
+    // 缓存仍用于面板秒开，并在本次全局聚类完成后由新结果覆盖。
     const entries = aiSnapshotCache.entries || {};
-    const results = []; // 最终参与分组的 { id, topic }
-    let toQuery = []; // 未命中缓存、需要送 LLM 的原始 tab
-    for (const t of httpTabs) {
-        const idStr = String(t.id);
-        const sig = buildTabSignature(t);
-        const cached = entries[idStr];
-        if (cached && cached.sig === sig && cached[topicField] && !isReservedTopic(cached[topicField])) {
-            results.push({ id: t.id, topic: cached[topicField] });
-        } else {
-            // 含被污染成「零碎浏览」等保留名的缓存：作废，重新送 LLM 分类（自愈）
-            toQuery.push(t);
-        }
-    }
+    const results = [...structuredRuleResult.assignments]; // 最终参与分组的 { id, topic }
+    const toQuery = structuredRuleResult.unmatchedTabs;
 
-    // —— 用户偏好预分配：domain 命中用户手动设置的分类，直接赋值跳过 LLM ——
-    const nowTs = Date.now();
-    const prefFiltered = [];
-    for (const t of toQuery) {
-        const domain = getDomainFromUrl(t.url);
-        const prefTopic = domain && userPrefs[domain];
-        if (prefTopic && !isReservedTopic(prefTopic)) {
-            results.push({ id: t.id, topic: prefTopic });
-            const idStr = String(t.id);
-            aiSnapshotCache.entries[idStr] = {
-                ...(aiSnapshotCache.entries[idStr] || {}),
-                sig: buildTabSignature(t),
-                [topicField]: prefTopic,
-                updatedAt: nowTs,
-            };
-        } else {
-            prefFiltered.push(t);
-        }
-    }
-    if (prefFiltered.length < toQuery.length) persistAiSnapshotCache();
-    toQuery = prefFiltered;
-
-    // 把缓存命中 + 用户偏好的全量 topic 透给 LLM，强制复用一致字符串
-    const existingTopics = Array.from(new Set([
-        ...results.map((x) => x.topic).filter(Boolean),
-        ...Object.values(userPrefs).filter(Boolean),
-    ])).filter((tp) => !isReservedTopic(tp));
-
-    const topicTarget = computeTopicTargetRange(httpTabs.length);
+    const topicTarget = computeTopicTargetRange(toQuery.length);
 
     try {
         if (toQuery.length > 0) {
@@ -942,16 +901,11 @@ async function performBatchAutoGrouping(tabs, apiKey, restrictWindowId, activeTa
                 return `${t.id}|${title}|${url}${descPart}`;
             }).join('\n');
 
-            const existingSection = existingTopics.length > 0
-                ? isEnglishMode
-                    ? `\n\nExisting topics — reuse exactly (same string, same Emoji):\n${existingTopics.map((s) => `- ${s}`).join('\n')}\nIf a new tab fits any existing topic, use that exact string. Only create a new topic when none of them fit.`
-                    : `\n\n【已有 topic — 必须优先复用，禁止改字】\n${existingTopics.map((s) => `- ${s}`).join('\n')}\n新标签能归入以上任意一条就直接用，字符串完全一致（含 Emoji）；仅在确实无法归类时才创造新 topic。`
-                : '';
             const _cleanPrefEntries = Object.entries(userPrefs).filter(([, t]) => !isReservedTopic(t));
             const userPrefSection = _cleanPrefEntries.length > 0
                 ? isEnglishMode
-                    ? `\n\nUser-defined site categories — must follow strictly:\n${_cleanPrefEntries.map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
-                    : `\n\n【用户手动设定的网站分类 — 必须严格遵守】\n${_cleanPrefEntries.map(([d, t]) => `- ${d} → ${t}`).join('\n')}`
+                    ? `\n\nUser category preferences — use as soft guidance, not hard constraints:\n${_cleanPrefEntries.map(([d, t]) => `- ${d} → ${t}`).join('\n')}\nReuse a preferred category when it fits the page's role in this batch. You may adjust it when preserving it would make the overall grouping worse.`
+                    : `\n\n【用户分类偏好 — 仅作参考，不是硬约束】\n${_cleanPrefEntries.map(([d, t]) => `- ${d} → ${t}`).join('\n')}\n当偏好符合该页面在本批标签中的实际用途时优先沿用；若沿用会破坏整体分组质量，可以重新归类。`
                 : '';
 
             const systemPrompt = isEnglishMode
@@ -965,8 +919,8 @@ Output format (strictly follow):
 - No header, no explanation, no Markdown, no blank lines. Every input id must appear in the output.
 
 Language rule:
-- If the tab fits an existing topic or a user-defined category (see below), reuse that exact string — do NOT translate or alter it.
-- For brand-new topics (no match found), always write the label in English.
+- Re-evaluate the complete current tab set as one batch; do not preserve a previous grouping merely for consistency.
+- Write newly chosen topic labels in English. User preferences below are optional guidance.
 
 Correct example:
 891723|💻 Dev Tools
@@ -976,10 +930,10 @@ Correct example:
 Grouping rules:
 - Primary goal: merge. Find common ground across tabs and assign as many as possible to the SAME topic string.
 - Never one-tab-one-topic. E.g. bank dividends + stock reports + finance sites → all go to "📈 Investing"; Cursor + GitHub + Claude → all go to "💻 Dev Tools".
-- For this batch of ${httpTabs.length} tabs, aim for ${topicTarget.min}–${topicTarget.max} distinct topics in total (including any existing topics listed below).
-- Pages from the SAME site or service MUST share one topic — e.g. several Alibaba Cloud pages, or several GitHub pages, stay together even if one is a console, one is docs, and one is billing. Never split them apart just because the sub-product or page purpose differs.
-- Every topic must hold at least 2 tabs to be worth creating; a topic that ends up with only 1 tab gets dumped into a "Misc" catch-all, so always prefer merging up into a broader category over making a tiny one-tab topic.
-- Only split a category into more specific sub-topics when there are many tabs AND that category is clearly bloated (e.g. "💻 Dev Tools" → "🐙 GitHub PRs" / "📚 Tech Docs"). With few tabs, always merge.${existingSection}${userPrefSection}`
+- For this batch of ${toQuery.length} tabs, aim for ${topicTarget.min}–${topicTarget.max} distinct topics in total.
+- Pages from the same site should usually stay together when they serve the same user intent, but may be split when their roles are clearly different.
+- Avoid singleton topics when a broader meaningful category fits, but never merge unrelated pages only to satisfy a group-size rule.
+- Prefer a small set of clear, useful groups over either one giant generic group or many overly specific groups.${userPrefSection}${customRuleContext.prompt}`
                 : `你是一个追求极致极简的浏览器管家。任务不是逐页「精准描述」，而是高维度「抽象归纳」：合并同类项，减少用户认知负担。
 
 用户会以「每行一条标签页」的格式提供输入，格式为：id|title|url 或 id|title|url|desc:<页面描述>（title/desc 中原有的 "|" 已被替换为空格）。\`desc:\` 是可选字段，仅在标题信息量不足时附带，是该页面 meta description 的截断，作为补充判据；存在时请优先据其判断页面内容。你必须为每个 id 返回一行结果。
@@ -998,10 +952,11 @@ Grouping rules:
 - 首要目标是合并同类项：尽最大努力发现网页之间的共性，把尽可能多的页面归入**相同**的 topic 字符串。
 - 模型默认倾向于发散描述；你必须主动做收敛归纳（Convergence），禁止「一页一个冷门 topic」。
 - 绝不允许「一页一类」。例如：关于「华夏银行分红」「紫金矿业财报」「东方财富」的页面必须统一归入 "📈 投资调研"。
-- 本批共 ${httpTabs.length} 个标签，目标 distinct topic 总数 ${topicTarget.min}～${topicTarget.max} 个（含下方「已有 topic」）。
-- 同一个网站、同一个服务的多个页面，必须归入同一个 topic——例如多个阿里云页面（控制台、文档、账单）、多个 GitHub 页面，绝不能因为「子产品不同 / 页面性质不同」就拆开成几个分类。
-- 每个 topic 至少要装下 2 个标签才值得建组；只装 1 个标签的 topic 会被并入「零碎浏览」杂项组，所以宁可向上聚合到更大的类，也不要制造只有 1 个标签的细碎 topic。
-- 仅当标签很多、并且某个大类明显臃肿时，才把它拆成更具体的子主题（例如 "💻 研发工具" → "🐙 GitHub PR" / "📚 技术文档"）；标签少时一律优先聚合。${existingSection}${userPrefSection}`;
+- 必须把本批全部 ${toQuery.length} 个标签作为一个整体重新判断，不要为了维持历史结果而保留不合理的旧分类。
+- 本批目标 distinct topic 总数 ${topicTarget.min}～${topicTarget.max} 个。
+- 同一网站、同一服务且用户意图相近时通常放在同一组；若页面承担的任务明显不同，可以拆分，不要机械按域名捆绑。
+- 能归入有意义的宽类时避免单标签 topic，但不要为了满足数量规则把语义无关的页面硬塞到一起。
+- 优先得到少量、清晰、扫一眼能理解的分组；避免一个过于宽泛的巨型组，也避免大量细碎小组。${userPrefSection}${customRuleContext.prompt}`;
 
             const response = await callDeepSeekApi({
                     model: 'deepseek-chat',
@@ -1031,31 +986,39 @@ Grouping rules:
             const llmResults = parseBatchCsvContent(raw);
             if (llmResults.length === 0) {
                 console.error('批量聚类 CSV 解析失败，原始内容:', raw);
-                // 全为缓存命中时即便 LLM 解析为空也可以继续;否则视为失败
-                if (results.length === 0) return { groupCount: 0, error: 'parse_failed' };
+                return { groupCount: 0, error: 'parse_failed' };
+            }
+            const parsedIdSet = new Set(llmResults.map((item) => Number(item.id)));
+            if (toQuery.some((tab) => !parsedIdSet.has(Number(tab.id)))) {
+                console.error('批量聚类结果缺少标签，拒绝创建部分分组');
+                return { groupCount: 0, error: 'parse_failed' };
             }
 
-            const nowTs2 = Date.now();
             const queryIdSet = new Set(toQuery.map((t) => t.id));
-            const sigById = new Map(toQuery.map((t) => [t.id, buildTabSignature(t)]));
-            const cacheUpdates = {};
             for (const r of llmResults) {
                 if (!queryIdSet.has(r.id)) continue;
                 results.push({ id: r.id, topic: r.topic });
-                if (isReservedTopic(r.topic)) continue; // 收纳盒名不写缓存，避免雪球式固化
-                const idStr = String(r.id);
-                cacheUpdates[idStr] = {
-                    ...(entries[idStr] || {}),
-                    sig: sigById.get(r.id) || '',
-                    [topicField]: r.topic,
-                    updatedAt: nowTs2,
-                };
             }
-            if (Object.keys(cacheUpdates).length > 0) {
-                Object.assign(aiSnapshotCache.entries, cacheUpdates);
-                // 不 await：持久化失败不影响本次分组；后续调用可继续读内存缓存
-                persistAiSnapshotCache();
-            }
+        }
+
+        const nowTs = Date.now();
+        const cacheUpdates = {};
+        for (const item of results) {
+            if (isReservedTopic(item.topic)) continue;
+            const tab = httpTabs.find((candidate) => Number(candidate.id) === Number(item.id));
+            if (!tab) continue;
+            const idStr = String(tab.id);
+            cacheUpdates[idStr] = {
+                ...(entries[idStr] || {}),
+                sig: buildTabSignature(tab),
+                [topicField]: item.topic,
+                updatedAt: nowTs,
+            };
+        }
+        if (Object.keys(cacheUpdates).length > 0) {
+            Object.assign(aiSnapshotCache.entries, cacheUpdates);
+            // 不 await：持久化失败不影响本次分组；后续调用可继续读内存缓存
+            persistAiSnapshotCache();
         }
 
         /** topic -> Map<windowId, number[]> */
@@ -1075,7 +1038,12 @@ Grouping rules:
         }
 
         const orphanTitle = isEnglishMode ? '🗂️ Misc' : '🗂️ 零碎浏览';
-        const { groupCount, orphanTabIds } = await performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId, orphanTitle);
+        const { groupCount, orphanTabIds } = await performBatchAutoGroupingApplyGroups(
+            topicWindowTabs,
+            activeTabId,
+            orphanTitle,
+            configuredCategoryColors,
+        );
 
         // 缓存与真实分组对齐：只有 1 个标签的 topic 不会单独建组，而是落进「零碎浏览」孤儿组
         // （或干脆不成组）。但上面已把这些标签的描述性 topic（如「📈 投资」）写进了缓存，真实组名
@@ -1101,7 +1069,7 @@ Grouping rules:
     }
 }
 
-async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId, orphanTitle) {
+async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId, orphanTitle, categoryColors = {}) {
     let groupCount = 0;
     /** 同窗口内因「单标签主题」未建组的标签，稍后放入收纳盒 */
     const orphansByWindow = new Map();
@@ -1110,7 +1078,9 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId,
         const title = topic.slice(0, 200);
         for (const [wId, tabIds] of windowMap.entries()) {
             if (tabIds.length === 0) continue;
-            if (tabIds.length === 1) {
+            // 用户显式配置过样式的分类即使只有一个标签也应创建真实标签组，
+            // 否则会被「零碎浏览」吞掉，导致名称、Emoji 和颜色配置失效。
+            if (tabIds.length === 1 && !categoryColors[title]) {
                 if (!orphansByWindow.has(wId)) orphansByWindow.set(wId, []);
                 orphansByWindow.get(wId).push(tabIds[0]);
                 continue;
@@ -1119,7 +1089,8 @@ async function performBatchAutoGroupingApplyGroups(topicWindowTabs, activeTabId,
                 const groupId = await chrome.tabs.group({ tabIds, createProperties: { windowId: wId } });
                 await updateTabGroupProgrammatically(groupId, {
                     title,
-                    color: TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
+                    color: categoryColors[title]
+                        || TAB_GROUP_COLORS[Math.floor(Math.random() * TAB_GROUP_COLORS.length)],
                     collapsed: shouldCollapseTabGroup(tabIds, activeTabId),
                 });
                 groupCount++;

@@ -25,6 +25,7 @@ YesSir/
 ├── rules.js                  # 分组 / 域名等共享规则（被 SW import）
 ├── bg-core.js                # 标签轨迹、favicon 缓存、设备 UUID 等
 ├── bg-telemetry.js           # 安装/更新/日活上报（依赖 bg-core 设备标识）
+├── bg-grouping-rules.js      # 自定义规则校验、时间匹配、结构化条件执行与提示词上下文
 ├── bg-ai-network.js          # DeepSeek、AI 快照/聚类、搜索建议等网络逻辑
 ├── bg-i18n.js                # Service Worker 文案 `bgT`（chrome.i18n + storage `uiLanguage`）
 ├── bg-messages.js            # chrome.runtime.onMessage 唯一路由
@@ -34,6 +35,7 @@ YesSir/
 │   ├── 01-utils-and-state.js
 │   ├── 02-selection-and-scroll.js
 │   ├── 03-build-tab-item.js
+│   ├── 04a-custom-grouping-rules.js # 自定义规则列表与单页编辑器
 │   ├── 04b-switcher-list-bundle.js
 │   ├── 04-show-switcher.js
 │   └── 05-hide-and-toasts.js
@@ -54,7 +56,7 @@ YesSir/
 ## 3. 项目是什么（技术要点）
 
 - **Chrome 扩展（Manifest V3）**，名称与描述走 i18n：`manifest.json` 中 `__MSG_extensionName__` 等，默认语言 `zh_CN`（见 `_locales/zh_CN/messages.json`、`en`）。
-- **当前版本号**：见 `manifest.json` 的 `"version"` 字段（当前为 `1.5.1`）。
+- **当前版本号**：见 `manifest.json` 的 `"version"` 字段（当前为 `1.5.5`）。
 - **根目录 `proxy-server/`**：独立的 **Node.js 中转服务**，用于 DeepSeek 代理与限流；当前仅对 AI 聚合与 AI 搜索设置每日限额，页面标签不设每日上限；**不属于**扩展打包进 `.crx` 的部分，需单独部署。
 
 ---
@@ -75,9 +77,10 @@ YesSir/
 1. `rules.js` — 与分组/域名/分类规范化等相关的共享函数（被 `bg-ai-network.js` 等使用）。
 2. `bg-core.js` — 全局标签轨迹（Mod+E「上一个标签」）、favicon 缓存、设备 UUID 等。
 3. `bg-telemetry.js` — 安装/更新/日活上报（`api.pmtools.com.cn/yessir/telemetry`，依赖设备 UUID 等）。
-4. `bg-ai-network.js` — DeepSeek 调用、AI 快照/聚类、搜索建议 `fetch` 等。
-5. `bg-i18n.js` — Service Worker 侧 `bgT`（`chrome.i18n` + `storage.uiLanguage` 覆盖）。
-6. `bg-messages.js` — **唯一**注册 `chrome.runtime.onMessage` 的消息路由（依赖上述模块中的处理函数与工具）。
+4. `bg-grouping-rules.js` — 自定义 AI 分组规则的存储校验、时间匹配、结构化条件执行、优先级解析和提示词上下文。
+5. `bg-ai-network.js` — DeepSeek 调用、AI 快照/聚类、搜索建议 `fetch` 等。
+6. `bg-i18n.js` — Service Worker 侧 `bgT`（`chrome.i18n` + `storage.uiLanguage` 覆盖）。
+7. `bg-messages.js` — **唯一**注册 `chrome.runtime.onMessage` 的消息路由（依赖上述模块中的处理函数与工具）。
 
 `background.js` 在全部 `importScripts` 执行完毕后，依次调用（与历史单文件行为对齐）：
 
@@ -99,6 +102,7 @@ YesSir/
    - `01-utils-and-state.js`
    - `02-selection-and-scroll.js`
    - `03-build-tab-item.js`
+   - `04a-custom-grouping-rules.js` — 自定义规则列表、单页编辑器与 `chrome.storage.local` 持久化
    - `04b-switcher-list-bundle.js` — `ysSwitcherAttachListRenderBundle`（列表渲染与网页建议等）
    - `04-show-switcher.js` — `showSwitcher` 主流程
    - `05-hide-and-toasts.js` — `hideSwitcher`（支持 `{ immediate: true }` 立即移除旧 overlay，避免重复 id）、处理中 Toast 等

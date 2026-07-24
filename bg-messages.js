@@ -562,7 +562,31 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         (async () => {
             try {
                 await tabHistoryReady;
-                sendResponse({ lastTab: globalTabHistory.last });
+                const last = globalTabHistory.last;
+                if (!last || !last.tabId) {
+                    sendResponse({ lastTab: null });
+                    return;
+                }
+
+                // 历史记录可能来自旧版本，现场补齐 URL 与 favicon，供 footer 稳定展示站点图标。
+                let lastTab = last;
+                try {
+                    const tab = await chrome.tabs.get(last.tabId);
+                    const domain = getDomainFromUrl(tab.url || last.url || '');
+                    lastTab = {
+                        ...last,
+                        windowId: tab.windowId,
+                        title: tab.title || last.title || bgT('footerUntitled'),
+                        url: tab.url || last.url || '',
+                        favIconUrl: tab.favIconUrl || last.favIconUrl || (domain ? String(faviconCache[domain] || '') : ''),
+                    };
+                    saveFaviconToCache(lastTab.url, lastTab.favIconUrl);
+                    globalTabHistory.last = lastTab;
+                    void persistGlobalTabHistory();
+                } catch (_) {
+                    // 标签查询短暂失败时仍返回已保存的上下文，不影响 footer 文案与快捷切回。
+                }
+                sendResponse({ lastTab });
             } catch (err) {
                 console.error('get_last_context:', err);
                 sendResponse({ lastTab: null, error: err && err.message ? String(err.message) : String(err) });

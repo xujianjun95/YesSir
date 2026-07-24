@@ -1,9 +1,9 @@
 // ─── 04 面板主体：壳、顶栏、委托；列表渲染与网页建议见 04b ───────────────────────────────
 
 function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
-    chrome.storage.local.get({ themeMode: 'system' }, (res) => {
+    chrome.storage.local.get({ themeMode: 'light' }, (res) => {
         if (typeof ysApplyDataThemeAttr === 'function') ysApplyDataThemeAttr(res.themeMode);
-        else document.documentElement.setAttribute('data-ys-theme', res.themeMode || 'system');
+        else document.documentElement.setAttribute('data-ys-theme', res.themeMode === 'dark' ? 'dark' : 'light');
     });
     ensureYsThemeStylesInjected();
 
@@ -395,104 +395,29 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             return item;
         };
 
-        const showThemeModeModal = () => {
-            if (typeof openYsModal !== 'function') {
-                showCustomToast(ysT('themeModalNotReady'), 2200);
-                return;
-            }
-            openYsModal(ysT('themeModalTitle'), (container) => {
-                chrome.storage.local.get({ themeMode: 'system' }, (resTheme) => {
-                    const modes = [
-                        { val: 'light', icon: '☀️', title: ysT('themeLight') },
-                        { val: 'system', icon: '💻', title: ysT('themeSystem') },
-                        { val: 'dark', icon: '🌙', title: ysT('themeDark') },
-                    ];
-                    let currentThemeMode = resTheme.themeMode;
-
-                    const root = document.createElement('div');
-                    Object.assign(root.style, {
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '14px',
-                    });
-
-                    const segmentWrap = document.createElement('div');
-                    Object.assign(segmentWrap.style, {
-                        display: 'flex',
-                        justifyContent: 'center',
-                    });
-
-                    const segmentCtrl = document.createElement('div');
-                    Object.assign(segmentCtrl.style, {
-                        display: 'flex',
-                        background: 'var(--ys-btn-bg)',
-                        borderRadius: '10px',
-                        padding: '4px',
-                        gap: '6px',
-                    });
-
-                    const renderSegmentState = () => {
-                        Array.from(segmentCtrl.children).forEach((c, idx) => {
-                            const active = currentThemeMode === modes[idx].val;
-                            c.style.background = active ? 'var(--ys-accent-bg)' : 'transparent';
-                            c.style.border = active ? '1px solid var(--ys-accent-hover)' : '1px solid transparent';
-                            c.style.boxShadow = active ? '0 1px 3px rgba(0,0,0,0.1)' : 'none';
-                            c.style.opacity = active ? '1' : '0.65';
-                        });
-                    };
-
-                    modes.forEach((m) => {
-                        const btn = document.createElement('div');
-                        btn.textContent = m.icon;
-                        btn.title = m.title;
-                        Object.assign(btn.style, {
-                            minWidth: '52px',
-                            height: '34px',
-                            padding: '0 14px',
-                            fontSize: '18px',
-                            cursor: 'pointer',
-                            borderRadius: '8px',
-                            border: '1px solid transparent',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            transition: 'background 0.2s, box-shadow 0.2s, opacity 0.2s',
-                        });
-                        btn.addEventListener('mouseenter', () => {
-                            if (currentThemeMode !== m.val) btn.style.background = 'var(--ys-btn-hover)';
-                        });
-                        btn.addEventListener('mouseleave', () => {
-                            if (currentThemeMode !== m.val) btn.style.background = 'transparent';
-                        });
-                        btn.addEventListener('click', () => {
-                            currentThemeMode = m.val;
-                            chrome.storage.local.set({ themeMode: currentThemeMode });
-                            if (typeof ysApplyDataThemeAttr === 'function') ysApplyDataThemeAttr(currentThemeMode);
-                            else document.documentElement.setAttribute('data-ys-theme', currentThemeMode);
-                            renderSegmentState();
-                        });
-                        segmentCtrl.appendChild(btn);
-                    });
-                    renderSegmentState();
-
-                    const caption = document.createElement('div');
-                    caption.textContent = ysT('themeCaption');
-                    Object.assign(caption.style, {
-                        marginTop: '2px',
-                        paddingTop: '2px',
-                        textAlign: 'center',
-                        fontSize: '11px',
-                        color: 'var(--ys-text-muted)',
-                        letterSpacing: '0.03em',
-                        lineHeight: '1.6',
-                    });
-
-                    segmentWrap.appendChild(segmentCtrl);
-                    root.appendChild(segmentWrap);
-                    root.appendChild(caption);
-                    container.replaceChildren(root);
-                });
+        const createSwitch = (checked, label) => {
+            const control = document.createElement('span');
+            control.setAttribute('role', 'switch');
+            control.setAttribute('aria-label', label);
+            const knob = document.createElement('span');
+            Object.assign(control.style, {
+                width: '30px', height: '18px', marginLeft: 'auto', padding: '2px', boxSizing: 'border-box',
+                flex: '0 0 auto', display: 'flex', alignItems: 'center', borderRadius: '999px',
+                transition: 'background .18s ease, box-shadow .18s ease', pointerEvents: 'none',
             });
+            Object.assign(knob.style, {
+                width: '14px', height: '14px', borderRadius: '50%', background: '#fff',
+                boxShadow: '0 1px 3px rgba(20, 30, 50, .22)', transition: 'transform .18s ease',
+            });
+            control.appendChild(knob);
+            const sync = (nextChecked) => {
+                control.setAttribute('aria-checked', String(nextChecked));
+                control.style.background = nextChecked ? 'var(--ys-accent)' : 'var(--ys-btn-border)';
+                control.style.boxShadow = nextChecked ? '0 0 0 1px var(--ys-accent-hover)' : 'none';
+                knob.style.transform = nextChecked ? 'translateX(12px)' : 'translateX(0)';
+            };
+            sync(checked);
+            return { control, sync };
         };
 
         let langHoverReady = true;
@@ -500,7 +425,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         const showLanguageModeModal = () => {
             langHoverReady = false;
             if (typeof openYsModal !== 'function') {
-                showCustomToast(ysT('themeModalNotReady'), 2200);
+                showCustomToast(ysT('languageModalNotReady'), 2200);
                 return;
             }
             openYsModal(ysT('languageModalTitle'), (container) => {
@@ -665,20 +590,46 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             });
         };
 
-        chrome.storage.local.get({ showFloatingWidget: true }, (res) => {
-            // 1. 界面语言
-            menu.appendChild(createItem('🌐', ysT('menuLanguage'), showLanguageModeModal));
+        chrome.storage.local.get({ showFloatingWidget: true, themeMode: 'light', uiLanguage: 'auto' }, (res) => {
+            // 1. 英文界面：在当前菜单内直接切换，旧二级弹窗实现暂时保留但不再调用。
+            const resolvedLanguage = typeof ysGetResolvedLanguage === 'function' ? ysGetResolvedLanguage() : 'zh_CN';
+            let englishEnabled = res.uiLanguage === 'en'
+                || (!['zh_CN', 'en'].includes(res.uiLanguage) && resolvedLanguage === 'en');
+            if (!['zh_CN', 'en'].includes(res.uiLanguage)) {
+                chrome.storage.local.set({ uiLanguage: englishEnabled ? 'en' : 'zh_CN' });
+            }
+            const languageSwitch = createSwitch(englishEnabled, ysT('menuEnglishMode'));
+            const languageItem = createItem('🌐', ysT('menuEnglishMode'), () => {
+                englishEnabled = !englishEnabled;
+                languageSwitch.sync(englishEnabled);
+                chrome.storage.local.set({ uiLanguage: englishEnabled ? 'en' : 'zh_CN' }, () => {
+                    ysRefreshI18nFromStorage(() => {
+                        document.getElementById('ys-settings-dropdown')?.remove();
+                        showSwitcher(switcherTabs, true, switcherCurrentWindowId);
+                    });
+                });
+            }, true);
+            languageItem.appendChild(languageSwitch.control);
+            menu.appendChild(languageItem);
 
-            // 2. 修饰键设置
+            // 2. 深色模式：在当前菜单内直接切换
+            let darkModeEnabled = res.themeMode === 'dark';
+            const themeSwitch = createSwitch(darkModeEnabled, ysT('menuTheme'));
+            const themeItem = createItem('🌙', ysT('menuTheme'), () => {
+                darkModeEnabled = !darkModeEnabled;
+                const nextThemeMode = darkModeEnabled ? 'dark' : 'light';
+                chrome.storage.local.set({ themeMode: nextThemeMode });
+                if (typeof ysApplyDataThemeAttr === 'function') ysApplyDataThemeAttr(nextThemeMode);
+                else document.documentElement.setAttribute('data-ys-theme', nextThemeMode);
+                themeSwitch.sync(darkModeEnabled);
+            }, true);
+            themeItem.appendChild(themeSwitch.control);
+            menu.appendChild(themeItem);
+
+            // 3. 修饰键设置
             menu.appendChild(createItem('⌨️', ysT('menuModifierKeys'), showModifierSettingsModal));
 
-            // 3. 主题模式（弹窗内三段式）
-            menu.appendChild(createItem('🎨', ysT('menuTheme'), showThemeModeModal));
-
-            // 4. API Key 设置
-            menu.appendChild(createItem('🔑', ysT('menuApiKey'), showApiKeyModal));
-
-            // 5. 统计浮窗开关
+            // 统计浮窗暂时停用：保留原开关逻辑，后续需要时可直接恢复入口。
             const isEnabled = res.showFloatingWidget !== false;
             const floatToggle = createItem(
                 isEnabled ? '🟢' : '⚪',
@@ -696,9 +647,21 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 },
                 true
             );
-            menu.appendChild(floatToggle);
+            // menu.appendChild(floatToggle);
 
-            // 6. 使用指引（手动呼出，不写永久消除标记）
+            // 5. 自定义 AI 分组规则
+            menu.appendChild(createItem('🧩', ysT('menuCustomRules'), () => {
+                if (typeof showYsCustomGroupingRulesModal === 'function') {
+                    showYsCustomGroupingRulesModal();
+                } else {
+                    showCustomToast(ysT('customRulesUnavailable'), 2400);
+                }
+            }));
+
+            // 6. API Key 设置
+            menu.appendChild(createItem('🔑', ysT('menuApiKey'), showApiKeyModal));
+
+            // 7. 使用指引（手动呼出，不写永久消除标记）
             menu.appendChild(createItem('📖', ysT('menuOnboarding'), () => {
                 if (document.getElementById('ys-onboarding')) return;
                 if (typeof showYsOnboarding !== 'function') return;
@@ -709,7 +672,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 showYsOnboarding(ml, null);
             }));
 
-            // 7. 主动呼出好评/反馈弹窗
+            // 8. 主动呼出好评/反馈弹窗
             menu.appendChild(createItem('👏', ysT('menuRateExtension'), () => {
                 const flyoutId = 'ys-feedback-flyout';
                 if (typeof renderFeedbackFlyout === 'function') {
@@ -869,6 +832,17 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
         invalidateAiSearch,
         invalidateWebSuggestions,
     } = listApi;
+
+    // 用户自定义的网站名称按域名持久化；异步读取完成后刷新当前列表。
+    ysLoadDomainDisplayNameOverrides((success) => {
+        if (!success || !switcherVisible) return;
+        const si = document.getElementById('ys-search-input');
+        renderList(si ? si.value : '', {
+            restoreScroll: true,
+            preferActive: false,
+            animate: false,
+        });
+    });
 
     // ── 分类 Bar ────────────────────────────────────────────────────────────────
     let catBarTopics = [];
@@ -2373,6 +2347,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     switcherKeydownHandler = (e) => {
         if (!switcherVisible) return;
         const focusedEl = document.activeElement;
+        if (focusedEl?.classList?.contains('ys-domain-name-input')) return;
         const inputFocused = !!focusedEl && focusedEl.id === 'ys-search-input';
         if (mode.isWebSearchMode && !inputFocused) {
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

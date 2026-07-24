@@ -68,26 +68,11 @@
   "toastNoGroupableTabs": {
     "message": "没有可聚合的页面"
   },
-  "themeModalNotReady": {
-    "message": "主题模式弹窗暂未就绪，请刷新页面后重试"
-  },
-  "themeModalTitle": {
-    "message": "🎨 主题模式"
-  },
-  "themeLight": {
-    "message": "白昼"
-  },
-  "themeSystem": {
-    "message": "跟随系统"
-  },
-  "themeDark": {
-    "message": "黑夜"
-  },
-  "themeCaption": {
-    "message": "明以察物，暗以观心。"
-  },
   "languageModalTitle": {
     "message": "🌐 界面语言"
+  },
+  "languageModalNotReady": {
+    "message": "界面语言弹窗暂未就绪，请刷新页面后重试"
   },
   "languageChinese": {
     "message": "简体中文"
@@ -105,11 +90,248 @@
     "message": "API Key 设置"
   },
   "menuTheme": {
-    "message": "主题模式"
+    "message": "深色模式"
   },
   "menuLanguage": {
     "message": "界面语言"
   },
+  "menuEnglishMode": {
+    "message": "英文界面"
+  },
+  "menuCustomRules": {
+    "message": "自定义分组规则"
+  },
+  "customRulesUnavailable": {
+    "message": "自定义规则暂未就绪，请刷新页面后重试"
+  },
+  "customRulesTitle": {
+    "message": "🧩 自定义规则"
+  },
+  "customRulesLoading": {
+    "message": "正在读取规则…"
+  },
+  "customRulesIntro": {
+    "message": "YesSir 会按你的规则整理标签页。自定义时间的规则优先生效；列表越靠上，优先级越高。"
+  },
+  "customRulesEmpty": {
+    "message": "还没有自定义规则。新建一条，让 AI 按你的习惯整理标签页。"
+  },
+  "customRulesToggle": {
+    "message": "启用或停用规则"
+  },
+  "customRulesUntitled": {
+    "message": "未命名规则"
+  },
+  "customRulesCategoryCount": {
+    "message": "$1 个固定分类"
+  },
+  "customRulesGroupCount": {
+    "message": "$1 个标签页分组"
+  },
+  "customRulesMoveUp": {
+    "message": "提高优先级"
+  },
+  "customRulesMoveDown": {
+    "message": "降低优先级"
+  },
+  "customRulesDelete": {
+    "message": "删除规则"
+  },
+  "customRulesDeleteConfirm": {
+    "message": "确定删除规则「$1」吗？"
+  },
+  "customRulesDeleteDialogTitle": {
+    "message": "删除规则"
+  },
+  "customRulesDeleteWarning": {
+    "message": "删除后无法恢复。"
+  },
+  "customRulesDeleteAction": {
+    "message": "删除"
+  },
+  "customRulesNew": {
+    "message": "＋ 新建规则"
+  },
+  "customRulesEditTitle": {
+    "message": "编辑规则"
+  },
+  "customRulesNewTitle": {
+    "message": "新建规则"
+  },
+  "customRulesNameLabel": {
+    "message": "规则名称"
+  },
+  "customRulesNamePlaceholder": {
+    "message": "例如：工作时间分类"
+  },
+  "customRulesTypeLabel": {
+    "message": "规则方式"
+  },
+  "customRulesDescriptionMode": {
+    "message": "描述"
+  },
+  "customRulesMatcherMode": {
+    "message": "自定义规则"
+  },
+  "customRulesInstructionsLabel": {
+    "message": "告诉 YesSir 如何分类"
+  },
+  "customRulesInstructionsPlaceholder": {
+    "message": "例如：视频网站统一放在一起，购物网站放在一起；工作相关页面优先按任务类型分类。"
+  },
+  "customRulesInstructionsHint": {
+    "message": "可以描述哪些网站放一起、希望如何命名，以及哪些情况允许例外。"
+  },
+  "customRulesScheduleLabel": {
+    "message": "执行时间"
+  },
+  "customRulesAlways": {
+    "message": "始终生效"
+  },
+  "customRulesScheduled": {
+    "message": "自定义"
+  },
+  "customRulesOvernightHint": {
+    "message": "支持跨夜，例如 18:00—09:00 表示到次日早晨。"
+  },
+  "customRulesHourLabel": {
+    "message": "小时"
+  },
+  "customRulesMinuteLabel": {
+    "message": "分钟"
+  },
+  "customRulesStartTimeLabel": {
+    "message": "开始时间"
+  },
+  "customRulesEndTimeLabel": {
+    "message": "结束时间"
+  },
+  "customRulesCategoriesLabel": {
+    "message": "固定分类样式（可选）"
+  },
+  "customRulesAddCategory": {
+    "message": "＋ 添加分类"
+  },
+  "customRulesCategoriesHint": {
+    "message": "匹配这些分类时，AI 会保持名称和 Emoji，并使用指定的 Chrome 标签组颜色；其他页面仍可新建分类。"
+  },
+  "customRulesTargetGroupLabel": {
+    "message": "目标分组"
+  },
+  "customRulesGroupsLabel": {
+    "message": "标签页分组"
+  },
+  "customRulesAddGroup": {
+    "message": "新增分组"
+  },
+  "customRulesGroupIndex": {
+    "message": "标签页分组 $1"
+  },
+  "customRulesRemoveGroup": {
+    "message": "删除分组"
+  },
+  "customRulesCollapseGroup": {
+    "message": "收起分组"
+  },
+  "customRulesExpandGroup": {
+    "message": "展开分组"
+  },
+  "customRulesMoveGroupUp": {
+    "message": "提高组内优先级"
+  },
+  "customRulesMoveGroupDown": {
+    "message": "降低组内优先级"
+  },
+  "customRulesGroupNamePlaceholder": {
+    "message": "分组名称"
+  },
+  "customRulesConditionsLabel": {
+    "message": "匹配规则"
+  },
+  "customRulesAddCondition": {
+    "message": "＋ 添加条件"
+  },
+  "customRulesRemoveCondition": {
+    "message": "移除条件"
+  },
+  "customRulesTooManyConditions": {
+    "message": "单条规则最多添加 20 个匹配条件"
+  },
+  "customRulesFieldDomain": {
+    "message": "网站域名"
+  },
+  "customRulesFieldTitle": {
+    "message": "页面标题"
+  },
+  "customRulesFieldUrl": {
+    "message": "完整网址"
+  },
+  "customRulesOperatorContains": {
+    "message": "包含"
+  },
+  "customRulesOperatorEquals": {
+    "message": "等于"
+  },
+  "customRulesMatchValuePlaceholder": {
+    "message": "输入匹配内容"
+  },
+  "customRulesConditionsHint": {
+    "message": "满足任意一个条件，就会归入这个分组；同时符合多个分组时，优先归入靠上的分组。"
+  },
+  "customRulesCategoryNamePlaceholder": {
+    "message": "分类名称"
+  },
+  "customRulesRemoveCategory": {
+    "message": "移除分类"
+  },
+  "customRulesTooManyCategories": {
+    "message": "单条规则最多添加 20 个固定分类"
+  },
+  "customRulesTooManyGroups": {
+    "message": "单条规则最多添加 10 个标签页分组"
+  },
+  "customRulesSave": {
+    "message": "保存规则"
+  },
+  "customRulesErrorName": {
+    "message": "请填写规则名称"
+  },
+  "customRulesErrorInstructions": {
+    "message": "请填写自然语言规则内容"
+  },
+  "customRulesErrorDays": {
+    "message": "定时规则至少选择一天"
+  },
+  "customRulesErrorTime": {
+    "message": "请填写完整的开始和结束时间"
+  },
+  "customRulesErrorCategory": {
+    "message": "每个固定分类都需要填写 Emoji 和名称"
+  },
+  "customRulesErrorDuplicateCategory": {
+    "message": "固定分类不能重复"
+  },
+  "customRulesErrorTargetGroup": {
+    "message": "请填写每个标签页分组的 Emoji 和名称"
+  },
+  "customRulesErrorDuplicateGroup": {
+    "message": "同一规则内的标签页分组名称不能重复"
+  },
+  "customRulesErrorCondition": {
+    "message": "每条匹配规则都需要填写匹配内容"
+  },
+  "customRulesErrorSave": {
+    "message": "保存失败：$1"
+  },
+  "customRulesColor_grey": { "message": "灰色" },
+  "customRulesColor_blue": { "message": "蓝色" },
+  "customRulesColor_red": { "message": "红色" },
+  "customRulesColor_yellow": { "message": "黄色" },
+  "customRulesColor_green": { "message": "绿色" },
+  "customRulesColor_pink": { "message": "粉色" },
+  "customRulesColor_purple": { "message": "紫色" },
+  "customRulesColor_cyan": { "message": "青色" },
+  "customRulesColor_orange": { "message": "橙色" },
   "menuFloatingStatsOn": {
     "message": "统计浮窗：开启"
   },
@@ -286,5 +508,17 @@
   },
   "pinnedSlotHint": {
     "message": "拖入置顶"
+  },
+  "domainNameEditHint": {
+    "message": "双击修改名称"
+  },
+  "domainNameEditPlaceholder": {
+    "message": "留空恢复自动名称"
+  },
+  "domainNameEditAriaLabel": {
+    "message": "修改网站分组名称"
+  },
+  "domainNameSaveFailed": {
+    "message": "名称保存失败，请重试"
   }
 }

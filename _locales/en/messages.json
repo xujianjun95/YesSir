@@ -68,26 +68,11 @@
   "toastNoGroupableTabs": {
     "message": "No tabs available to group."
   },
-  "themeModalNotReady": {
-    "message": "Theme dialog isn’t ready. Refresh the page and try again."
-  },
-  "themeModalTitle": {
-    "message": "🎨 Theme"
-  },
-  "themeLight": {
-    "message": "Light"
-  },
-  "themeSystem": {
-    "message": "Match system"
-  },
-  "themeDark": {
-    "message": "Dark"
-  },
-  "themeCaption": {
-    "message": "Light for focus by day; dark for calm at night."
-  },
   "languageModalTitle": {
     "message": "🌐 Language"
+  },
+  "languageModalNotReady": {
+    "message": "The language dialog isn’t ready. Refresh the page and try again."
   },
   "languageChinese": {
     "message": "简体中文"
@@ -105,11 +90,248 @@
     "message": "API key"
   },
   "menuTheme": {
-    "message": "Theme"
+    "message": "Dark mode"
   },
   "menuLanguage": {
     "message": "Language"
   },
+  "menuEnglishMode": {
+    "message": "English interface"
+  },
+  "menuCustomRules": {
+    "message": "Custom grouping rules"
+  },
+  "customRulesUnavailable": {
+    "message": "Custom rules aren’t ready. Refresh the page and try again."
+  },
+  "customRulesTitle": {
+    "message": "🧩 Custom rules"
+  },
+  "customRulesLoading": {
+    "message": "Loading rules…"
+  },
+  "customRulesIntro": {
+    "message": "YesSir organizes tabs using your rules. Custom-schedule rules take priority, and rules higher in the list run first."
+  },
+  "customRulesEmpty": {
+    "message": "No custom rules yet. Create one to organize tabs your way."
+  },
+  "customRulesToggle": {
+    "message": "Enable or disable rule"
+  },
+  "customRulesUntitled": {
+    "message": "Untitled rule"
+  },
+  "customRulesCategoryCount": {
+    "message": "$1 fixed categories"
+  },
+  "customRulesGroupCount": {
+    "message": "$1 tab groups"
+  },
+  "customRulesMoveUp": {
+    "message": "Increase priority"
+  },
+  "customRulesMoveDown": {
+    "message": "Decrease priority"
+  },
+  "customRulesDelete": {
+    "message": "Delete rule"
+  },
+  "customRulesDeleteConfirm": {
+    "message": "Delete rule “$1”?"
+  },
+  "customRulesDeleteDialogTitle": {
+    "message": "Delete rule"
+  },
+  "customRulesDeleteWarning": {
+    "message": "This action cannot be undone."
+  },
+  "customRulesDeleteAction": {
+    "message": "Delete"
+  },
+  "customRulesNew": {
+    "message": "+ New rule"
+  },
+  "customRulesEditTitle": {
+    "message": "Edit rule"
+  },
+  "customRulesNewTitle": {
+    "message": "New rule"
+  },
+  "customRulesNameLabel": {
+    "message": "Rule name"
+  },
+  "customRulesNamePlaceholder": {
+    "message": "For example: Work hours"
+  },
+  "customRulesTypeLabel": {
+    "message": "Rule mode"
+  },
+  "customRulesDescriptionMode": {
+    "message": "Description"
+  },
+  "customRulesMatcherMode": {
+    "message": "Custom rule"
+  },
+  "customRulesInstructionsLabel": {
+    "message": "Tell AI how to group"
+  },
+  "customRulesInstructionsPlaceholder": {
+    "message": "For example: Keep video sites together and shopping sites together. Group work pages by task."
+  },
+  "customRulesInstructionsHint": {
+    "message": "Describe what belongs together, preferred names, and when exceptions are allowed."
+  },
+  "customRulesScheduleLabel": {
+    "message": "Run schedule"
+  },
+  "customRulesAlways": {
+    "message": "Always active"
+  },
+  "customRulesScheduled": {
+    "message": "Custom"
+  },
+  "customRulesOvernightHint": {
+    "message": "Overnight ranges are supported; 18:00–09:00 runs until the next morning."
+  },
+  "customRulesHourLabel": {
+    "message": "Hour"
+  },
+  "customRulesMinuteLabel": {
+    "message": "Minute"
+  },
+  "customRulesStartTimeLabel": {
+    "message": "Start time"
+  },
+  "customRulesEndTimeLabel": {
+    "message": "End time"
+  },
+  "customRulesCategoriesLabel": {
+    "message": "Fixed category styles (optional)"
+  },
+  "customRulesAddCategory": {
+    "message": "+ Add category"
+  },
+  "customRulesCategoriesHint": {
+    "message": "AI preserves each configured name and Emoji and applies its Chrome tab-group color. Other tabs may still create new categories."
+  },
+  "customRulesTargetGroupLabel": {
+    "message": "Target group"
+  },
+  "customRulesGroupsLabel": {
+    "message": "Tab groups"
+  },
+  "customRulesAddGroup": {
+    "message": "Add group"
+  },
+  "customRulesGroupIndex": {
+    "message": "Tab group $1"
+  },
+  "customRulesRemoveGroup": {
+    "message": "Remove group"
+  },
+  "customRulesCollapseGroup": {
+    "message": "Collapse group"
+  },
+  "customRulesExpandGroup": {
+    "message": "Expand group"
+  },
+  "customRulesMoveGroupUp": {
+    "message": "Increase group priority"
+  },
+  "customRulesMoveGroupDown": {
+    "message": "Decrease group priority"
+  },
+  "customRulesGroupNamePlaceholder": {
+    "message": "Group name"
+  },
+  "customRulesConditionsLabel": {
+    "message": "Match conditions"
+  },
+  "customRulesAddCondition": {
+    "message": "+ Add condition"
+  },
+  "customRulesRemoveCondition": {
+    "message": "Remove condition"
+  },
+  "customRulesTooManyConditions": {
+    "message": "A rule can contain up to 20 match conditions."
+  },
+  "customRulesFieldDomain": {
+    "message": "Website domain"
+  },
+  "customRulesFieldTitle": {
+    "message": "Page title"
+  },
+  "customRulesFieldUrl": {
+    "message": "Full URL"
+  },
+  "customRulesOperatorContains": {
+    "message": "Contains"
+  },
+  "customRulesOperatorEquals": {
+    "message": "Equals"
+  },
+  "customRulesMatchValuePlaceholder": {
+    "message": "Enter match value"
+  },
+  "customRulesConditionsHint": {
+    "message": "A tab joins this group when it meets any condition. If it fits several groups, the higher group takes priority."
+  },
+  "customRulesCategoryNamePlaceholder": {
+    "message": "Category name"
+  },
+  "customRulesRemoveCategory": {
+    "message": "Remove category"
+  },
+  "customRulesTooManyCategories": {
+    "message": "A rule can contain up to 20 fixed categories."
+  },
+  "customRulesTooManyGroups": {
+    "message": "A rule can contain up to 10 tab groups."
+  },
+  "customRulesSave": {
+    "message": "Save rule"
+  },
+  "customRulesErrorName": {
+    "message": "Enter a rule name."
+  },
+  "customRulesErrorInstructions": {
+    "message": "Enter natural-language grouping instructions."
+  },
+  "customRulesErrorDays": {
+    "message": "Select at least one day for a scheduled rule."
+  },
+  "customRulesErrorTime": {
+    "message": "Enter both a start time and an end time."
+  },
+  "customRulesErrorCategory": {
+    "message": "Every fixed category needs an Emoji and a name."
+  },
+  "customRulesErrorDuplicateCategory": {
+    "message": "Fixed categories must be unique."
+  },
+  "customRulesErrorTargetGroup": {
+    "message": "Enter an Emoji and name for every tab group."
+  },
+  "customRulesErrorDuplicateGroup": {
+    "message": "Tab group names must be unique within a rule."
+  },
+  "customRulesErrorCondition": {
+    "message": "Every match condition needs a value."
+  },
+  "customRulesErrorSave": {
+    "message": "Couldn’t save: $1"
+  },
+  "customRulesColor_grey": { "message": "Grey" },
+  "customRulesColor_blue": { "message": "Blue" },
+  "customRulesColor_red": { "message": "Red" },
+  "customRulesColor_yellow": { "message": "Yellow" },
+  "customRulesColor_green": { "message": "Green" },
+  "customRulesColor_pink": { "message": "Pink" },
+  "customRulesColor_purple": { "message": "Purple" },
+  "customRulesColor_cyan": { "message": "Cyan" },
+  "customRulesColor_orange": { "message": "Orange" },
   "menuFloatingStatsOn": {
     "message": "Usage widget: On"
   },
@@ -286,5 +508,17 @@
   },
   "pinnedSlotHint": {
     "message": "Drop to Pin"
+  },
+  "domainNameEditHint": {
+    "message": "Double-click to rename"
+  },
+  "domainNameEditPlaceholder": {
+    "message": "Leave blank to restore the automatic name"
+  },
+  "domainNameEditAriaLabel": {
+    "message": "Rename website group"
+  },
+  "domainNameSaveFailed": {
+    "message": "Couldn’t save the name. Try again."
   }
 }
