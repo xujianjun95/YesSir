@@ -1,5 +1,18 @@
 // ─── 04 面板主体：壳、顶栏、委托；列表渲染与网页建议见 04b ───────────────────────────────
 
+function ysIsImeKeyEvent(event) {
+    return Boolean(event && (event.isComposing || event.keyCode === 229));
+}
+
+function ysHandleSwitcherSearchEnter(event, handleEnter) {
+    if (!event || event.key !== 'Enter') return false;
+    if (ysIsImeKeyEvent(event)) return true;
+
+    event.preventDefault();
+    handleEnter();
+    return true;
+}
+
 function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
     chrome.storage.local.get({ themeMode: 'light' }, (res) => {
         if (typeof ysApplyDataThemeAttr === 'function') ysApplyDataThemeAttr(res.themeMode);
@@ -2316,8 +2329,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                     return;
                 }
             }
-            if (e.key === 'Enter') {
-                e.preventDefault();
+            if (ysHandleSwitcherSearchEnter(e, () => {
                 if (mode.isWebSearchMode) {
                     const selectedSuggestion = getSelectedWebSuggestion();
                     if (selectedSuggestion) {
@@ -2328,7 +2340,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 }
                 const activeItem = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
                 if (activeItem) activeItem.click();
-            }
+            })) return;
         });
         searchInput.addEventListener('focus', () => {
             if (!searchBarWrapper) return;
@@ -2356,7 +2368,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
                 return;
             }
             if (e.key === 'Enter') {
-                if (e.isComposing) return;
+                if (ysIsImeKeyEvent(e)) return;
                 e.preventDefault();
                 const selectedSuggestion = getSelectedWebSuggestion();
                 if (selectedSuggestion && searchInput) {
@@ -2380,7 +2392,7 @@ function showSwitcher(tabs, isRefresh = false, currentWindowId = null) {
             updateSwitcherSelection(switcherSelIdx - 1);
             scrollToSelected();
         } else if (e.key === 'Enter') {
-            if (e.isComposing) return;
+            if (ysIsImeKeyEvent(e)) return;
             e.preventDefault();
             const item = document.getElementById(`ys-tab-item-${switcherSelIdx}`);
             if (item) item.click();
